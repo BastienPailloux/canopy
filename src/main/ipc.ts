@@ -1,10 +1,14 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { isAbsolute } from 'node:path'
+import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+import type { StartSessionOptions } from '../shared/api'
+import type { PermissionDecision, UserContent } from '../shared/types'
 import type { AppStore } from './appStore'
 import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
 import { worktreeStats } from './git/diff'
 import { createWorktree, listWorktrees, removalRisks, removeWorktree } from './git/worktrees'
+import type { SessionManager } from './sessions/SessionManager'
 
 /** Push an event to every renderer (received through `CanopyApi.on`). */
 export function broadcast(event: string, payload?: unknown): void {
@@ -13,6 +17,18 @@ export function broadcast(event: string, payload?: unknown): void {
 
 function assertPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
+}
+
+function assertId(id: unknown): asserts id is string {
+  if (typeof id !== 'string' || id === '') throw new Error('Identifiant invalide')
+}
+
+function assertContent(c: unknown): asserts c is UserContent {
+  const { text, images } = (c ?? {}) as Partial<UserContent>
+  const validImages = images === undefined || (Array.isArray(images) && images.every(
+    (i) => typeof i?.mediaType === 'string' && typeof i.base64 === 'string'
+  ))
+  if (typeof text !== 'string' || !validImages) throw new Error('Message invalide')
 }
 
 /** Top-level directory of the repo containing `dir`, or null if it is not inside a git work tree. */
@@ -24,7 +40,80 @@ async function repoRoot(dir: string): Promise<string | null> {
   }
 }
 
-export function registerIpc(store: AppStore): void {
+function registerSessionIpc(sessions: SessionManager): void {
+  sessions.on('message', (e) => broadcast('session:message', e))
+  sessions.on('permission', (e) => broadcast('session:permission', e))
+  sessions.on('permissionCancelled', (e) => broadcast('session:permissionCancelled', e))
+  sessions.on('state', (e) => broadcast('session:state', e))
+
+  ipcMain.handle('session:start', (_e, cwd: unknown, o: StartSessionOptions) => {
+    assertPath(cwd)
+    assertContent(o?.content)
+    return sessions.start(cwd, o)
+  })
+
+  ipcMain.handle('session:send', (_e, localId: unknown, content: unknown) => {
+    assertId(localId)
+    assertContent(content)
+    sessions.send(localId, content)
+  })
+
+  ipcMain.handle('session:interrupt', (_e, localId: unknown) => {
+    assertId(localId)
+    return sessions.interrupt(localId)
+  })
+
+  ipcMain.handle('session:setMode', (_e, localId: unknown, mode: PermissionMode) => {
+    assertId(localId)
+    return sessions.setMode(localId, mode)
+  })
+
+  ipcMain.handle('session:setModel', (_e, localId: unknown, model: unknown) => {
+    assertId(localId)
+    assertId(model)
+    return sessions.setModel(localId, model)
+  })
+
+  ipcMain.handle('session:stop', (_e, localId: unknown) => {
+    assertId(localId)
+    sessions.stop(localId)
+  })
+
+  ipcMain.handle('session:resolvePermission', (_e, requestId: unknown, decision: PermissionDecision) => {
+    assertId(requestId)
+    sessions.resolvePermission(requestId, decision)
+  })
+
+  ipcMain.handle('session:list', (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return sessions.list(cwd)
+  })
+
+  ipcMain.handle('session:history', (_e, cwd: unknown, sessionId: unknown) => {
+    assertPath(cwd)
+    assertId(sessionId)
+    return sessions.history(cwd, sessionId)
+  })
+
+  ipcMain.handle('session:activity', (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return sessions.activity(cwd)
+  })
+
+  ipcMain.handle('session:commands', (_e, localId: unknown) => {
+    assertId(localId)
+    return sessions.commands(localId)
+  })
+
+  ipcMain.handle('session:models', (_e, localId: unknown) => {
+    assertId(localId)
+    return sessions.models(localId)
+  })
+}
+
+export function registerIpc(store: AppStore, sessions: SessionManager): void {
+  registerSessionIpc(sessions)
+
   ipcMain.handle('repo:open', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     const opts: Electron.OpenDialogOptions = { properties: ['openDirectory'], title: 'Ouvrir un dépôt git' }
