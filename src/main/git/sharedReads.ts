@@ -1,6 +1,5 @@
 import type { BaseRef, Worktree } from '../../shared/types'
 import { resolveBaseRef, resolveCompareRef } from './refs'
-import { clearGitConfigCache } from './exec'
 import { TtlCache } from './ttlCache'
 import { listWorktrees } from './worktrees'
 
@@ -75,5 +74,4 @@ export const cachedBaseRef = (cwd: string): Promise<BaseRef> => baseRefs.get(cwd
 export function clearSharedReads(): void {
   worktrees.clear()
   baseRefs.clear()
-  clearGitConfigCache()
 }

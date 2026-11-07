@@ -144,29 +144,6 @@ describe('filters a repo sets for itself', () => {
     expect([await ran('external-ran'), await ran('command-ran'), await ran('textconv-ran')]).toEqual([false, false, false])
   })
 
-  /** Logs every git command run from now on; returns the lines logged so far. */
-  async function logGit(): Promise<() => Promise<string[]>> {
-    const log = marker('git.log')
-    const shim = marker('shim')
-    await mkdir(shim)
-    const real = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
-    await writeFile(join(shim, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\nexec '${real}' "$@"\n`)
-    await chmod(join(shim, 'git'), 0o755)
-    vi.stubEnv('PATH', `${shim}:${process.env.PATH ?? ''}`)
-    return async () => (await readFile(log, 'utf8').catch(() => '')).trim().split('\n')
-  }
-  const configReads = (lines: string[]): number => lines.filter((l) => / config .*--show-scope/.test(l)).length
-
-  test('the filters of a repo are read once, not at every command', async () => {
-    repo = await createRepo()
-    const logged = await logGit()
-    await git(repo.path, ['rev-parse', 'HEAD'])
-    await git(repo.path, ['rev-parse', 'HEAD'])
-    const lines = await logged()
-    expect(configReads(lines)).toBe(1)
-    expect(lines.filter((l) => l.endsWith('rev-parse HEAD'))).toHaveLength(2)
-  })
-
   test('a filter added to a file already included is blanked by the very next command', async () => {
     await filtered('inc')
     const included = marker('already.cfg')
@@ -209,15 +186,14 @@ describe('filters a repo sets for itself', () => {
     expect(await ran('nested-ran')).toBe(false)
   })
 
-  test('a file of the config that cannot be stated makes every command read the filters again', async () => {
-    repo = await createRepo()
-    await writeFile(marker('plainfile'), '')
-    config('include.path', join(marker('plainfile'), 'x.cfg'))
-    const logged = await logGit()
-    await git(repo.path, ['rev-parse', 'HEAD'])
-    const first = configReads(await logged())
-    await git(repo.path, ['rev-parse', 'HEAD'])
-    expect(configReads(await logged())).toBeGreaterThan(first)
+  test('a filter added to the repo config is blanked when the command runs from a subfolder', async () => {
+    await filtered('sub')
+    await mkdir(join(repo!.path, 'deep', 'er'), { recursive: true })
+    await writeFile(join(repo!.path, 'deep', 'er', 'b.txt'), 'b\n')
+    await git(join(repo!.path, 'deep', 'er'), ['add', '-N', '.'])
+    config('filter.sub.clean', `touch '${marker('sub-ran')}'; cat`)
+    await git(join(repo!.path, 'deep', 'er'), ['diff', '--numstat', 'HEAD'])
+    expect(await ran('sub-ran')).toBe(false)
   })
 
   test('a filter added after a read is blanked by the very next command', async () => {
