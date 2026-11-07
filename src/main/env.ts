@@ -65,18 +65,6 @@ async function resolveShellEnv(run: ShellRunner, timeoutMs: number): Promise<{ e
   }
 }
 
-let cached: Promise<NodeJS.ProcessEnv> | undefined
-
-export function resetLoginShellEnvCache(): void {
-  cached = undefined
-}
-
-/** process.env merged with the login shell env, without ELECTRON_RUN_AS_NODE. Cached. Process.env alone on failure or timeout. */
-export function loginShellEnv(run: ShellRunner = defaultRunner, timeoutMs = TIMEOUT_MS): Promise<NodeJS.ProcessEnv> {
-  cached ??= resolveShellEnv(run, timeoutMs).then((r) => r.env)
-  return cached
-}
-
 let current: NodeJS.ProcessEnv | undefined
 
 /** The env for processes started now (git, sessions, terminals, language servers): the best one known so far. */
