@@ -1,0 +1,28 @@
+import { listWorktrees } from '../git/worktrees'
+import { watchWorktree } from './files'
+
+const watchers = new Map<string, () => void>()
+
+/** Watches exactly the worktrees `repo` lists now: others, removed or from a repo left behind, are stopped. */
+export async function syncWatchers(
+  repo: string, onChange: (cwd: string) => void, onError: (cwd: string, error: Error) => void
+): Promise<void> {
+  const listed = new Set((await listWorktrees(repo)).map((w) => w.path))
+  for (const [path, stop] of watchers) {
+    if (listed.has(path)) continue
+    stop()
+    watchers.delete(path)
+  }
+  for (const path of listed) {
+    if (!watchers.has(path)) watchers.set(path, watchWorktree(path, () => onChange(path), undefined, (e) => onError(path, e)))
+  }
+}
+
+export function watchedPaths(): string[] {
+  return [...watchers.keys()]
+}
+
+export function stopAllWatchers(): void {
+  for (const stop of watchers.values()) stop()
+  watchers.clear()
+}

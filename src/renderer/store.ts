@@ -15,11 +15,15 @@ interface AppState {
   codeRequest: CodeRequest | null
   /** Opens the Code view of `cwd` on `path`. */
   openInCode: (cwd: string, path: string, mode: 'code' | 'diff') => void
+  /** The Code view took request `seq`: a later mount must not apply it again. */
+  clearCodeRequest: (seq: number) => void
   setRepo: (repo: string | null) => void
   setWorktrees: (list: Worktree[]) => void
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
 }
+
+let requestCount = 0
 
 export const useApp = create<AppState>((set) => ({
   repo: null,
@@ -28,7 +32,8 @@ export const useApp = create<AppState>((set) => ({
   view: 'sessions',
   codeRequest: null,
   openInCode: (cwd, path, mode) =>
-    set((s) => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, seq: (s.codeRequest?.seq ?? 0) + 1 } })),
+    set(() => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, seq: ++requestCount } })),
+  clearCodeRequest: (seq) => set((s) => (s.codeRequest?.seq === seq ? { codeRequest: null } : s)),
   setRepo: (repo) => set({ repo, worktree: null, worktrees: [] }),
   // Keeps the selection if it still exists, else falls back to the main worktree.
   setWorktrees: (worktrees) =>

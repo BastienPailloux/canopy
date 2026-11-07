@@ -6,6 +6,10 @@ export interface CodeData {
   files: ChangedFile[]
   tree: string[]
   branches: string[]
+  /** Why the branch list could not be read, if so. */
+  branchesError: string | null
+  /** Live refresh stopped (the watcher failed): the screen polls instead. */
+  watchError: string | null
   /** The last refresh failed: `files` and `tree` are the last good ones. */
   error: string | null
   loading: boolean
@@ -13,6 +17,7 @@ export interface CodeData {
   tick: number
 }
 
+const POLL_MS = 10_000
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /**
@@ -21,7 +26,7 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message : Stri
  * keeps the last good data and reports the error, so the view never goes blank.
  */
 export function useCodeData(cwd: string, pickedBase: string | undefined): CodeData & { refresh: () => void } {
-  const [data, setData] = useState<CodeData>({ base: null, files: [], tree: [], branches: [], error: null, loading: true, tick: 0 })
+  const [data, setData] = useState<CodeData>({ base: null, files: [], tree: [], branches: [], branchesError: null, watchError: null, error: null, loading: true, tick: 0 })
   const live = useRef({ cwd, pickedBase })
   live.current = { cwd, pickedBase }
   const inFlight = useRef(false)
@@ -45,10 +50,12 @@ export function useCodeData(cwd: string, pickedBase: string | undefined): CodeDa
       if (!stale()) {
         const failure = [changes, tree].find((r): r is PromiseRejectedResult => r.status === 'rejected')
         setData((prev) => ({
+          watchError: prev.watchError,
           base: changes.status === 'fulfilled' ? changes.value.base : prev.base,
           files: changes.status === 'fulfilled' ? changes.value.files : prev.files,
           tree: tree.status === 'fulfilled' ? tree.value : prev.tree,
           branches: branches.status === 'fulfilled' ? branches.value : prev.branches,
+          branchesError: branches.status === 'rejected' ? errorText(branches.reason) : null,
           error: failure ? errorText(failure.reason) : null,
           loading: false,
           tick: prev.tick + 1
@@ -61,19 +68,35 @@ export function useCodeData(cwd: string, pickedBase: string | undefined): CodeDa
     })()
   }, [])
 
+  const shownFor = useRef<string | null>(null)
   useEffect(() => {
-    // Another worktree or base: what is shown is not about the new one.
-    setData({ base: null, files: [], tree: [], branches: [], error: null, loading: true, tick: 0 })
+    // Another worktree: what is shown is not about the new one. Another base keeps it until the comparison arrives.
+    if (shownFor.current !== cwd) {
+      shownFor.current = cwd
+      setData({ base: null, files: [], tree: [], branches: [], branchesError: null, watchError: null, error: null, loading: true, tick: 0 })
+    }
     refresh()
   }, [cwd, pickedBase, refresh])
+
+  const watchFailed = data.watchError !== null
+  useEffect(() => {
+    if (!watchFailed) return
+    const timer = setInterval(refresh, POLL_MS)
+    return () => clearInterval(timer)
+  }, [watchFailed, refresh])
 
   useEffect(() => {
     const off = window.canopy.on('code:changed', (p) => {
       if ((p as { cwd?: string } | null)?.cwd === live.current.cwd) refresh()
     })
+    const offError = window.canopy.on('code:watchError', (p) => {
+      const e = p as { cwd?: string; message?: string } | null
+      if (e?.cwd === live.current.cwd) setData((prev) => ({ ...prev, watchError: e.message ?? 'erreur inconnue' }))
+    })
     window.addEventListener('focus', refresh)
     return () => {
       off()
+      offError()
       window.removeEventListener('focus', refresh)
     }
   }, [refresh])

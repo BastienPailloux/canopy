@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { createRepo, type TestRepo } from '../../helpers/repo'
-import { aheadCount, mergeBase, resolveBaseRef } from '../../../src/main/git/refs'
+import { aheadCount, listBranches, mergeBase, resolveBaseRef, resolveCompareRef } from '../../../src/main/git/refs'
 
 let repo: TestRepo | undefined
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
@@ -34,4 +34,24 @@ test('aheadCount and mergeBase on a feature branch', async () => {
   await repo.commit('d.txt', 'd')
   expect(await aheadCount(repo.path, 'main')).toBe(2)
   expect(await mergeBase(repo.path, 'main')).toBe(base)
+})
+
+test('resolveCompareRef defaults to the base branch and accepts a known ref', async () => {
+  repo = await createRepo()
+  execFileSync('git', ['branch', 'other'], { cwd: repo.path })
+  expect(await resolveCompareRef(repo.path)).toEqual({ name: 'main', ref: 'main' })
+  expect(await resolveCompareRef(repo.path, 'other')).toEqual({ name: 'other', ref: 'other' })
+})
+
+test('resolveCompareRef rejects unknown refs, options and non-strings', async () => {
+  repo = await createRepo()
+  for (const bad of ['nope', '--output=/tmp/x', '', 42, null]) {
+    await expect(resolveCompareRef(repo.path, bad)).rejects.toThrow('Branche de comparaison inconnue')
+  }
+})
+
+test('listBranches lists local and remote branches, without the origin/HEAD alias', async () => {
+  repo = await createRepo({ remote: true })
+  execFileSync('git', ['branch', 'feat/x'], { cwd: repo.path })
+  expect(await listBranches(repo.path)).toEqual(['feat/x', 'main', 'origin/main'])
 })

@@ -6,6 +6,7 @@ import { lineDiff } from '../sessions/lineDiff'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { askMessage } from './askMessage'
+import { dropDraft, getDraft, setDraft } from './drafts'
 import { CodeEditor, DiffPane, type EditorHandle, type Selection } from './Editors'
 
 export type Mode = 'code' | 'diff'
@@ -78,7 +79,6 @@ export function CodeView(props: {
   onMode: (m: Mode) => void
   /** Changes whenever the lists were refreshed: the file may have changed too. */
   tick: number
-  onDirty: (dirty: boolean) => void
   onSaved: () => void
 }): React.JSX.Element {
   const { cwd, base, path, change } = props
@@ -94,9 +94,12 @@ export function CodeView(props: {
 
   const saved = loaded?.work.kind === 'text' ? loaded.work : null
   const dirty = saved !== null && text !== saved.content
-  const onDirty = props.onDirty
-  useEffect(() => { onDirty(dirty) }, [dirty, onDirty])
-  useEffect(() => () => onDirty(false), [onDirty])
+  // Kept outside the view: it is gone when the user switches to Sessions or another worktree.
+  useEffect(() => {
+    if (!saved) return
+    if (dirty) setDraft(cwd, path, { text, version: saved.version })
+    else dropDraft(cwd, path)
+  }, [cwd, path, dirty, text, saved])
 
   // The buffer follows the disk until the user has typed: after that, a change on disk is a conflict.
   useEffect(() => {
@@ -105,6 +108,16 @@ export function CodeView(props: {
       if (!live) return
       const { loaded: prev, text: buffer } = state.current
       const prevText = prev?.work.kind === 'text' ? prev.work : null
+      const draft = prev ? undefined : getDraft(cwd, path)
+      if (draft && next.work.kind === 'text') {
+        // Back on a file with unsaved typing: the buffer is the user's, the disk may have moved on.
+        // The version stays the one typed over, so that saving still notices a change on disk.
+        setLoaded({ ...next, work: { ...next.work, version: draft.version } })
+        setText(draft.text)
+        setEditing(true)
+        setDiskChanged(next.work.version !== draft.version)
+        return
+      }
       const untouched = !prevText || buffer === prevText.content
       if (untouched || next.work.kind !== 'text') {
         setLoaded(next)
@@ -173,7 +186,7 @@ export function CodeView(props: {
   } else if (work.kind === 'missing') body = <Message>Ce fichier est supprimé depuis {base.name}. Le diff montre ce qui disparaît.</Message>
   else if (work.kind === 'binary') body = <Message>Fichier binaire : pas d'aperçu.</Message>
   else if (work.kind === 'tooLarge') body = <Message>Fichier trop volumineux ({megabytes(work.size)}) : pas d'aperçu.</Message>
-  else body = <CodeEditor path={path} value={work.content} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} handle={handle} />
+  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} handle={handle} />
 
   return (
     <section className="code-view" aria-label="Contenu du fichier">

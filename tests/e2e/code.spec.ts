@@ -26,7 +26,7 @@ const git = (cwd: string, ...args: string[]): void => { execFileSync('git', args
 const ALPHA = 'export const a = 1\nexport const b = 2\nexport function total(): number {\n  return a + b\n}\n'
 const ALPHA_V2 = 'export const a = 1\nexport const b = 2\nexport const c = 3\nexport function total(): number {\n  return a + b + c\n}\n'
 
-async function launch(): Promise<void> {
+async function launch(worktrees = 2): Promise<void> {
   await writeFile(join(userData, 'state.json'), JSON.stringify({ recentRepos: [repo.path], ports: {}, prefs: {} }))
   const env = { ...process.env, CANOPY_FAKE_QUERY: '1' } as Record<string, string>
   delete env.ELECTRON_RUN_AS_NODE
@@ -37,7 +37,7 @@ async function launch(): Promise<void> {
     if (/Content Security Policy|Refused to/i.test(m.text())) violations.push(m.text())
   }
   page.on('console', onConsole)
-  await expect(page.getByTestId('worktree')).toHaveCount(2, { timeout: 20_000 })
+  await expect(page.getByTestId('worktree')).toHaveCount(worktrees, { timeout: 20_000 })
   await page.evaluate(async (r) => window.canopy.trustRepo(r, (await window.canopy.repoTrust(r)).configHash), repo.path)
 }
 
@@ -182,4 +182,71 @@ test('"Demander à Claude" sends the path and the selection to the worktree sess
   await page.getByRole('button', { name: 'Envoyer' }).click()
   await expect(page.getByTestId('assistant-message').first()).toContainText('src/beta.ts', { timeout: 15_000 })
   await expect(page.getByTestId('assistant-message').first()).toContainText('export const beta = true')
+})
+
+const navButton = (name: string): Locator => page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name })
+
+test('a consumed "Voir le diff" request is not applied again, and another worktree selects its first change', async () => {
+  const other = join(repo.path, '.worktrees', 'feat-b')
+  git(repo.path, 'worktree', 'add', '-b', 'feat/b', other, 'main')
+  await writeFile(join(other, 'zeta.ts'), 'export const z = 1\n')
+  git(other, 'add', '-A')
+  git(other, 'commit', '-qm', 'feat: zeta')
+  await launch(3)
+  await worktree('feat/a').click()
+  await page.getByLabel(/^Message à Claude/).fill('editer')
+  await page.getByLabel(/^Message à Claude/).press('Meta+Enter')
+  await page.getByTestId('permission-card').getByRole('button', { name: 'Autoriser' }).click()
+  await page.getByTestId('tool-card').getByRole('button', { name: 'Voir le diff' }).click()
+  await expect(page.locator('.file-path')).toContainText('src/alpha.ts')
+
+  // The user's own choice: another file, in Code mode.
+  await treeFile('src/beta.ts').click()
+  await page.getByRole('group', { name: "Mode d'affichage" }).getByRole('button', { name: 'Code' }).click()
+  await navButton('Sessions').click()
+  await navButton('Code').click()
+  await expect(page.locator('.file-path')).toContainText('src/beta.ts')
+  await expect(page.getByTestId('code-editor')).toBeVisible()
+
+  await worktree('feat/b').click()
+  await expect(page.locator('.file-path')).toContainText('zeta.ts')
+})
+
+test('unsaved typing survives a visit to Sessions, a branch change and a worktree switch', async () => {
+  git(repo.path, 'branch', 'other', 'main')
+  await launch()
+  await openCode()
+  await treeFile('src/beta.ts').click()
+  await page.getByRole('button', { name: 'Modifier' }).click()
+  await page.getByTestId('code-editor').click()
+  await page.keyboard.press('Meta+End')
+  await page.keyboard.type('// keep me\n')
+  await expect(page.getByText('non enregistré')).toBeVisible()
+
+  await page.getByLabel('Branche de comparaison').selectOption('other')
+  await expect(page.getByText('non enregistré')).toBeVisible()
+  await expect(page.getByTestId('code-editor')).toContainText('// keep me')
+
+  await navButton('Sessions').click()
+  await navButton('Code').click()
+  await expect(page.getByText('non enregistré')).toBeVisible()
+  await expect(page.getByTestId('code-editor')).toContainText('// keep me')
+
+  await worktree('main').click()
+  await worktree('feat/a').click()
+  await expect(page.getByTestId('code-editor')).toContainText('// keep me')
+  expect(await readFile(join(featPath, 'src', 'beta.ts'), 'utf8')).not.toContain('keep me')
+})
+
+test('a comparison branch that disappears falls back to the default with a message', async () => {
+  git(repo.path, 'branch', 'tmp', 'main')
+  await launch()
+  await openCode()
+  await page.getByLabel('Branche de comparaison').selectOption('tmp')
+  await expect(page.getByLabel('Branche de comparaison')).toHaveValue('tmp')
+  git(repo.path, 'branch', '-D', 'tmp')
+  await writeFile(join(featPath, 'poke.ts'), 'x\n')
+  await expect(page.getByTestId('base-notice')).toContainText('tmp')
+  await expect(page.getByLabel('Branche de comparaison')).toHaveValue('main')
+  await expect(page.getByLabel('Branche de comparaison')).toBeEnabled()
 })

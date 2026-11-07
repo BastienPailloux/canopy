@@ -2,8 +2,8 @@ import { ipcMain } from 'electron'
 import { isAbsolute } from 'node:path'
 import { changedFiles, readAtBase } from '../git/diff'
 import { listBranches, resolveCompareRef } from '../git/refs'
-import { listWorktrees } from '../git/worktrees'
-import { listTree, readFileSafe, watchWorktree, writeFileSafe } from './files'
+import { listTree, readFileSafe, writeFileSafe } from './files'
+import { syncWatchers } from './watchers'
 
 function assertPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
@@ -14,26 +14,6 @@ function assertRepoPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || p === '' || p.includes('\0') || isAbsolute(p) || p.split('/').includes('..')) {
     throw new Error('Chemin invalide')
   }
-}
-
-const watchers = new Map<string, () => void>()
-
-/** Watches exactly the worktrees `repo` lists now: others, removed or from a repo left behind, are stopped. */
-async function syncWatchers(repo: string, onChange: (cwd: string) => void): Promise<void> {
-  const listed = new Set((await listWorktrees(repo)).map((w) => w.path))
-  for (const [path, stop] of watchers) {
-    if (listed.has(path)) continue
-    stop()
-    watchers.delete(path)
-  }
-  for (const path of listed) {
-    if (!watchers.has(path)) watchers.set(path, watchWorktree(path, () => onChange(path)))
-  }
-}
-
-export function stopAllWatchers(): void {
-  for (const stop of watchers.values()) stop()
-  watchers.clear()
 }
 
 export function registerCodeIpc(broadcast: (event: string, payload?: unknown) => void): void {
@@ -73,6 +53,10 @@ export function registerCodeIpc(broadcast: (event: string, payload?: unknown) =>
 
   ipcMain.handle('code:watch', async (_e, repo: unknown) => {
     assertPath(repo)
-    await syncWatchers(repo, (cwd) => broadcast('code:changed', { cwd }))
+    await syncWatchers(
+      repo,
+      (cwd) => broadcast('code:changed', { cwd }),
+      (cwd, e) => broadcast('code:watchError', { cwd, message: e.message })
+    )
   })
 }

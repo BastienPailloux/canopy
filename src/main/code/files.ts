@@ -50,7 +50,10 @@ async function resolveInside(cwd: string, rel: unknown): Promise<string> {
     throw new Error('Lien symbolique invalide')
   }
   if (!isInside(root, real)) throw new Error('Chemin hors du worktree')
-  return join(real, ...missing)
+  const resolved = join(real, ...missing)
+  // A link may lead into git's own directory, where a hook would run code.
+  if (relative(root, resolved).split(sep).includes('.git')) throw new Error('Chemin invalide')
+  return resolved
 }
 
 /** Text of a file of the worktree. Binary files and files over 5 MB are reported, not read. */
@@ -96,9 +99,10 @@ function gitPathKept(parts: string[]): boolean {
 
 /**
  * Calls `cb` once per burst of changes (300 ms) in the worktree, a commit included.
- * Ignores node_modules and the inside of `.git` except HEAD and refs. Returns the stop function.
+ * Ignores node_modules and the inside of `.git` except HEAD and refs. `onError`: live refresh may have stopped.
+ * Returns the stop function.
  */
-export function watchWorktree(cwd: string, cb: () => void, onReady?: () => void): () => void {
+export function watchWorktree(cwd: string, cb: () => void, onReady?: () => void, onError?: (e: Error) => void): () => void {
   let stopped = false
   let timer: NodeJS.Timeout | undefined
   const fire = (): void => {
@@ -113,7 +117,7 @@ export function watchWorktree(cwd: string, cb: () => void, onReady?: () => void)
       return parts[0] === '.git' && !gitPathKept(parts)
     }
   })
-  watcher.on('all', fire).on('error', () => undefined)
+  watcher.on('all', fire).on('error', (e) => { if (!stopped) onError?.(e instanceof Error ? e : new Error(String(e))) })
   watcher.on('ready', () => { if (!stopped) onReady?.() })
   // In a linked worktree `.git` is a file: its HEAD and the shared refs live elsewhere.
   void (async () => {

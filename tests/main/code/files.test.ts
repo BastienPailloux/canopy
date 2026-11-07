@@ -100,6 +100,17 @@ describe('readFileSafe', () => {
     expect(await readFile(join(repo.path, '..', 'secret'), 'utf8')).toBe('s')
   })
 
+  it('refuses a symlink that leads into .git, for read and write', async () => {
+    await mkdir(join(repo.path, '.git', 'hooks'), { recursive: true })
+    await writeFile(join(repo.path, '.git', 'hooks', 'pre-commit'), 'echo hi\n')
+    await symlink('.git/hooks/pre-commit', join(repo.path, 'hook'))
+    await symlink('.git/hooks', join(repo.path, 'hooks'))
+    await expect(readFileSafe(repo.path, 'hook')).rejects.toThrow()
+    await expect(writeFileSafe(repo.path, 'hook', '#!/bin/sh\nevil\n')).rejects.toThrow()
+    await expect(writeFileSafe(repo.path, 'hooks/post-commit', 'evil')).rejects.toThrow()
+    expect(await readFile(join(repo.path, '.git', 'hooks', 'pre-commit'), 'utf8')).toBe('echo hi\n')
+  })
+
   it('follows a symlink that stays inside the worktree', async () => {
     await symlink('README.md', join(repo.path, 'inside'))
     expect(await readFileSafe(repo.path, 'inside')).toMatchObject({ kind: 'text', content: '# test\n' })

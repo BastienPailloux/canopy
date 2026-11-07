@@ -1,29 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../store'
 import { CodeView, type Mode } from './CodeView'
+import { getShown, setShown } from './drafts'
 import { FileTree } from './FileTree'
 import { useCodeData } from './useCodeData'
 import './code.css'
 
-const LEAVE_UNSAVED = 'Abandonner les modifications non enregistrées de ce fichier ?'
+const UNKNOWN_BASE = 'Branche de comparaison inconnue'
 
 export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.Element {
   const { cwd } = props
   const [pickedBase, setPickedBase] = useState<string | undefined>()
-  const [scope, setScope] = useState<'all' | 'changed'>('all')
+  const [back] = useState(() => getShown(cwd))
+  const [scope, setScope] = useState<'all' | 'changed'>(back?.scope ?? 'all')
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<string | null>(null)
-  const [mode, setMode] = useState<Mode>('code')
+  const [selected, setSelected] = useState<string | null>(back?.selected ?? null)
+  const [mode, setMode] = useState<Mode>(back?.mode ?? 'code')
+  useEffect(() => { setShown(cwd, { selected, mode, scope }) }, [cwd, selected, mode, scope])
   const data = useCodeData(cwd, pickedBase)
   const filter = useRef<HTMLInputElement>(null)
-  const dirty = useRef(false)
+  const [baseNotice, setBaseNotice] = useState<string | null>(null)
   const request = useApp((s) => s.codeRequest)
-  const handled = useRef(0)
 
   // A tool card asked for a file, possibly before the changed list was known: the request waits for it.
   useEffect(() => {
-    if (!request || request.cwd !== cwd || request.seq === handled.current || data.loading) return
-    handled.current = request.seq
+    if (!request || request.cwd !== cwd || data.loading) return
+    useApp.getState().clearCodeRequest(request.seq)
     setSelected(request.path)
     setMode(request.mode)
     setScope(data.files.some((f) => f.path === request.path) ? 'changed' : 'all')
@@ -51,12 +53,13 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const select = useCallback((path: string): void => {
-    if (dirty.current && !window.confirm(LEAVE_UNSAVED)) return
-    setSelected(path)
-  }, [])
-
-  const onDirty = useCallback((d: boolean): void => { dirty.current = d }, [])
+  // A comparison that cannot be made (the branch is gone) must not leave the screen without a base.
+  useEffect(() => {
+    if (pickedBase !== undefined && data.error?.includes(UNKNOWN_BASE)) {
+      setBaseNotice(`La branche « ${pickedBase} » est introuvable : retour à la branche par défaut.`)
+      setPickedBase(undefined)
+    }
+  }, [pickedBase, data.error])
 
   const totals = useMemo(() => ({
     added: data.files.reduce((n, f) => n + f.added, 0),
@@ -76,7 +79,7 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         <span className="mono">{props.branch}</span>
         <span className="muted">comparé à</span>
         <select aria-label="Branche de comparaison" className="ctl-select mono" value={pickedBase ?? data.base?.ref ?? ''}
-          disabled={!data.base} onChange={(e) => setPickedBase(e.target.value)}>
+          disabled={!data.base} onChange={(e) => { setBaseNotice(null); setPickedBase(e.target.value) }}>
           {branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         <span className="mono totals" data-testid="code-totals">
@@ -89,6 +92,15 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
           {data.base ? 'Données périmées, la dernière lecture a échoué' : 'Lecture impossible'} : {data.error}
         </div>
       )}
+      {baseNotice && <div className="code-warning" role="alert" data-testid="base-notice">{baseNotice}</div>}
+      {data.branchesError && (
+        <div className="code-warning" role="alert" data-testid="branches-error">Liste des branches indisponible : {data.branchesError}</div>
+      )}
+      {data.watchError && (
+        <div className="code-warning" role="alert" data-testid="watch-error">
+          Le rafraîchissement automatique s'est arrêté ({data.watchError}) : la liste se met à jour toutes les 10 s.
+        </div>
+      )}
       <div className="code-main">
         <nav className="code-tree" aria-label="Fichiers">
           <div role="group" aria-label="Fichiers affichés" className="seg">
@@ -99,11 +111,11 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
           </div>
           <input ref={filter} aria-label="Filtrer les fichiers" placeholder="Aller au fichier… ⌘P" value={query}
             onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setQuery('') }} />
-          <FileTree paths={scope === 'all' ? data.tree : changedPaths} changed={data.files} selected={selected} query={query} onSelect={select} />
+          <FileTree paths={scope === 'all' ? data.tree : changedPaths} changed={data.files} selected={selected} query={query} onSelect={setSelected} />
         </nav>
         {selected !== null && data.base ? (
           <CodeView key={`${cwd}\0${selected}`} cwd={cwd} base={data.base} path={selected} change={change} mode={mode} onMode={setMode}
-            tick={data.tick} onDirty={onDirty} onSaved={data.refresh} />
+            tick={data.tick} onSaved={data.refresh} />
         ) : (
           <div className="code-view"><div className="code-message">{data.loading ? 'Chargement…' : 'Choisis un fichier.'}</div></div>
         )}

@@ -38,7 +38,7 @@ function newModel(side: 'work' | 'base', path: string, value: string): monaco.ed
 
 export function CodeEditor(props: {
   path: string
-  /** The file as loaded. A new value replaces the buffer: the caller decides when that is safe. */
+  /** The buffer: the editor follows it, and reports typing through `onChange`. */
   value: string
   readOnly: boolean
   /** 1-based lines added since the base. */
