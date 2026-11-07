@@ -7,6 +7,7 @@ import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { askMessage } from './askMessage'
 import type { DiffStatus } from './diffOutcome'
+import { keepOverMissing } from './draftOverMissing'
 import { dropDraft, getDraft, setDraft } from './drafts'
 import { CodeEditor, DiffPane, type EditorHandle, type Navigate, type Reveal, type Selection } from './Editors'
 
@@ -93,6 +94,8 @@ export function CodeView(props: {
   const [asking, setAsking] = useState<Selection | null | false>(false)
   const [diffStatus, setDiffStatus] = useState<DiffStatus>('complete')
   const [navBlocked, setNavBlocked] = useState(false)
+  /** The file under a restored draft no longer exists: saving writes it anew, with no version to check. */
+  const [gone, setGone] = useState(false)
   const handle = useRef<EditorHandle | null>(null)
   const state = useRef({ loaded, text })
   state.current = { loaded, text }
@@ -120,6 +123,17 @@ export function CodeView(props: {
       const { loaded: prev, text: buffer } = state.current
       const prevText = prev?.work.kind === 'text' ? prev.work : null
       const draft = prev ? undefined : getDraft(cwd, path)
+      const kept = keepOverMissing(next.work, draft)
+      if (kept) {
+        // The file is gone but the typing is not: keep it, and say saving will recreate the file.
+        setLoaded({ ...next, work: kept.work })
+        setText(kept.text)
+        setEditing(true)
+        setGone(true)
+        setDiskChanged(false)
+        return
+      }
+      setGone(false)
       if (draft && next.work.kind === 'text') {
         // Back on a file with unsaved typing: the buffer is the user's, the disk may have moved on.
         // The version stays the one typed over, so that saving still notices a change on disk.
@@ -148,7 +162,8 @@ export function CodeView(props: {
     const { loaded: cur, text: buffer } = state.current
     if (cur?.work.kind !== 'text') return
     try {
-      const version = await window.canopy.writeFile(cwd, path, buffer, force ? undefined : cur.work.version)
+      const version = await window.canopy.writeFile(cwd, path, buffer, force || gone ? undefined : cur.work.version)
+      setGone(false)
       setLoaded({ ...cur, work: { kind: 'text', content: buffer, version } })
       setSaveError(null)
       setDiskChanged(false)
@@ -158,13 +173,14 @@ export function CodeView(props: {
       else setSaveError(`Enregistrement impossible : ${errorText(e)}`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, path])
+  }, [cwd, path, gone])
 
   const reloadFromDisk = async (): Promise<void> => {
     const next = await load(cwd, base, path, change)
     setLoaded(next)
     setText(next.work.kind === 'text' ? next.work.content : '')
     setDiskChanged(false)
+    setGone(false)
     setSaveError(null)
   }
 
@@ -231,6 +247,7 @@ export function CodeView(props: {
           {dirty && <button type="button" onClick={() => void save(true)}>Écraser quand même</button>}
         </div>
       )}
+      {gone && <div className="code-warning" role="status" data-testid="file-gone">Ce fichier n'existe plus sur le disque. Enregistrer le recréera.</div>}
       {saveError && <div className="code-warning" role="alert">{saveError}</div>}
       {navBlocked && <div className="code-warning" role="status" data-testid="nav-dirty">Enregistre le fichier pour aller à la définition ou lister les appels.</div>}
       {saved?.notUtf8 && <div className="code-warning" role="status" data-testid="not-utf8">Ce fichier n'est pas en UTF-8 : il s'affiche en lecture seule, car l'enregistrer le corromprait.</div>}

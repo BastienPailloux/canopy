@@ -1,3 +1,4 @@
+import type { StashedBuffer } from '../../shared/update'
 /** An unsaved buffer and the version of the file it was typed over. */
 export interface Draft { text: string; version: string }
 
@@ -26,3 +27,11 @@ export interface Shown { selected: string | null; mode: 'code' | 'diff'; scope: 
 const shown = new Map<string, Shown>()
 export const getShown = (cwd: string): Shown | undefined => shown.get(cwd)
 export const setShown = (cwd: string, s: Shown): void => { shown.set(cwd, s) }
+
+/** Every unsaved buffer, for the update stash. */
+export function allDrafts(): StashedBuffer[] {
+  return [...drafts].map(([k, d]) => {
+    const [cwd, path] = k.split('\0')
+    return { cwd, path, text: d.text, version: d.version }
+  })
+}

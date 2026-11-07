@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Workspace } from '../shared/types'
+import type { Stash } from '../shared/update'
 import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
@@ -16,9 +17,12 @@ import { WorktreeList } from './shell/WorktreeList'
 import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
+import { connectUpdateStash, restoreStash } from './update/stash'
 
 /** What the terminal asked for at launch, read once per page load. */
 let launchFolder: Promise<string | null> | undefined
+let launchStash: Promise<Stash | null> | undefined
+let restored = false
 
 function Empty(): React.JSX.Element {
   const error = useApp((s) => s.openError)
@@ -103,6 +107,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
   useEffect(() => connectUnsaved(), [])
+  useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
@@ -119,6 +124,10 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     let live = true
     void (async () => {
+      // Work set aside by an update comes back before any folder opens, and a failed read must not stop the launch.
+      launchStash ??= window.canopy.takeStash().catch(() => null)
+      const stash = await launchStash
+      if (stash && !restored) { restored = true; restoreStash(stash) }
       launchFolder ??= window.canopy.takeOpenFolder().catch(() => null)
       const asked = await launchFolder
       // The page is told once: a second run of this effect (StrictMode) finds the same answer.

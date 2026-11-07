@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { draftCount, dropDraft, dropDrafts, onDraftsChange, setDraft } from '../../src/renderer/code/drafts'
+import { allDrafts, draftCount, dropDraft, dropDrafts, onDraftsChange, setDraft } from '../../src/renderer/code/drafts'
 
 afterEach(() => { dropDrafts('/a'); dropDrafts('/b') })
 
@@ -23,4 +23,14 @@ test('dropDrafts forgets one worktree only', () => {
   setDraft('/b', 'x.ts', { text: 't', version: 'v' })
   dropDrafts('/a')
   expect(draftCount()).toBe(1)
+})
+
+test('allDrafts lists every unsaved buffer with its version', () => {
+  setDraft('/a', 'x.ts', { text: 't1', version: 'v1' })
+  setDraft('/b', 'y.ts', { text: 't2', version: 'v2' })
+  expect(allDrafts()).toEqual(expect.arrayContaining([
+    { cwd: '/a', path: 'x.ts', text: 't1', version: 'v1' },
+    { cwd: '/b', path: 'y.ts', text: 't2', version: 'v2' }
+  ]))
+  expect(allDrafts()).toHaveLength(2)
 })

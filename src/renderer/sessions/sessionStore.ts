@@ -2,6 +2,7 @@ import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/clau
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
 import { isRepoNotTrusted } from '../../shared/errors'
+import type { StashedTab } from '../../shared/update'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent } from '../../shared/types'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
 
@@ -376,6 +377,46 @@ export async function openSession(cwd: string, s: SessionSummary): Promise<void>
   useSessions.setState((state) => ({
     tabs: Object.fromEntries(Object.entries(state.tabs).filter(([id]) => !untouched.some((t) => t.id === id)))
   }))
+}
+
+const INTERRUPTED_NOTICE = 'Session interrompue par la mise à jour. Envoie un message pour la reprendre.'
+
+/** Tabs worth bringing back after a restart: a session to resume, or a message not sent. */
+export function stashTabs(): StashedTab[] {
+  return Object.values(useSessions.getState().tabs)
+    .filter((t) => t.sessionId !== undefined || hasDraft(t))
+    .map((t) => ({
+      cwd: t.cwd,
+      ...(t.sessionId ? { sessionId: t.sessionId } : {}),
+      title: t.title,
+      draft: t.draft,
+      interrupted: t.state === 'running' || t.state === 'waiting'
+    }))
+}
+
+/** Reopens stashed tabs like past sessions (no process), with their composer draft. Histories load first so tabs keep their order. */
+export function restoreTabs(tabs: StashedTab[]): void {
+  void Promise.all(tabs.map(async (t) => {
+    if (!t.sessionId) return null
+    return loadHistory(t.cwd, { sessionId: t.sessionId, title: t.title, lastModified: Date.now(), live: false, state: 'stopped' })
+  })).then((histories) => {
+    tabs.forEach((t, i) => {
+      const history = histories[i]
+      if (!t.sessionId || !history) {
+        addTab(t.cwd, { title: t.title, draft: t.draft })
+        return
+      }
+      addTab(t.cwd, {
+        sessionId: t.sessionId,
+        resumable: true,
+        title: t.title || NEW_SESSION_TITLE,
+        state: 'stopped',
+        error: history.error,
+        draft: t.draft,
+        transcript: addNotice(history.transcript, t.interrupted ? INTERRUPTED_NOTICE : RESUME_WARNING)
+      })
+    })
+  })
 }
 
 /** Gives a tab to a session running in the main process, after a reload. */
