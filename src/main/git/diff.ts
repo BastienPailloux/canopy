@@ -159,8 +159,8 @@ async function recreatedEntry(cwd: string, mb: string, path: string): Promise<Ch
 export async function changedFiles(cwd: string, ref: string): Promise<ChangedFile[]> {
   const mb = await mergeBase(cwd, ref)
   const [nameStatus, numstat, others] = await Promise.all([
-    git(cwd, ['diff', '-M', '-z', '--name-status', mb]),
-    git(cwd, ['diff', '-M', '-z', '--numstat', mb]),
+    git(cwd, ['diff', '--no-ext-diff', '-M', '-z', '--name-status', mb]),
+    git(cwd, ['diff', '--no-ext-diff', '-M', '-z', '--numstat', mb]),
     git(cwd, ['ls-files', '--others', '--exclude-standard', '-z'])
   ])
   const stats = parseNumstat(numstat)

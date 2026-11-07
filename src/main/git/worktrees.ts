@@ -113,7 +113,7 @@ export async function createWorktree(
   const args = o.existing ? await existingBranchArgs(repo, o.branch, path) : await newBranchArgs(repo, o.branch, o.base, path)
 
   if (o.parentDir === undefined) await ensureExcluded(repo)
-  await git(repo, ['worktree', 'add', ...args])
+  await git(repo, ['worktree', 'add', ...args], { keepFilters: true })
   let created: Worktree | undefined
   for (const w of await listWorktrees(repo)) {
     if ((await realpath(w.path).catch(() => w.path)) === path) created = w

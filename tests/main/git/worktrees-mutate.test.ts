@@ -202,3 +202,12 @@ test('an existing branch that does not exist is refused', async () => {
   repo = await createRepo()
   await expect(createWorktree(repo.path, { name: 'nope', branch: 'nope', existing: true })).rejects.toThrow(/introuvable/)
 })
+
+test('a new worktree still goes through the repo\'s smudge filter: its checkout would be wrong without', async () => {
+  repo = await createRepo()
+  await repo.commit('.gitattributes', '*.txt filter=upper\n')
+  await repo.commit('a.txt', 'a\n')
+  execFileSync('git', ['config', 'filter.upper.smudge', 'tr a-z A-Z'], { cwd: repo.path })
+  const wt = await createWorktree(repo.path, { name: 'smudged', branch: 'feat/smudged', base: 'main' })
+  expect(await readFile(join(wt.path, 'a.txt'), 'utf8')).toBe('A\n')
+})

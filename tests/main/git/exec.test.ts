@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process'
-import { chmod, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { changedFiles, worktreeStats } from '../../../src/main/git/diff'
 import { git } from '../../../src/main/git/exec'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 let repo: TestRepo | undefined
-afterEach(async () => { await repo?.cleanup(); repo = undefined })
+afterEach(async () => { vi.unstubAllEnvs(); await repo?.cleanup(); repo = undefined })
 
 test('a repo\'s core.fsmonitor command does not run on a read', async () => {
   repo = await createRepo()
@@ -44,4 +45,93 @@ test('a command that exits without reading a large input does not raise an uncau
     process.off('uncaughtException', onUncaught)
     for (const l of previous) process.on('uncaughtException', l)
   }
+})
+
+describe('filters a repo sets for itself', () => {
+  const marker = (name: string): string => join(repo!.path, '..', name)
+  const ran = (name: string): Promise<boolean> => stat(marker(name)).then(() => true, () => false)
+  const config = (key: string, value: string): void => { execFileSync('git', ['config', key, value], { cwd: repo!.path }) }
+
+  /** A repo where every file goes through filter `name`, with one change to diff. */
+  async function filtered(name: string): Promise<void> {
+    repo = await createRepo()
+    await repo.commit('.gitattributes', `* filter=${name}\n`)
+    await repo.commit('a.txt', 'a\n')
+    await writeFile(join(repo.path, 'a.txt'), 'a\nb\n')
+  }
+
+  test('a clean filter does not run from the stats, which still count the change', async () => {
+    await filtered('evil')
+    config('filter.evil.clean', `touch '${marker('clean-ran')}'; cat`)
+    expect((await worktreeStats(repo!.path, 'HEAD')).added).toBe(1)
+    expect(await ran('clean-ran')).toBe(false)
+  })
+
+  test('a process filter does not run either', async () => {
+    await filtered('evil')
+    config('filter.evil.process', `touch '${marker('process-ran')}'`)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('process-ran')).toBe(false)
+  })
+
+  test('a required filter does not turn the read into a failure', async () => {
+    await filtered('evil')
+    config('filter.evil.clean', `touch '${marker('clean-ran')}'; cat`)
+    config('filter.evil.required', 'true')
+    expect((await worktreeStats(repo!.path, 'HEAD')).added).toBe(1)
+    expect(await ran('clean-ran')).toBe(false)
+  })
+
+  test('a filter defined in a file the repo config includes is found too', async () => {
+    await filtered('evil')
+    const included = marker('included.cfg')
+    await writeFile(included, `[filter "evil"]\n  clean = touch '${marker('clean-ran')}'; cat\n`)
+    config('include.path', included)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('clean-ran')).toBe(false)
+  })
+
+  test('a filter whose name holds an equals sign is found too', async () => {
+    await filtered('a=b')
+    config('filter.a=b.clean', `touch '${marker('clean-ran')}'; cat`)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('clean-ran')).toBe(false)
+  })
+
+  test('a filter of the user\'s own config still runs: it is not the repo\'s', async () => {
+    await filtered('mine')
+    const global = marker('global.cfg')
+    await writeFile(global, `[filter "mine"]\n  clean = touch '${marker('clean-ran')}'; cat\n`)
+    vi.stubEnv('GIT_CONFIG_GLOBAL', global)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('clean-ran')).toBe(true)
+  })
+
+  test('a diff driver or external diff of the repo does not run from the changes', async () => {
+    await filtered('none')
+    await repo!.commit('.gitattributes', '* diff=evil\n')
+    await writeFile(join(repo!.path, 'a.txt'), 'a\nc\n')
+    config('diff.external', `touch '${marker('external-ran')}'`)
+    config('diff.evil.command', `touch '${marker('command-ran')}'`)
+    config('diff.evil.textconv', `touch '${marker('textconv-ran')}'; cat`)
+    await changedFiles(repo!.path, 'HEAD')
+    await worktreeStats(repo!.path, 'HEAD')
+    expect([await ran('external-ran'), await ran('command-ran'), await ran('textconv-ran')]).toEqual([false, false, false])
+  })
+
+  test('the filters of a repo are read once, not at every command', async () => {
+    repo = await createRepo()
+    const log = marker('git.log')
+    const shim = marker('shim')
+    await mkdir(shim)
+    const real = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+    await writeFile(join(shim, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\nexec '${real}' "$@"\n`)
+    await chmod(join(shim, 'git'), 0o755)
+    vi.stubEnv('PATH', `${shim}:${process.env.PATH ?? ''}`)
+    await git(repo.path, ['rev-parse', 'HEAD'])
+    await git(repo.path, ['rev-parse', 'HEAD'])
+    const lines = (await readFile(log, 'utf8')).trim().split('\n')
+    expect(lines.filter((l) => l.includes('--get-regexp'))).toHaveLength(1)
+    expect(lines.filter((l) => l.includes('rev-parse'))).toHaveLength(2)
+  })
 })
