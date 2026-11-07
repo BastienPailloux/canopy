@@ -17,12 +17,17 @@ async function enter(id: number, folder: string, restore = false): Promise<void>
   if (entry) useApp.getState().selectEntry(entry)
 }
 
-/** Native picker, then show the chosen folder. A failure goes to `openError`, in French. */
+/**
+ * Native picker, then show the chosen folder. A failure goes to `openError`, in French.
+ * The folder is asked for once the picker returns one: a cancelled picker leaves an opening in progress alone.
+ */
 export async function openRepoFlow(): Promise<void> {
-  const id = ++opening
+  let id = opening
   try {
     const folder = await window.canopy.openRepo()
-    if (folder) await enter(id, folder)
+    if (!folder) return
+    id = ++opening
+    await enter(id, folder)
   } catch (e) {
     if (id === opening) useApp.getState().setOpenError(errorText(e))
   }

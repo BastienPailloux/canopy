@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Workspace, WorkspaceEntry } from '../../src/shared/types'
-import { connectLastEntry, openFromTerminal, selectRepoFlow } from '../../src/renderer/shell/repoActions'
+import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from '../../src/renderer/shell/repoActions'
 import { useApp } from '../../src/renderer/store'
 
 const entry = (path: string, isMain = true): WorkspaceEntry =>
@@ -83,4 +83,22 @@ test('the last folder asked for stays when an earlier one resolves after it', as
   release['/a']()
   await first
   expect(useApp.getState().workspace?.root).toBe('/b')
+})
+
+test('a cancelled picker leaves the folder being opened to show', async () => {
+  let release = (): void => undefined
+  vi.stubGlobal('window', {
+    canopy: {
+      selectRepo: (p: string) => new Promise<string>((r) => { release = () => r(p) }),
+      openRepo: async () => null,
+      scanWorkspace: async (f: string) => ({ ...scan(entry(f)), root: f }),
+      lastEntry: async () => null,
+      setLastEntry: async () => undefined
+    }
+  })
+  const opening = selectRepoFlow('/a')
+  await openRepoFlow()
+  release()
+  await opening
+  expect(useApp.getState().workspace?.root).toBe('/a')
 })
