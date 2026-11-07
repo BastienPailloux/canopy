@@ -157,3 +157,15 @@ it('revoking a repo forgets its approvals, and survives a restart', () => {
   expect(store.isRepoTrusted('/repo')).toBe(false)
   expect(new AppStore(file).trustedRepos).toEqual(['/other'])
 })
+
+it('remembers repo bases, forgets one with null, ignores corrupt values', async () => {
+  const a = new AppStore(file)
+  a.setRepoBase('/r/one', 'origin/develop')
+  a.setRepoBase('/r/two', 'main')
+  a.setRepoBase('/r/two', null)
+  expect(new AppStore(file).repoBases).toEqual({ '/r/one': 'origin/develop' })
+  await writeFile(file, JSON.stringify({ recentRepos: ['/x'], repoBases: { '/a': 'main', '/b': 3, '/c': '' } }))
+  expect(new AppStore(file).repoBases).toEqual({ '/a': 'main' })
+  await writeFile(file, JSON.stringify({ repoBases: ['main'] }))
+  expect(new AppStore(file).repoBases).toEqual({})
+})

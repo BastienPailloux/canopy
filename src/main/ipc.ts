@@ -6,14 +6,15 @@ import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
 import type { LspPool } from './code/lsp'
 import { openExternalUrl } from './externalLinks'
-import { git } from './git/exec'
-import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer } from './git/sharedReads'
+import { resolveCompareRef } from './git/refs'
+import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer, setBaseOverride } from './git/sharedReads'
 import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
-import { createWorktree, removalRisks, removeWorktree } from './git/worktrees'
+import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
 import { parseUnsaved, type UnsavedCounts } from './quit'
 import { PrCache, repoNeedsAttention, worktreeStatus } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
+import { resolveOpenedFolder, scanWorkspace } from './workspace'
 import type { SessionManager } from './sessions/SessionManager'
 import { registerTerminalIpc } from './terminal/terminalIpc'
 import type { TerminalManager } from './terminal/TerminalManager'
@@ -26,15 +27,6 @@ export function broadcast(event: string, payload?: unknown): void {
 
 function assertPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
-}
-
-/** Top-level directory of the repo containing `dir`, or null if it is not inside a git work tree. */
-async function repoRoot(dir: string): Promise<string | null> {
-  try {
-    return (await git(dir, ['rev-parse', '--show-toplevel'])).trim()
-  } catch {
-    return null
-  }
 }
 
 function parseNewWorktree(raw: unknown): NewWorktree {
@@ -165,23 +157,46 @@ export function registerIpc(
     store.saveApiKey(key)
   })
 
+  setBaseOverride(async (cwd) => store.repoBases[await mainWorktreeRoot(cwd)])
+
   ipcMain.handle('repo:open', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
-    const opts: Electron.OpenDialogOptions = { properties: ['openDirectory'], title: 'Ouvrir un dépôt git' }
+    const opts: Electron.OpenDialogOptions = { properties: ['openDirectory'], title: 'Ouvrir un dépôt git ou un dossier de dépôts' }
     const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (res.canceled || res.filePaths.length === 0) return null
-    const root = await repoRoot(res.filePaths[0])
-    if (!root) throw new Error(`Ce dossier n'est pas un dépôt git : ${res.filePaths[0]}`)
-    store.addRecentRepo(root)
-    return root
+    const folder = await resolveOpenedFolder(res.filePaths[0])
+    store.addRecentRepo(folder)
+    return folder
   })
 
   ipcMain.handle('repo:select', async (_e, path: unknown) => {
     assertPath(path)
-    const root = await repoRoot(path)
-    if (!root) return null
-    store.addRecentRepo(root)
-    return root
+    let folder: string
+    try {
+      folder = await resolveOpenedFolder(path)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw err
+    }
+    store.addRecentRepo(folder)
+    return folder
+  })
+
+  ipcMain.handle('workspace:scan', (_e, root: unknown) => {
+    assertPath(root)
+    return scanWorkspace(root)
+  })
+
+  ipcMain.handle('repo:setBase', async (_e, repo: unknown, branch: unknown) => {
+    assertPath(repo)
+    const base = branch === null ? null : (await resolveCompareRef(repo, branch)).name
+    store.setRepoBase(await mainWorktreeRoot(repo), base)
+    clearSharedReads()
+  })
+
+  ipcMain.handle('repo:base', async (_e, repo: unknown) => {
+    assertPath(repo)
+    return store.repoBases[await mainWorktreeRoot(repo)] ?? null
   })
 
   ipcMain.handle('repo:recent', () => store.recentRepos)

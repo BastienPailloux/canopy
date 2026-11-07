@@ -23,6 +23,8 @@ interface State {
   /** Hashes of the project configs sessions may load, by main worktree root. */
   approvedConfigs: Record<string, string[]>
   ports: Record<string, Record<string, number>>
+  /** Base branch picked for a repo, by main worktree root. */
+  repoBases: Record<string, string>
   prefs: Record<string, unknown>
   /** PATH of the last login shell env that resolved, to start with while the next one resolves. */
   loginPath?: string
@@ -35,7 +37,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -52,6 +54,9 @@ function sanitize(raw: unknown): State {
       for (const [name, port] of Object.entries(services)) if (typeof port === 'number') clean[name] = port
       state.ports[wt] = clean
     }
+  }
+  if (isRecord(raw.repoBases)) {
+    for (const [repo, base] of Object.entries(raw.repoBases)) if (typeof base === 'string' && base !== '') state.repoBases[repo] = base
   }
   if (isRecord(raw.prefs)) state.prefs = raw.prefs
   if (typeof raw.loginPath === 'string' && raw.loginPath !== '') state.loginPath = raw.loginPath
@@ -75,6 +80,7 @@ export class AppStore {
 
   get recentRepos(): string[] { return this.state.recentRepos }
   get ports(): State['ports'] { return this.state.ports }
+  get repoBases(): Record<string, string> { return this.state.repoBases }
   get loginPath(): string | undefined { return this.state.loginPath }
   get prefs(): Record<string, unknown> { return this.state.prefs }
 
@@ -110,6 +116,13 @@ export class AppStore {
 
   setPorts(worktree: string, ports: Record<string, number>): void {
     this.state.ports[worktree] = ports
+    this.save()
+  }
+
+  /** Remembers the base branch of a repo (its main worktree root), or forgets it with null. */
+  setRepoBase(repo: string, branch: string | null): void {
+    if (branch === null) delete this.state.repoBases[repo]
+    else this.state.repoBases[repo] = branch
     this.save()
   }
 

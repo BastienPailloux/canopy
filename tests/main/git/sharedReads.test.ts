@@ -1,5 +1,9 @@
-import { expect, test, vi } from 'vitest'
-import { Coalescer, TtlCache } from '../../../src/main/git/sharedReads'
+import { afterEach, expect, test, vi } from 'vitest'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { cachedBaseRef, clearSharedReads, Coalescer, setBaseOverride, TtlCache } from '../../../src/main/git/sharedReads'
+
+import { createRepo, type TestRepo } from '../../helpers/repo'
 
 const deferred = <T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: Error) => void } => {
   let resolve!: (v: T) => void
@@ -87,4 +91,49 @@ test('Coalescer: the rerun still happens after a failed run', async () => {
   d.reject(new Error('no'))
   await expect(a).rejects.toThrow('no')
   expect(await b).toBe(2)
+})
+
+const run = promisify(execFile)
+const g = (cwd: string, args: string[]): Promise<unknown> => run('git', args, { cwd })
+
+async function repoWithRemotes(): Promise<TestRepo> {
+  const repo = await createRepo({ branch: 'master' })
+  await repo.commit('a', '1')
+  await g(repo.path, ['update-ref', 'refs/remotes/origin/master', 'HEAD'])
+  await g(repo.path, ['update-ref', 'refs/remotes/origin/develop', 'HEAD'])
+  await g(repo.path, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/master'])
+  return repo
+}
+
+afterEach(() => { setBaseOverride(undefined); clearSharedReads() })
+
+test('cachedBaseRef prefers the remembered base over origin/HEAD', async () => {
+  const repo = await repoWithRemotes()
+  try {
+    expect((await cachedBaseRef(repo.path)).ref).toBe('origin/master')
+    setBaseOverride(async () => 'origin/develop')
+    clearSharedReads()
+    expect((await cachedBaseRef(repo.path)).ref).toBe('origin/develop')
+  } finally { await repo.cleanup() }
+})
+
+test('cachedBaseRef falls back when the remembered base is gone', async () => {
+  const repo = await repoWithRemotes()
+  try {
+    setBaseOverride(async () => 'origin/deleted')
+    expect((await cachedBaseRef(repo.path)).ref).toBe('origin/master')
+  } finally { await repo.cleanup() }
+})
+
+test('the base read is renewed after clearSharedReads', async () => {
+  const repo = await repoWithRemotes()
+  try {
+    let remembered: string | null = null
+    setBaseOverride(async () => remembered)
+    expect((await cachedBaseRef(repo.path)).ref).toBe('origin/master')
+    remembered = 'origin/develop'
+    expect((await cachedBaseRef(repo.path)).ref).toBe('origin/master')
+    clearSharedReads()
+    expect((await cachedBaseRef(repo.path)).ref).toBe('origin/develop')
+  } finally { await repo.cleanup() }
 })

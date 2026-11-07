@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { findRepos, scanWorkspace } from '../../src/main/workspace'
+import { findRepos, resolveOpenedFolder, scanWorkspace } from '../../src/main/workspace'
 
 vi.mock('../../src/main/git/worktrees', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/main/git/worktrees')>()
@@ -141,5 +141,35 @@ describe('scanWorkspace', () => {
     } finally {
       await rm(link, { force: true })
     }
+  })
+})
+
+describe('resolveOpenedFolder', () => {
+  it('keeps a non-git parent holding repos', async () => {
+    await mkRepo('a')
+    await mkRepo('b')
+    expect(await resolveOpenedFolder(root)).toBe(root)
+  })
+
+  it('keeps a parent holding a single repo', async () => {
+    await mkRepo('a')
+    expect(await resolveOpenedFolder(root)).toBe(root)
+  })
+
+  it('keeps a repo holding nested repos', async () => {
+    await mkRepo('', true)
+    await mkRepo('sub/x')
+    expect(await resolveOpenedFolder(root)).toBe(root)
+  })
+
+  it('resolves a subfolder of a repo to the repo root', async () => {
+    const repo = await mkRepo('r', true)
+    await mkdir(join(repo, 'src/deep'), { recursive: true })
+    expect(await resolveOpenedFolder(join(repo, 'src/deep'))).toBe(repo)
+    expect(await resolveOpenedFolder(repo)).toBe(repo)
+  })
+
+  it('rejects an empty folder', async () => {
+    await expect(resolveOpenedFolder(root)).rejects.toThrow('Aucun repo git dans ce dossier')
   })
 })

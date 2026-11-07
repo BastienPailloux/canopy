@@ -1,5 +1,5 @@
 import type { BaseRef, Worktree } from '../../shared/types'
-import { resolveBaseRef } from './refs'
+import { resolveBaseRef, resolveCompareRef } from './refs'
 import { listWorktrees } from './worktrees'
 
 /** Answers from memory for `ttlMs`. Concurrent reads share one call, a failure is not kept. */
@@ -64,7 +64,29 @@ const baseRefs = new TtlCache<BaseRef>(READ_TTL_MS)
 
 /** For what polls: the sidebar and the repo picker. Anything deciding on trust reads git itself. */
 export const cachedWorktrees = (repo: string): Promise<Worktree[]> => worktrees.get(repo, () => listWorktrees(repo))
-export const cachedBaseRef = (cwd: string): Promise<BaseRef> => baseRefs.get(cwd, () => resolveBaseRef(cwd))
+
+/** The base remembered for the repo of `cwd`, if any. Injected, so that this module stays free of the app store. */
+type BaseOverride = (cwd: string) => Promise<string | null | undefined>
+let baseOverride: BaseOverride | undefined
+
+export function setBaseOverride(lookup: BaseOverride | undefined): void {
+  baseOverride = lookup
+}
+
+/** The remembered base while its ref exists, else the repo's default one. */
+async function readBaseRef(cwd: string): Promise<BaseRef> {
+  const remembered = await baseOverride?.(cwd).catch(() => null)
+  if (remembered) {
+    try {
+      return await resolveCompareRef(cwd, remembered)
+    } catch {
+      // the branch is gone: fall back
+    }
+  }
+  return resolveBaseRef(cwd)
+}
+
+export const cachedBaseRef = (cwd: string): Promise<BaseRef> => baseRefs.get(cwd, () => readBaseRef(cwd))
 
 /** After a change: the next read must see it. */
 export function clearSharedReads(): void {

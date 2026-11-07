@@ -2,7 +2,7 @@ import type { Workspace, WorkspaceEntry, Worktree } from '../shared/types'
 import { readdir, realpath } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { git } from './git/exec'
-import { listWorktrees } from './git/worktrees'
+import { listWorktrees, mainWorktreeRoot } from './git/worktrees'
 
 const MAX_DEPTH = 6
 const MAX_REPOS = 200
@@ -85,4 +85,22 @@ export async function scanWorkspace(root: string): Promise<Workspace> {
     }
   })
   return { root: real, entries, truncated }
+}
+
+/**
+ * The folder to open: itself when it holds repos other than its own (a parent folder, or a repo with nested ones),
+ * else the root of the repo containing it. Rejects when there is no repo at all.
+ */
+export async function resolveOpenedFolder(path: string): Promise<string> {
+  const real = await realpath(path)
+  const { repos } = await findRepos(real)
+  const top = await git(real, ['rev-parse', '--show-toplevel']).then((t) => realpath(t.trim()), () => undefined)
+  const own = new Set<string>()
+  if (top) {
+    own.add(top)
+    own.add(await mainWorktreeRoot(top).catch(() => top))
+  }
+  if (repos.some((r) => !own.has(r))) return real
+  if (top) return top
+  throw new Error('Aucun repo git dans ce dossier')
 }

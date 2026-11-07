@@ -1,7 +1,7 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Worktree, WorktreeStats, WorktreeStatus } from './types'
+import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats, WorktreeStatus } from './types'
 
 export interface RemovalRisks {
   dirty: number
@@ -99,10 +99,16 @@ export interface RepoTrust extends RepoConfig {
 }
 
 export interface CanopyApi {
-  /** Native folder picker. Resolves the chosen git repo root, or null if cancelled. Rejects if not a git repo. */
+  /** Native folder picker. Resolves the opened folder (a repo root, or a parent of repos), or null if cancelled. Rejects if it holds no git repo. */
   openRepo(): Promise<string | null>
-  /** Re-open a known repo path. Null if it no longer exists or is not a git repo. */
+  /** Re-open a known folder. Null if it no longer exists. Rejects if it holds no git repo. */
   selectRepo(path: string): Promise<string | null>
+  /** The repos under a folder, with their worktrees. */
+  scanWorkspace(root: string): Promise<Workspace>
+  /** Remembers the base branch of a repo, shared by its worktrees; null forgets it. Rejects an unknown branch. */
+  setRepoBase(repo: string, branch: string | null): Promise<void>
+  /** The remembered base branch of a repo, or null. */
+  repoBase(repo: string): Promise<string | null>
   recentRepos(): Promise<string[]>
   listWorktrees(repo: string): Promise<Worktree[]>
   /**
