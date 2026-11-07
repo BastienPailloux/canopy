@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import type { RepoConfig } from '../../shared/api'
+import { useModal } from '../shell/useModal'
 import { basename } from '../store'
 import { useSessions } from './sessionStore'
 
@@ -18,23 +19,19 @@ const SECTIONS: { key: keyof RepoConfig; label: string }[] = [
 /** Shown before the first session in a repo: a session loads what the repo declares. */
 export function TrustDialog(): React.JSX.Element | null {
   const prompt = useSessions((s) => s.trustPrompt)
+  return prompt ? <TrustPrompt prompt={prompt} /> : null
+}
+
+// The dialog itself takes focus, not a button, so that the Enter of a send answers nothing.
+function TrustPrompt({ prompt }: { prompt: NonNullable<ReturnType<typeof useSessions.getState>['trustPrompt']> }): React.JSX.Element {
   const dialog = useRef<HTMLDivElement>(null)
-
-  // Focus sits on the dialog, not a button, so that the Enter of a send answers nothing.
-  useEffect(() => {
-    if (!prompt) return
-    dialog.current?.focus()
-    return () => document.getElementById('composer')?.focus()
-  }, [prompt])
-
-  if (!prompt) return null
   const { trust, answer } = prompt
+  useModal(dialog, () => answer(false))
   const declared = SECTIONS.filter((s) => trust[s.key].length > 0)
   const title = `Faire confiance à ${basename(trust.repo)} ?`
   return (
     <div className="overlay">
-      <div className="dialog trust" ref={dialog} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label={title}
-        onKeyDown={(e) => { if (e.key === 'Escape') answer(false) }}>
+      <div className="dialog trust" ref={dialog} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
         <p className="plain mono" data-testid="trust-repo">{trust.repo}</p>
         <p className="risk">

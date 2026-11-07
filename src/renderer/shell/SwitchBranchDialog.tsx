@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SwitchInfo } from '../../shared/api'
 import type { Worktree } from '../../shared/types'
 import { worktreeLabel } from '../store'
+import { useModal } from './useModal'
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -38,10 +39,12 @@ export function SwitchBranchDialog(props: { worktree: Worktree; onSwitched: () =
     setBusy(false)
   }
 
+  const dialog = useRef<HTMLDivElement>(null)
+  useModal(dialog, () => { if (!busy) props.onClose() })
+
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) props.onClose() }}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="Changer de branche"
-        onKeyDown={(e) => { if (e.key === 'Escape' && !busy) props.onClose() }}>
+      <div ref={dialog} className="dialog" role="dialog" aria-modal="true" aria-label="Changer de branche">
         <h2>Changer de branche</h2>
         <span className="mono">{worktreeLabel(worktree)}</span>
         {conflict ? (

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { BaseRef } from '../../shared/types'
+import { useModal } from './useModal'
 
 /** Folder name of a branch: without its remote, its slashes flattened. */
 const folderName = (branch: string): string => branch.replace(/^origin\//, '').replace(/\//g, '-')
@@ -55,10 +56,12 @@ export function NewWorktreeDialog(props: {
     }
   }
 
+  const dialog = useRef<HTMLFormElement>(null)
+  useModal(dialog, () => { if (!busy) props.onClose() })
+
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) props.onClose() }}>
-      <form className="dialog" role="dialog" aria-modal="true" aria-label="Nouveau worktree" onSubmit={(e) => void submit(e)}
-        onKeyDown={(e) => { if (e.key === 'Escape' && !busy) props.onClose() }}>
+      <form ref={dialog} className="dialog" role="dialog" aria-modal="true" aria-label="Nouveau worktree" onSubmit={(e) => void submit(e)}>
         <h2>Nouveau worktree</h2>
         <label className="check">
           <input type="checkbox" checked={existing} onChange={(e) => setExisting(e.target.checked)} />

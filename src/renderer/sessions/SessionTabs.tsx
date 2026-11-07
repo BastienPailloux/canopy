@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useModal } from '../shell/useModal'
 import { closeTab, hasDraft, newTab, openSession, selectTab, syncWorktree, useSessions, type SessionTab, type TabState } from './sessionStore'
 
 const STATE_LABELS: Record<TabState, string> = {
@@ -64,10 +65,11 @@ function ConfirmClose(props: { tab: SessionTab; onClose: () => void }): React.JS
   const { tab, onClose } = props
   const live = tab.state === 'running' || tab.state === 'waiting'
   const title = live ? 'Arrêter la session ?' : 'Fermer l\'onglet ?'
+  const dialog = useRef<HTMLDivElement>(null)
+  useModal(dialog, onClose)
   return (
     <div className="overlay">
-      <div className="dialog" role="alertdialog" aria-modal="true" aria-label={title}
-        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
+      <div ref={dialog} className="dialog" role="alertdialog" aria-modal="true" aria-label={title}>
         <h2>{title}</h2>
         <p className="risk">{closeWarning(tab)}</p>
         <div className="actions">

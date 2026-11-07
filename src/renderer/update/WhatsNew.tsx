@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import type { ReleaseNotes } from '../../shared/update'
-import { useApp } from '../store'
+import { useModal } from '../shell/useModal'
+import { openRestored } from './openRestored'
 import { useStillUnsaved } from './stash'
 
 /** Open at launch; the restored-files chip opens it again. */
@@ -43,13 +44,25 @@ export function WhatsNew(): React.JSX.Element | null {
     }
     usePanel.setState({ open: false })
   }
-  const openFile = (cwd: string, path: string): void => { useApp.getState().openInCode(cwd, path, 'code') }
+  const openFile = (cwd: string, path: string): void => { void openRestored(cwd, path) }
 
   const title = notes.length > 0 ? `Quoi de neuf dans ${notes[0].version}` : 'Récupéré après la mise à jour'
+  return <WhatsNewDialog title={title} notes={notes} files={files} openFile={openFile} close={close} />
+}
+
+function WhatsNewDialog(props: {
+  title: string
+  notes: ReleaseNotes[]
+  files: { cwd: string; path: string }[]
+  openFile: (cwd: string, path: string) => void
+  close: () => void
+}): React.JSX.Element {
+  const { title, notes, files, openFile, close } = props
+  const dialog = useRef<HTMLDivElement>(null)
+  useModal(dialog, close)
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
-      <div className="dialog whats-new" role="dialog" aria-modal="true" aria-label={title} data-testid="whats-new"
-        onKeyDown={(e) => { if (e.key === 'Escape') close() }}>
+      <div ref={dialog} className="dialog whats-new" role="dialog" aria-modal="true" aria-label={title} data-testid="whats-new">
         <h2>{title}</h2>
         <div className="whats-new-body">
           {notes.map((n) => (

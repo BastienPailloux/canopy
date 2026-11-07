@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ACCOUNT_CHANGED } from './AccountFooter'
+import { useModal } from './useModal'
 
 interface KeyStatus { set: boolean; encryptionAvailable: boolean; readable: boolean }
 
@@ -52,11 +53,13 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
   const trimmed = key.trim()
   const canStore = status?.encryptionAvailable !== false
 
+  const dialog = useRef<HTMLFormElement>(null)
+  useModal(dialog, () => { onClose() })
+
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <form className="dialog" role="dialog" aria-modal="true" aria-label="Réglages"
-        onSubmit={(e) => { e.preventDefault(); if (trimmed !== '' && !busy) void save(trimmed) }}
-        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
+      <form ref={dialog} className="dialog" role="dialog" aria-modal="true" aria-label="Réglages"
+        onSubmit={(e) => { e.preventDefault(); if (trimmed !== '' && !busy) void save(trimmed) }}>
         <h2>Réglages</h2>
         <label>
           Clé API Anthropic
