@@ -6,6 +6,7 @@ import { lineDiff } from '../sessions/lineDiff'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { askMessage } from './askMessage'
+import type { DiffStatus } from './diffOutcome'
 import { dropDraft, getDraft, setDraft } from './drafts'
 import { CodeEditor, DiffPane, type EditorHandle, type Navigate, type Reveal, type Selection } from './Editors'
 
@@ -90,6 +91,7 @@ export function CodeView(props: {
   const [diskChanged, setDiskChanged] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [asking, setAsking] = useState<Selection | null | false>(false)
+  const [diffStatus, setDiffStatus] = useState<DiffStatus>('complete')
   const handle = useRef<EditorHandle | null>(null)
   const state = useRef({ loaded, text })
   state.current = { loaded, text }
@@ -186,7 +188,7 @@ export function CodeView(props: {
     else if (b === undefined) body = <Message>Version de {base.name} illisible.</Message>
     else if (b !== null && b.kind === 'tooLarge') body = <Message>La version de {base.name} est trop volumineuse ({megabytes(b.size)}) : pas de diff.</Message>
     else if (b !== null && b.kind === 'notBlob') body = <Message>Sur {base.name}, ce chemin est un dossier ou un sous-module : pas de diff.</Message>
-    else body = <DiffPane path={path} original={b?.kind === 'text' ? b.content : ''} modified={work.kind === 'text' ? text : ''} onNavigate={props.onNavigate} handle={handle} />
+    else body = <DiffPane path={path} original={b?.kind === 'text' ? b.content : ''} modified={work.kind === 'text' ? text : ''} onNavigate={props.onNavigate} onStatus={setDiffStatus} handle={handle} />
   } else if (work.kind === 'missing') body = <Message>Ce fichier est supprimé depuis {base.name}. Le diff montre ce qui disparaît.</Message>
   else if (work.kind === 'binary') body = <Message>Fichier binaire : pas d'aperçu.</Message>
   else if (work.kind === 'tooLarge') body = <Message>Fichier trop volumineux ({megabytes(work.size)}) : pas d'aperçu.</Message>
@@ -223,6 +225,12 @@ export function CodeView(props: {
         </div>
       )}
       {saveError && <div className="code-warning" role="alert">{saveError}</div>}
+      {diffStatus === 'computing' && <div className="code-warning" role="status" data-testid="diff-computing">Calcul du diff en cours : ce qui s'affiche n'est pas encore le résultat.</div>}
+      {diffStatus === 'abandoned' && (
+        <div className="code-warning" role="alert" data-testid="diff-abandoned">
+          Diff incomplet : le calcul a été abandonné (fichier trop complexe). Ce qui s'affiche peut être partiel ou inexact.
+        </div>
+      )}
       {asking !== false && <AskForm path={path} selection={asking} onSend={send} onCancel={() => setAsking(false)} />}
       <div className="code-body">{body}</div>
     </section>

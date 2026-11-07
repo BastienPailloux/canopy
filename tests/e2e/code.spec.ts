@@ -116,6 +116,37 @@ test('a whitespace-only change shows in the Diff view', async () => {
   await expect(diff.locator('.line-insert, .char-insert').first()).toBeVisible({ timeout: 5_000 })
 })
 
+test('a normal diff shows no incomplete warning', async () => {
+  await launch()
+  await openCode()
+  await treeFile('src/alpha.ts').click()
+  await page.getByRole('button', { name: /^Diff vs main/ }).click()
+  await expect(page.getByTestId('diff-editor').locator('.line-insert').first()).toBeVisible()
+  await page.waitForTimeout(1500)
+  await expect(page.getByTestId('diff-abandoned')).toHaveCount(0)
+})
+
+test('a diff Monaco gives up on says so instead of passing for complete', async () => {
+  test.setTimeout(120_000)
+  // Every line differs and both sides are huge: no line diff finishes within the cap.
+  const lines = (seed: string): string => Array.from({ length: 280_000 }, (_, i) => `${seed}${(i * 2654435761 % 4294967296).toString(36)}`).join('\n')
+  await writeFile(join(featPath, 'huge.txt'), lines('a'))
+  git(featPath, 'add', '-A')
+  git(featPath, 'commit', '-qm', 'feat: huge file')
+  git(repo.path, 'branch', 'huge-base', 'feat/a')
+  await writeFile(join(featPath, 'huge.txt'), lines('b'))
+  await launch()
+  await openCode()
+  await page.getByLabel('Branche de comparaison').selectOption('huge-base')
+  await expect(page.getByTestId('scope-changed')).toHaveText('Modifiés · 1')
+  await page.getByTestId('scope-changed').click()
+  await treeFile('huge.txt').click()
+  await page.getByRole('button', { name: /^Diff vs huge-base/ }).click()
+  await expect(page.getByTestId('diff-computing')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('diff-abandoned')).toContainText('incomplet', { timeout: 60_000 })
+  await expect(page.getByTestId('diff-computing')).toHaveCount(0)
+})
+
 test('with no base branch, the comparison picker stays usable and a pick loads the diff', async () => {
   git(repo.path, 'branch', '-m', 'main', 'trunk')
   await launch()

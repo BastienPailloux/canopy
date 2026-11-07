@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { DIFF_SLOW_MS, DIFF_TIMEOUT_MS, DIFF_WATCHDOG_MS, diffAbandoned, type DiffResult, type DiffStatus } from './diffOutcome'
 import { monaco, THEME } from './monaco'
 
 export interface Selection { text: string; startLine: number; endLine: number }
@@ -126,17 +127,29 @@ export function CodeEditor(props: {
   return <div ref={host} className="monaco-host" data-testid="code-editor" />
 }
 
+/** `getDiffComputationResult` is the only way to `quitEarly`, and is missing from Monaco's public types. */
+function readDiff(diff: monaco.editor.IStandaloneDiffEditor): DiffResult {
+  const computed = diff as unknown as { getDiffComputationResult?: () => { quitEarly?: boolean } | null }
+  return { lineChanges: diff.getLineChanges(), quitEarly: computed.getDiffComputationResult?.()?.quitEarly }
+}
+
 export function DiffPane(props: {
   path: string
   original: string
   modified: string
   onNavigate?: Navigate
+  /** Whether what the pane shows is the whole diff. */
+  onStatus: (status: DiffStatus) => void
   handle: React.RefObject<EditorHandle | null>
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const navigate = useRef(props.onNavigate)
   navigate.current = props.onNavigate
+  const report = useRef(props.onStatus)
+  report.current = props.onStatus
+  const timers = useRef<number[]>([])
+  const clearTimers = (): void => { timers.current.forEach((t) => window.clearTimeout(t)); timers.current = [] }
 
   useEffect(() => {
     if (!host.current) return
@@ -146,14 +159,23 @@ export function DiffPane(props: {
       originalEditable: false,
       renderSideBySide: true,
       renderOverviewRuler: false,
-      // A re-indented file must not look unchanged, and a big one must not give up on the exact diff.
+      // A re-indented file must not look unchanged.
       ignoreTrimWhitespace: false,
-      maxComputationTime: 0
+      maxComputationTime: DIFF_TIMEOUT_MS
     })
     diffRef.current = diff
     props.handle.current = { selection: () => selectionOf(diff.getModifiedEditor()) }
     bindNavigation(diff.getModifiedEditor(), () => navigate.current)
+    // A null here may only mean the models were just replaced: the watchdog decides for a diff that never comes.
+    diff.onDidUpdateDiff(() => {
+      const result = readDiff(diff)
+      if (result.lineChanges === null) return
+      clearTimers()
+      report.current(diffAbandoned(result) ? 'abandoned' : 'complete')
+    })
     return () => {
+      clearTimers()
+      report.current('complete')
       const model = diff.getModel()
       diff.dispose()
       model?.original.dispose()
@@ -167,6 +189,12 @@ export function DiffPane(props: {
     const diff = diffRef.current
     if (!diff) return
     const old = diff.getModel()
+    clearTimers()
+    report.current('complete')
+    timers.current = [
+      window.setTimeout(() => report.current('computing'), DIFF_SLOW_MS),
+      window.setTimeout(() => { if (diffAbandoned(readDiff(diff))) report.current('abandoned') }, DIFF_WATCHDOG_MS)
+    ]
     diff.setModel({ original: newModel('base', props.path, props.original), modified: newModel('work', props.path, props.modified) })
     old?.original.dispose()
     old?.modified.dispose()
