@@ -19,7 +19,7 @@ import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
 import { UpdateBanner } from './update/UpdateBanner'
-import { WhatsNew } from './update/WhatsNew'
+import { RestoredChip, WhatsNew } from './update/WhatsNew'
 
 /** What the terminal asked for at launch, read once per page load. */
 let launchFolder: Promise<string | null> | undefined
@@ -151,6 +151,7 @@ export function App(): React.JSX.Element {
       <TrustDialog />
       <CommandBar />
       <UpdateBanner />
+      <RestoredChip />
       <WhatsNew />
       <Header />
       <div className="body">

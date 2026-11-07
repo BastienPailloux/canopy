@@ -93,6 +93,26 @@ input:focus-visible {
 }
 .update-banner button:disabled { opacity: 0.6; cursor: default; }
 
+/* Restored files after an update: a quiet strip that goes once each file is saved or dropped */
+.restored-chip {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 4px 14px 4px 84px; /* clear of the native traffic lights */
+  -webkit-app-region: drag;
+}
+.restored-chip button {
+  -webkit-app-region: no-drag;
+  background: none;
+  border: 1px solid #A78BFA;
+  border-radius: 999px;
+  color: #A78BFA;
+  font-size: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.restored-chip button:hover { background: rgba(167, 139, 250, 0.12); }
+
 /* Header */
 .header {
   flex: 0 0 auto;

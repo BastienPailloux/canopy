@@ -1,10 +1,26 @@
+import { useEffect } from 'react'
 import { create } from 'zustand'
-import { allDrafts, setDraft } from '../code/drafts'
+import { allDrafts, getDraft, onDraftsChange, setDraft, type Draft } from '../code/drafts'
 import { restoreTabs, stashTabs } from '../sessions/sessionStore'
 import type { Stash, StashedBuffer } from '../../shared/update'
 
 /** Files whose unsaved text came back after an update: the user is told which. */
 export const useRestoredFiles = create<{ files: StashedBuffer[] }>(() => ({ files: [] }))
+
+/** The restored files still unsaved: one leaves the list once it is saved or its changes are dropped. */
+export const stillUnsaved = (files: StashedBuffer[], draft: (cwd: string, path: string) => Draft | undefined): StashedBuffer[] =>
+  files.filter((f) => draft(f.cwd, f.path) !== undefined)
+
+/** The restored files still unsaved, kept up to date: a file saved then edited again does not come back. */
+export function useStillUnsaved(): StashedBuffer[] {
+  const files = useRestoredFiles((s) => s.files)
+  useEffect(() => onDraftsChange(() => {
+    const { files } = useRestoredFiles.getState()
+    const left = stillUnsaved(files, getDraft)
+    if (left.length !== files.length) useRestoredFiles.setState({ files: left })
+  }), [])
+  return stillUnsaved(files, getDraft)
+}
 
 export const collectStash = (): Stash => ({ format: 1, buffers: allDrafts(), tabs: stashTabs() })
 

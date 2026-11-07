@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { dropDrafts, getDraft, setDraft } from '../../src/renderer/code/drafts'
+import { dropDraft, dropDrafts, getDraft, setDraft } from '../../src/renderer/code/drafts'
 import { useSessions, type SessionTab } from '../../src/renderer/sessions/sessionStore'
-import { collectStash, connectUpdateStash, restoreStash, useRestoredFiles } from '../../src/renderer/update/stash'
+import { collectStash, connectUpdateStash, restoreStash, stillUnsaved, useRestoredFiles } from '../../src/renderer/update/stash'
 import { keepOverMissing } from '../../src/renderer/code/draftOverMissing'
 import type { Stash } from '../../src/shared/update'
 
@@ -70,6 +70,18 @@ describe('stash', () => {
     await vi.waitFor(() => expect(Object.keys(useSessions.getState().tabs)).toHaveLength(1))
     const [t] = Object.values(useSessions.getState().tabs)
     expect(t.transcript.items.some((i) => i.kind === 'notice' && i.text.startsWith('Session interrompue'))).toBe(false)
+  })
+})
+
+describe('stillUnsaved', () => {
+  it('keeps only the restored files whose draft is still there', () => {
+    const a = { cwd: CWD, path: 'a.ts', text: 'x', version: 'v1' }
+    const b = { cwd: CWD, path: 'b.ts', text: 'y', version: 'v1' }
+    restoreStash({ format: 1, buffers: [a, b], tabs: [] })
+    expect(stillUnsaved([a, b], getDraft)).toEqual([a, b])
+    dropDraft(CWD, 'a.ts')
+    expect(stillUnsaved([a, b], getDraft)).toEqual([b])
+    expect(stillUnsaved([a, b], () => undefined)).toEqual([])
   })
 })
 
