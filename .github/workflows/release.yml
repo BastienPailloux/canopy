@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # The token is not left in .git/config for later steps (npm install scripts included).
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -71,6 +73,13 @@ jobs:
         run: |
           spctl -a -vv dist/mac-arm64/Canopy.app
           xcrun stapler validate dist/mac-arm64/Canopy.app
+
+      # The signature covers every nested binary, and the bundled claude still runs once unpacked.
+      - name: Smoke test the app
+        if: steps.next.outputs.version != ''
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/mac-arm64/Canopy.app
+          dist/mac-arm64/Canopy.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude --version
 
       - name: Create tag and release
         if: steps.next.outputs.version != ''
