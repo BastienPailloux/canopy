@@ -118,10 +118,16 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
 }
 
 export function registerIpc(
-  store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void
+  store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void,
+  takeOpenFolder: () => string | null
 ): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
+  ipcMain.handle('app:takeOpenFolder', () => {
+    const folder = takeOpenFolder()
+    if (folder !== null) assertPath(folder)
+    return folder
+  })
   ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
 
   const prs = new PrCache()

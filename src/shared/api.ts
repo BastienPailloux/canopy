@@ -115,6 +115,8 @@ export interface CanopyApi {
   /** The remembered base branch of a repo, or null. */
   repoBase(repo: string): Promise<string | null>
   recentRepos(): Promise<string[]>
+  /** The folder asked for from the terminal (`canopy .`) while the app was launching, if any; the last one wins. Later ones arrive as the `app:openFolder` event. */
+  takeOpenFolder(): Promise<string | null>
   listWorktrees(repo: string): Promise<Worktree[]>
   /** Branches of `repo` with an open PR, through one gh call polled at most every 60 s; `soon` allows it sooner. Null if gh cannot tell: the PR is then ignored. */
   openPrs(repo: string, soon?: boolean): Promise<string[] | null>

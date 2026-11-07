@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, safeStorage } from 'electron'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
+import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
 import { AppStore } from './appStore'
@@ -8,8 +9,10 @@ import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { createCrashReload } from './crashReload'
 import { currentEnv, startEnv } from './env'
+import { installCli } from './installCli'
 import { broadcast, registerIpc } from './ipc'
 import { menuTemplate } from './menu'
+import { createOpenFolders } from './openFolders'
 import { createQuitFlow, quitDetail, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
@@ -26,6 +29,47 @@ function claudeExecutablePath(): string | undefined {
 }
 
 let quitting = (): boolean => false
+
+/** Brings the window forward, a new one if it was closed (the app stays alive on macOS). Set once the app is ready. */
+let showWindow: () => void = () => undefined
+
+const openFolders = createOpenFolders((folder) => {
+  broadcast('app:openFolder', folder)
+  showWindow()
+})
+
+// Registered before `whenReady`: a cold `open -a Canopy <dir>` delivers its folder before the app is ready.
+app.on('open-file', (e, path) => {
+  e.preventDefault()
+  openFolders.push(path)
+  // The page will find the folder waiting when it loads.
+  if (app.isReady()) showWindow()
+})
+
+/** Says what `installCli` did, in French, with the line to add when the folder is not on PATH. */
+async function installCommand(): Promise<void> {
+  const binDir = join(homedir(), '.local', 'bin')
+  const options: Electron.MessageBoxOptions = { type: 'info', buttons: ['OK'], message: '' }
+  try {
+    const r = await installCli({ source: join(process.resourcesPath, 'canopy'), binDir, pathEnv: currentEnv().PATH ?? '' })
+    if (r.status === 'conflict') {
+      options.type = 'warning'
+      options.message = 'La commande canopy n\'a pas été installée.'
+      options.detail = `${r.link} existe déjà et n'a pas été créé par Canopy : il n'a pas été modifié.`
+    } else {
+      options.message = 'La commande canopy est installée.'
+      options.detail = r.onPath
+        ? `${r.link}\n\nDans un terminal, « canopy . » ouvre le dossier courant dans Canopy.`
+        : `${r.link}\n\n${binDir} n'est pas dans le PATH. Ajoute cette ligne à ~/.zshrc, puis ouvre un nouveau terminal :\n\nexport PATH="$HOME/.local/bin:$PATH"`
+    }
+  } catch (e) {
+    options.type = 'error'
+    options.message = 'La commande canopy n\'a pas pu être installée.'
+    options.detail = e instanceof Error ? e.message : String(e)
+  }
+  const win = BrowserWindow.getFocusedWindow()
+  await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
+}
 
 /** `onClose` runs for every close that is not part of a quit already under way. */
 function createWindow(onClose: () => void, onRendererGone: () => void): void {
@@ -103,10 +147,25 @@ void app.whenReady().then(async () => {
     e.preventDefault()
     void quit.request()
   })
-  registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts })
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({ isPackaged: app.isPackaged, onCloseTab: () => broadcast('menu:closeTab') })))
+  registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take())
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
+    isPackaged: app.isPackaged,
+    onCloseTab: () => broadcast('menu:closeTab'),
+    onInstallCli: () => void installCommand()
+  })))
   // What the page held died with it.
-  const open = (): void => createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0 } })
+  const open = (): void => {
+    // The new page asks for its folder when it loads; a folder asked meanwhile waits for it.
+    openFolders.reset()
+    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0 }; openFolders.reset() })
+  }
+  showWindow = () => {
+    const [win] = BrowserWindow.getAllWindows()
+    if (!win) { open(); return }
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
   open()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) open()

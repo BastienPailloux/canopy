@@ -14,6 +14,10 @@ asarUnpack:
   - node_modules/@vscode/ripgrep*/**
   - node_modules/typescript-language-server/**
   - node_modules/tsserver-runtime/**
+# The `canopy` shell command, linked from ~/.local/bin by the app menu.
+extraResources:
+  - from: build/cli/canopy
+    to: canopy
 mac:
   target:
     - target: dmg
@@ -21,5 +25,13 @@ mac:
   icon: build/icon.icns
   identity: null
   category: public.app-category.developer-tools
+  # Lets `open -a Canopy <folder>` hand a folder over. Rank None: Canopy never becomes the default app for folders.
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: None
+        LSItemContentTypes:
+          - public.folder
 dmg:
   title: Canopy

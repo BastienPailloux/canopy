@@ -2,6 +2,8 @@ export interface MenuOptions {
   isPackaged: boolean
   /** ⌘W: what it does is the page's call, since only the page knows what a tab holds. */
   onCloseTab: () => void
+  /** « Installer la commande canopy »: only offered by a packaged build, the only one that ships the script. */
+  onInstallCli: () => void
 }
 
 /**
@@ -17,7 +19,7 @@ export function menuTemplate(o: MenuOptions): Electron.MenuItemConstructorOption
       label: 'Canopy',
       submenu: [
         { role: 'about', label: 'À propos de Canopy' },
-        { type: 'separator' },
+        ...(o.isPackaged ? [{ label: 'Installer la commande canopy', click: () => o.onInstallCli() }, { type: 'separator' } as const] : []),
         { role: 'hide', label: 'Masquer Canopy' },
         { role: 'hideOthers', label: 'Masquer les autres' },
         { role: 'unhide', label: 'Tout afficher' },

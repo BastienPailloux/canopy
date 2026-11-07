@@ -12,6 +12,7 @@ const api: CanopyApi = {
   setRepoBase: (repo, branch) => ipcRenderer.invoke('repo:setBase', repo, branch),
   repoBase: (repo) => ipcRenderer.invoke('repo:base', repo),
   recentRepos: () => ipcRenderer.invoke('repo:recent'),
+  takeOpenFolder: () => ipcRenderer.invoke('app:takeOpenFolder'),
   listWorktrees: (repo) => ipcRenderer.invoke('worktree:list', repo),
   worktreeStats: (cwd) => ipcRenderer.invoke('worktree:stats', cwd),
   openPrs: (repo, soon) => ipcRenderer.invoke('repo:openPrs', repo, soon),

@@ -12,6 +12,9 @@ import { connectLastEntry, openRepoFlow, selectRepoFlow } from './shell/repoActi
 import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
 
+/** What the terminal asked for at launch, read once per page load. */
+let launchFolder: Promise<string | null> | undefined
+
 function Empty(): React.JSX.Element {
   const error = useApp((s) => s.openError)
   return (
@@ -64,10 +67,19 @@ export function App(): React.JSX.Element {
     if (view === 'sessions' && worktree && !document.querySelector('[aria-modal="true"]')) closeActiveTabIfSafe(worktree)
   }), [])
 
-  // Re-open the most recent folder that still exists, on the entry left selected.
+  // A folder asked for from the terminal while the app runs. Listens before the launch effect takes what waited.
+  useEffect(() => window.canopy.on('app:openFolder', (path) => {
+    if (typeof path === 'string') void selectRepoFlow(path)
+  }), [])
+
+  // A folder asked for from the terminal wins; else re-open the most recent folder that still exists, on the entry left selected.
   useEffect(() => {
     let live = true
     void (async () => {
+      launchFolder ??= window.canopy.takeOpenFolder().catch(() => null)
+      const asked = await launchFolder
+      // The page is told once: a second run of this effect (StrictMode) finds the same answer.
+      if (asked && (await selectRepoFlow(asked))) return
       const recents = await window.canopy.recentRepos().catch(() => [])
       for (const r of recents) {
         if (!live || useApp.getState().repo) return

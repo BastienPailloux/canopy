@@ -3,7 +3,8 @@ import { menuTemplate } from '../../src/main/menu'
 
 type Item = Electron.MenuItemConstructorOptions
 const flatten = (items: Item[]): Item[] => items.flatMap((i) => [i, ...flatten((i.submenu ?? []) as Item[])])
-const items = (isPackaged: boolean, onCloseTab = vi.fn()): Item[] => flatten(menuTemplate({ isPackaged, onCloseTab }))
+const items = (isPackaged: boolean, onCloseTab = vi.fn(), onInstallCli = vi.fn()): Item[] =>
+  flatten(menuTemplate({ isPackaged, onCloseTab, onInstallCli }))
 
 test('nothing closes the window or quits on ⌘W: it goes to the tab flow', () => {
   const onCloseTab = vi.fn()
@@ -29,4 +30,13 @@ test('development keeps reload and the dev tools', () => {
 test('editing shortcuts stay, or copy and paste would stop working', () => {
   const roles = items(true).map((i) => i.role)
   for (const role of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll', 'quit']) expect(roles).toContain(role)
+})
+
+test('installing the canopy command is offered by a packaged build only', () => {
+  const onInstallCli = vi.fn()
+  const install = items(true, vi.fn(), onInstallCli).filter((i) => i.label === 'Installer la commande canopy')
+  expect(install).toHaveLength(1)
+  ;(install[0].click as () => void)()
+  expect(onInstallCli).toHaveBeenCalledOnce()
+  expect(items(false).some((i) => i.label === 'Installer la commande canopy')).toBe(false)
 })
