@@ -208,7 +208,7 @@ test('repoTrust lists the config of the given worktree, not the main one', async
   await writeFile(join(wt.path, '.mcp.json'), JSON.stringify({ mcpServers: { branch: {} } }))
   const store = new AppStore(join(dir, 'state.json'))
   expect(await repoTrust(store, wt.path)).toEqual({
-    ...EMPTY, trusted: false, mcpServers: ['branch'], configHash: await configHash(wt.path)
+    ...EMPTY, repo: repo.path, trusted: false, mcpServers: ['branch'], configHash: await configHash(wt.path)
   })
 })
 
@@ -269,4 +269,17 @@ test('a config with a forbidden portEnv is listed as unreadable, and runs nothin
   const config = await readRepoConfig(dir)
   expect(config.unknownFiles).toContain('.canopy/config.json')
   expect(config.services).toEqual([])
+})
+
+test('repoTrust names the repo, the same from a linked worktree', async () => {
+  const repo = await createRepo()
+  try {
+    const linked = `${repo.path}-linked`
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'feat', linked], { cwd: repo.path })
+    const store = new AppStore(join(repo.path, '..', 'state.json'))
+    expect((await repoTrust(store, repo.path)).repo).toBe(repo.path)
+    expect((await repoTrust(store, linked)).repo).toBe(repo.path)
+  } finally {
+    await repo.cleanup()
+  }
 })

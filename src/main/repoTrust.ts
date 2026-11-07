@@ -136,7 +136,7 @@ export async function repoTrust(store: AppStore, cwd: string): Promise<RepoTrust
   const root = await mainWorktreeRoot(cwd)
   const hash = await configHash(cwd)
   const trusted = store.isConfigApproved(root, hash) && await isWorktreeOf(root, cwd)
-  return { trusted, configHash: hash, ...(await readRepoConfig(cwd)) }
+  return { repo: root, trusted, configHash: hash, ...(await readRepoConfig(cwd)) }
 }
 
 /** Approves the config that was shown, whatever `cwd` holds by now: `start` checks that again. */

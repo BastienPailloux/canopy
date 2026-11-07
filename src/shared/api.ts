@@ -93,6 +93,8 @@ export interface TerminalEvents {
 }
 
 export interface RepoTrust extends RepoConfig {
+  /** Main worktree root of the repo asked about. */
+  repo: string
   trusted: boolean
   /** Identifies the config listed here, to approve with `trustRepo`. */
   configHash: string

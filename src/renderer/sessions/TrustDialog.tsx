@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { RepoConfig } from '../../shared/api'
+import { basename } from '../store'
 import { useSessions } from './sessionStore'
 
 const SECTIONS: { key: keyof RepoConfig; label: string }[] = [
@@ -29,11 +30,13 @@ export function TrustDialog(): React.JSX.Element | null {
   if (!prompt) return null
   const { trust, answer } = prompt
   const declared = SECTIONS.filter((s) => trust[s.key].length > 0)
+  const title = `Faire confiance à ${basename(trust.repo)} ?`
   return (
     <div className="overlay">
-      <div className="dialog trust" ref={dialog} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label="Faire confiance à ce dépôt ?"
+      <div className="dialog trust" ref={dialog} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label={title}
         onKeyDown={(e) => { if (e.key === 'Escape') answer(false) }}>
-        <h2>Faire confiance à ce dépôt ?</h2>
+        <h2>{title}</h2>
+        <p className="plain mono" data-testid="trust-repo">{trust.repo}</p>
         <p className="risk">
           Une session Claude charge le contenu de ce dépôt. Ce qu'il déclare peut exécuter du code sur ta machine,
           avec tes droits. N'accepte que si tu fais confiance à sa provenance.

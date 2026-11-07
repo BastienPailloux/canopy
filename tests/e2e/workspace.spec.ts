@@ -436,3 +436,13 @@ test('launch reads the stats of each worktree once', async () => {
   // alpha holds two worktrees.
   expect(reads).toHaveLength(2)
 })
+
+test('the trust dialog names the repo the session would run in', async () => {
+  await launchWorkspace()
+  await row('beta').click()
+  await composer().fill('bonjour')
+  await composer().press('Meta+Enter')
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Faire confiance à beta ?')
+  await expect(dialog.getByTestId('trust-repo')).toHaveText(beta)
+})
