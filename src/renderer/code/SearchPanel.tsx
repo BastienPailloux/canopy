@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { preview } from '../../shared/preview'
-import { DEFAULT_SEARCH_LIMIT, type SearchHit } from '../../shared/types'
+import { DEFAULT_SEARCH_LIMIT, type Location, type SearchHit } from '../../shared/types'
 
 const DEBOUNCE_MS = 200
 
@@ -10,10 +10,48 @@ const typed = new Map<string, Typed>()
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
-function group(hits: SearchHit[]): { path: string; hits: SearchHit[] }[] {
-  const byPath = new Map<string, SearchHit[]>()
+function group<T extends Location>(hits: T[]): { path: string; hits: T[] }[] {
+  const byPath = new Map<string, T[]>()
   for (const h of hits) byPath.set(h.path, [...(byPath.get(h.path) ?? []), h])
   return [...byPath].map(([path, list]) => ({ path, hits: list }))
+}
+
+/** Hits by file: a click opens one. External ones cannot be opened: a click only says where they are. */
+function HitList(props: { hits: Location[]; onOpen: (hit: Location) => void }): React.JSX.Element {
+  const groups = useMemo(() => group(props.hits), [props.hits])
+  return <>{groups.map((g) => (
+    <div key={g.path} className="search-file">
+      <div className="search-path mono" title={g.path}>{g.path}<span className="muted"> · {g.hits.length}</span></div>
+      {g.hits.map((h) => (
+        <button key={`${h.line}:${h.column}`} type="button" className="search-hit" data-testid="search-hit" onClick={() => props.onOpen(h)}>
+          <span className="line mono">{h.line}</span>
+          <span className="text mono">{h.external ? 'hors du worktree' : preview(h.text ?? '')}</span>
+        </button>
+      ))}
+    </div>
+  ))}</>
+}
+
+/** What a definition or a list of uses found. Null `hits`: still looking. */
+export interface Found { title: string; hits: Location[] | null }
+
+/** The answer of the language server, in the panel of the search and with its list. */
+export function ResultsPanel(props: { found: Found; onOpen: (hit: Location) => void; onClose: () => void }): React.JSX.Element {
+  const { title, hits } = props.found
+  return (
+    <div className="search-panel" data-testid="results-panel">
+      <div className="search-head">
+        <button type="button" className="link-btn" onClick={props.onClose}>← Fichiers</button>
+      </div>
+      <h2 className="results-title">{title}</h2>
+      <div className="search-results" data-testid="search-results">
+        {hits === null && <p className="tree-empty">Recherche…</p>}
+        {hits?.length === 0 && <p className="tree-empty">Aucun résultat.</p>}
+        {hits?.some((h) => h.fallback) && <p className="tree-empty" data-testid="results-fallback">Recherche par texte : le serveur de langage n'a pas répondu ou ne lit pas ce fichier.</p>}
+        {hits && <HitList hits={hits} onOpen={props.onOpen} />}
+      </div>
+    </div>
+  )
 }
 
 export function SearchPanel(props: {
@@ -63,8 +101,6 @@ export function SearchPanel(props: {
     return () => clearTimeout(timer)
   }, [cwd, query, regex, caseSensitive])
 
-  const groups = useMemo(() => group(hits ?? []), [hits])
-
   return (
     <div className="search-panel" role="search" data-testid="search-panel">
       <div className="search-head">
@@ -85,18 +121,7 @@ export function SearchPanel(props: {
         {!error && hits !== null && hits.length >= DEFAULT_SEARCH_LIMIT && (
           <p className="tree-empty">{DEFAULT_SEARCH_LIMIT} premiers résultats : précise la recherche.</p>
         )}
-        {!error && groups.map((g) => (
-          <div key={g.path} className="search-file">
-            <div className="search-path mono" title={g.path}>{g.path}<span className="muted"> · {g.hits.length}</span></div>
-            {g.hits.map((h) => (
-              <button key={`${h.line}:${h.column}`} type="button" className="search-hit" data-testid="search-hit"
-                onClick={() => props.onOpen(h.path, h.line)}>
-                <span className="line mono">{h.line}</span>
-                <span className="text mono">{preview(h.text)}</span>
-              </button>
-            ))}
-          </div>
-        ))}
+        {!error && hits && <HitList hits={hits} onOpen={(h) => props.onOpen(h.path, h.line)} />}
       </div>
     </div>
   )

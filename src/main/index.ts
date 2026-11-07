@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
 import { AppStore } from './appStore'
+import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { loginShellEnv } from './env'
 import { setGitEnv } from './git/exec'
@@ -57,8 +58,9 @@ void app.whenReady().then(async () => {
     pathToClaudeCodeExecutable: claudeExecutablePath,
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
   })
-  app.on('before-quit', () => { sessions.stopAll(); stopAllWatchers() })
-  registerIpc(store, sessions)
+  const lsp = new LspPool({ env: () => Promise.resolve(env) })
+  app.on('before-quit', () => { sessions.stopAll(); stopAllWatchers(); lsp.disposeAll() })
+  registerIpc(store, sessions, lsp)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

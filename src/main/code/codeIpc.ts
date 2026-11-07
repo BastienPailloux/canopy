@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path'
 import { changedFiles, readAtBase } from '../git/diff'
 import { listBranches, resolveCompareRef } from '../git/refs'
 import { listTree, readFileSafe, writeFileSafe } from './files'
+import type { LspPool } from './lsp'
 import { searchText } from './search'
 import { SearchSlots } from './searchSlots'
 import { syncWatchers } from './watchers'
@@ -18,10 +19,15 @@ function assertRepoPath(p: unknown): asserts p is string {
   }
 }
 
+/** A 1-based line or column. */
+function assertPosition(n: unknown): asserts n is number {
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new Error('Position invalide')
+}
+
 /** One search per window and caller: the panel and the bar do not cancel each other. */
 const searches = new SearchSlots()
 
-export function registerCodeIpc(broadcast: (event: string, payload?: unknown) => void): void {
+export function registerCodeIpc(broadcast: (event: string, payload?: unknown) => void, lsp: LspPool): void {
   ipcMain.handle('code:listTree', (_e, cwd: unknown) => {
     assertPath(cwd)
     return listTree(cwd)
@@ -43,6 +49,23 @@ export function registerCodeIpc(broadcast: (event: string, payload?: unknown) =>
       limit: limit as number | undefined,
       signal
     }))
+  })
+
+  const navigation = (find: 'definition' | 'references') => (_e: unknown, cwd: unknown, path: unknown, line: unknown, col: unknown) => {
+    assertPath(cwd)
+    assertRepoPath(path)
+    assertPosition(line)
+    assertPosition(col)
+    return lsp[find](cwd, path, line, col)
+  }
+  ipcMain.handle('code:definition', navigation('definition'))
+  ipcMain.handle('code:references', navigation('references'))
+
+  ipcMain.handle('code:symbols', (e, cwd: unknown, q: unknown) => {
+    assertPath(cwd)
+    if (typeof q !== 'string' || q.length > 1000) throw new Error('Recherche invalide')
+    // null: replaced by a newer search of the same window.
+    return searches.run(`${e.sender.id}:symbols`, (signal) => lsp.symbols(cwd, q, signal))
   })
 
   ipcMain.handle('code:changes', async (_e, cwd: unknown, base: unknown) => {
@@ -79,7 +102,8 @@ export function registerCodeIpc(broadcast: (event: string, payload?: unknown) =>
     await syncWatchers(
       repo,
       (cwd) => broadcast('code:changed', { cwd }),
-      (cwd, e) => broadcast('code:watchError', { cwd, message: e.message })
+      (cwd, e) => broadcast('code:watchError', { cwd, message: e.message }),
+      (cwd) => lsp.release(cwd)
     )
   })
 }

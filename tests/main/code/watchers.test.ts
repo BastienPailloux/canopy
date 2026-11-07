@@ -23,6 +23,19 @@ describe('syncWatchers', () => {
     expect(watchedPaths()).toEqual([repo.path])
   })
 
+  it('reports each worktree it stops watching', async () => {
+    const linked = `${repo.path}-linked`
+    await run('git', ['worktree', 'add', '-q', '-b', 'feat', linked], { cwd: repo.path })
+    const stopped: string[] = []
+    const sync = (): Promise<void> => syncWatchers(repo.path, () => undefined, () => undefined, (cwd) => stopped.push(cwd))
+    await sync()
+    expect(stopped).toEqual([])
+
+    await run('git', ['worktree', 'remove', '--force', linked], { cwd: repo.path })
+    await sync()
+    expect(stopped).toEqual([linked])
+  })
+
   it('drops the watchers of another repo', async () => {
     await syncWatchers(repo.path, () => undefined, () => undefined)
     const other = await createRepo()

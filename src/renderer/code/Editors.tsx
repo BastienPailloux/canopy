@@ -3,7 +3,9 @@ import { monaco, THEME } from './monaco'
 
 export interface Selection { text: string; startLine: number; endLine: number }
 /** A line to bring into view, once per `seq`. */
-export interface Reveal { line: number; seq: number }
+export interface Reveal { line: number; column?: number; seq: number }
+/** Go to the definition (⌘click) or list the uses (⇧F12) of the symbol at a 1-based position. */
+export type Navigate = (kind: 'definition' | 'references', line: number, column: number) => void
 /** Lets the screen read what is selected, when "Demander à Claude" opens. */
 export interface EditorHandle { selection: () => Selection | null }
 
@@ -30,6 +32,19 @@ function selectionOf(editor: Editor): Selection | null {
   return { text: model.getValueInRange(range), startLine: range.startLineNumber, endLine }
 }
 
+/** ⌘click and ⇧F12 on `editor`. */
+function bindNavigation(editor: Editor, navigate: () => Navigate | undefined): void {
+  editor.onMouseDown((e) => {
+    if (!e.event.metaKey || !e.event.leftButton || e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) return
+    const at = e.target.position
+    navigate()?.('definition', at.lineNumber, at.column)
+  })
+  editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F12, () => {
+    const at = editor.getPosition()
+    if (at) navigate()?.('references', at.lineNumber, at.column)
+  })
+}
+
 let modelCount = 0
 
 /** A model for `path`'s language, under a URI of its own: the caller disposes it. */
@@ -49,6 +64,7 @@ export function CodeEditor(props: {
   onSave: () => void
   /** Scrolls to this 1-based line each time the object changes. */
   reveal?: Reveal
+  onNavigate?: Navigate
   handle: React.RefObject<EditorHandle | null>
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
@@ -63,6 +79,7 @@ export function CodeEditor(props: {
     editorRef.current = editor
     decorations.current = editor.createDecorationsCollection()
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => latest.current.onSave())
+    bindNavigation(editor, () => latest.current.onNavigate)
     editor.onDidChangeModelContent(() => latest.current.onChange(editor.getValue()))
     latest.current.handle.current = { selection: () => selectionOf(editor) }
     return () => {
@@ -93,7 +110,7 @@ export function CodeEditor(props: {
     const model = editor?.getModel()
     if (!editor || !model || !props.reveal) return
     const line = Math.min(Math.max(props.reveal.line, 1), model.getLineCount())
-    editor.setPosition({ lineNumber: line, column: 1 })
+    editor.setPosition({ lineNumber: line, column: props.reveal.column ?? 1 })
     editor.revealLineInCenter(line)
   }, [props.reveal, props.path])
 
@@ -113,10 +130,13 @@ export function DiffPane(props: {
   path: string
   original: string
   modified: string
+  onNavigate?: Navigate
   handle: React.RefObject<EditorHandle | null>
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+  const navigate = useRef(props.onNavigate)
+  navigate.current = props.onNavigate
 
   useEffect(() => {
     if (!host.current) return
@@ -129,6 +149,7 @@ export function DiffPane(props: {
     })
     diffRef.current = diff
     props.handle.current = { selection: () => selectionOf(diff.getModifiedEditor()) }
+    bindNavigation(diff.getModifiedEditor(), () => navigate.current)
     return () => {
       const model = diff.getModel()
       diff.dispose()

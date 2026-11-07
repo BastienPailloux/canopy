@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../store'
 import { CodeView, type Mode } from './CodeView'
-import type { Reveal } from './Editors'
+import type { Location } from '../../shared/types'
+import type { Navigate, Reveal } from './Editors'
 import { getShown, setShown } from './drafts'
 import { FileTree } from './FileTree'
-import { SearchPanel } from './SearchPanel'
+import { ResultsPanel, SearchPanel, type Found } from './SearchPanel'
 import { useCodeData } from './useCodeData'
 import './code.css'
 
 const UNKNOWN_BASE = 'Branche de comparaison inconnue'
+const SLOW_MS = 400
+
+const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
 export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.Element {
   const { cwd } = props
@@ -23,17 +27,52 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   const filter = useRef<HTMLInputElement>(null)
   const [baseNotice, setBaseNotice] = useState<string | null>(null)
   const request = useApp((s) => s.codeRequest)
-  const [panel, setPanel] = useState<'files' | 'search'>('files')
+  const [panel, setPanel] = useState<'files' | 'search' | 'results'>('files')
+  const [found, setFound] = useState<Found | null>(null)
+  const [navNotice, setNavNotice] = useState<string | null>(null)
+  const navigation = useRef(0)
   const searchInput = useRef<HTMLInputElement>(null)
   const [reveal, setReveal] = useState<Reveal | undefined>()
   const select = (path: string): void => { setReveal(undefined); setSelected(path) }
+
+  const openHit = (hit: Location): void => {
+    if (hit.external) setNavNotice(`Hors du worktree, non ouvert : ${hit.path}:${hit.line}`)
+    else useApp.getState().openInCode(cwd, hit.path, 'code', hit.line, hit.column)
+  }
+
+  const navigate: Navigate = (kind, line, column) => {
+    if (selected === null) return
+    const id = ++navigation.current
+    const definition = kind === 'definition'
+    const title = definition ? 'Définitions' : 'Appels'
+    setNavNotice(null)
+    if (!definition) {
+      setFound({ title, hits: null })
+      setPanel('results')
+    }
+    // The first answer waits for the server to load the project; the next ones are too quick to announce.
+    const slow = setTimeout(() => { if (definition && navigation.current === id) setNavNotice('Recherche de la définition…') }, SLOW_MS)
+    void (definition ? window.canopy.definition : window.canopy.references)(cwd, selected, line, column).finally(() => clearTimeout(slow)).then(
+      (hits) => {
+        if (navigation.current !== id) return
+        setNavNotice(null)
+        if (definition && hits.length === 1) {
+          openHit(hits[0])
+          return
+        }
+        setFound({ title, hits })
+        setPanel('results')
+      },
+      (e: unknown) => { if (navigation.current === id) setNavNotice(`Recherche impossible : ${errorText(e)}`) }
+    )
+  }
 
   // A tool card asked for a file, possibly before the changed list was known: the request waits for it.
   useEffect(() => {
     if (!request || request.cwd !== cwd || data.loading) return
     useApp.getState().clearCodeRequest(request.seq)
     setSelected(request.path)
-    setReveal(request.line === undefined ? undefined : { line: request.line, seq: request.seq })
+    setReveal(request.line === undefined ? undefined : { line: request.line, column: request.column, seq: request.seq })
     setMode(request.mode)
     setScope(data.files.some((f) => f.path === request.path) ? 'changed' : 'all')
     setQuery('')
@@ -106,6 +145,7 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         </div>
       )}
       {baseNotice && <div className="code-warning" role="alert" data-testid="base-notice">{baseNotice}</div>}
+      {navNotice && <div className="code-warning" role="status" data-testid="nav-notice">{navNotice}</div>}
       {data.branchesError && (
         <div className="code-warning" role="alert" data-testid="branches-error">Liste des branches indisponible : {data.branchesError}</div>
       )}
@@ -116,7 +156,9 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
       )}
       <div className="code-main">
         <nav className="code-tree" aria-label="Fichiers">
-          {panel === 'search' ? (
+          {panel === 'results' && found ? (
+            <ResultsPanel found={found} onOpen={openHit} onClose={() => setPanel('files')} />
+          ) : panel === 'search' ? (
             <SearchPanel cwd={cwd} inputRef={searchInput} onClose={() => setPanel('files')}
               onOpen={(path, line) => useApp.getState().openInCode(cwd, path, 'code', line)} />
           ) : (<>
@@ -136,7 +178,7 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         </nav>
         {selected !== null && data.base ? (
           <CodeView key={`${cwd}\0${selected}`} cwd={cwd} base={data.base} path={selected} change={change} mode={mode} onMode={setMode}
-            tick={data.tick} onSaved={data.refresh} reveal={reveal} />
+            tick={data.tick} onSaved={data.refresh} reveal={reveal} onNavigate={navigate} />
         ) : (
           <div className="code-view"><div className="code-message">{data.loading ? 'Chargement…' : 'Choisis un fichier.'}</div></div>
         )}

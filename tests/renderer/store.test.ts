@@ -4,6 +4,11 @@ import { useApp } from '../../src/renderer/store'
 beforeEach(() => { useApp.setState({ view: 'sessions', worktree: null, codeRequest: null }) })
 
 describe('openInCode', () => {
+  it('carries the column of a definition', () => {
+    useApp.getState().openInCode('/wt', 'src/a.ts', 'code', 42, 7)
+    expect(useApp.getState().codeRequest).toMatchObject({ line: 42, column: 7 })
+  })
+
   it('carries the line to reveal', () => {
     useApp.getState().openInCode('/wt', 'src/a.ts', 'code', 42)
     expect(useApp.getState().codeRequest).toMatchObject({ path: 'src/a.ts', mode: 'code', line: 42 })

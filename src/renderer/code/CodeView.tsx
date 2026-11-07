@@ -7,7 +7,7 @@ import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { askMessage } from './askMessage'
 import { dropDraft, getDraft, setDraft } from './drafts'
-import { CodeEditor, DiffPane, type EditorHandle, type Reveal, type Selection } from './Editors'
+import { CodeEditor, DiffPane, type EditorHandle, type Navigate, type Reveal, type Selection } from './Editors'
 
 export type Mode = 'code' | 'diff'
 
@@ -81,6 +81,7 @@ export function CodeView(props: {
   tick: number
   onSaved: () => void
   reveal?: Reveal
+  onNavigate: Navigate
 }): React.JSX.Element {
   const { cwd, base, path, change } = props
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -172,6 +173,8 @@ export function CodeView(props: {
 
   const lastSlash = path.lastIndexOf('/')
   const work = loaded?.work
+  // Reached through a definition: someone else's code, not part of the worktree's own files.
+  const vendored = path.split('/').includes('node_modules')
 
   let body: React.ReactNode
   if (!loaded || !work) body = <Message>Chargement…</Message>
@@ -183,11 +186,11 @@ export function CodeView(props: {
     else if (b === undefined) body = <Message>Version de {base.name} illisible.</Message>
     else if (b !== null && b.kind === 'tooLarge') body = <Message>La version de {base.name} est trop volumineuse ({megabytes(b.size)}) : pas de diff.</Message>
     else if (b !== null && b.kind === 'notBlob') body = <Message>Sur {base.name}, ce chemin est un dossier ou un sous-module : pas de diff.</Message>
-    else body = <DiffPane path={path} original={b?.kind === 'text' ? b.content : ''} modified={work.kind === 'text' ? text : ''} handle={handle} />
+    else body = <DiffPane path={path} original={b?.kind === 'text' ? b.content : ''} modified={work.kind === 'text' ? text : ''} onNavigate={props.onNavigate} handle={handle} />
   } else if (work.kind === 'missing') body = <Message>Ce fichier est supprimé depuis {base.name}. Le diff montre ce qui disparaît.</Message>
   else if (work.kind === 'binary') body = <Message>Fichier binaire : pas d'aperçu.</Message>
   else if (work.kind === 'tooLarge') body = <Message>Fichier trop volumineux ({megabytes(work.size)}) : pas d'aperçu.</Message>
-  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} reveal={props.reveal} handle={handle} />
+  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} reveal={props.reveal} onNavigate={props.onNavigate} handle={handle} />
 
   return (
     <section className="code-view" aria-label="Contenu du fichier">
@@ -195,6 +198,7 @@ export function CodeView(props: {
         <span className="file-path mono"><span className="dir">{lastSlash >= 0 ? path.slice(0, lastSlash + 1) : ''}</span>{path.slice(lastSlash + 1)}</span>
         {loaded && <Badge change={change} base={base} />}
         {dirty && <span className="badge changed">non enregistré</span>}
+        {vendored && <span className="badge same" data-testid="read-only">lecture seule</span>}
         <div className="file-actions">
           <div role="group" aria-label="Mode d'affichage" className="seg">
             <button type="button" aria-pressed={mode === 'code'} onClick={() => props.onMode('code')}>Code</button>
@@ -203,7 +207,7 @@ export function CodeView(props: {
           </div>
           <button type="button" disabled={!loaded || work?.kind === 'error'}
             onClick={() => setAsking(asking === false ? handle.current?.selection() ?? null : false)}>Demander à Claude</button>
-          {mode === 'code' && work?.kind === 'text' && (editing ? (
+          {mode === 'code' && work?.kind === 'text' && !vendored && (editing ? (
             <>
               <button type="button" className="primary" disabled={!dirty} onClick={() => void save(false)}>Enregistrer <span className="kbd">⌘S</span></button>
               <button type="button" onClick={() => { setText(work.content); setEditing(false); setDiskChanged(false) }}>Annuler</button>

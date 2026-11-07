@@ -9,7 +9,7 @@
     "build": "electron-vite build",
     "test": "vitest run",
     "test:e2e": "electron-vite build && playwright test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "postinstall": "electron-rebuild -f -w node-pty"
   },
   "dependencies": {
@@ -27,7 +27,9 @@
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "tsserver-runtime": "npm:typescript@6.0.3",
     "typescript-language-server": "^6.0.3",
+    "vscode-languageserver-protocol": "3.17.5",
     "zustand": "^5.1.0"
   },
   "devDependencies": {

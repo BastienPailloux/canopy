@@ -1,7 +1,7 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { BaseRef, ChangedFile, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, UserContent, Worktree, WorktreeStats } from './types'
+import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Worktree, WorktreeStats } from './types'
 
 export interface RemovalRisks { dirty: number; unpushed: number }
 
@@ -74,6 +74,18 @@ export interface CanopyApi {
    * Rejects with a readable message for an invalid regex.
    */
   searchText(cwd: string, q: string, o: { channel: 'panel' | 'bar'; regex?: boolean; caseSensitive?: boolean; limit?: number }): Promise<SearchHit[] | null>
+  /**
+   * Where the symbol at this 1-based position of the file on disk is defined. In a file that is not TS or JS,
+   * or if the language server fails: the text hits of the word there, marked `fallback`.
+   */
+  definition(cwd: string, path: string, line: number, column: number): Promise<Location[]>
+  /** The uses of the symbol at this position, without its declaration. Same fallback as `definition`. */
+  references(cwd: string, path: string, line: number, column: number): Promise<Location[]>
+  /**
+   * Symbols of `cwd` matching `q`, in the projects its server loaded. A new call from the same window cancels
+   * the previous one, which then resolves null. Rejects if the language server fails.
+   */
+  symbols(cwd: string, q: string): Promise<SymbolLocation[] | null>
   /** Files changed since the merge-base with `base` (default: the repo's base branch). Rejects on git failures. */
   codeChanges(cwd: string, base?: string): Promise<{ base: BaseRef; files: ChangedFile[] }>
   /** Local and remote branches one can compare against. */

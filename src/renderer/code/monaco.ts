@@ -21,6 +21,11 @@ const quiet = { noSemanticValidation: true, noSyntaxValidation: true, noSuggesti
 monaco.typescript.typescriptDefaults.setDiagnosticsOptions(quiet)
 monaco.typescript.javascriptDefaults.setDiagnosticsOptions(quiet)
 
+// Definitions and references come from the worktree's language server (`CodeEditor`), not from this single-file service.
+const modes = { ...monaco.typescript.typescriptDefaults.modeConfiguration, definitions: false, references: false }
+monaco.typescript.typescriptDefaults.setModeConfiguration(modes)
+monaco.typescript.javascriptDefaults.setModeConfiguration(modes)
+
 export const THEME = 'canopy'
 monaco.editor.defineTheme(THEME, {
   base: 'vs-dark',

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { matches } from '../code/FileTree'
 import { preview } from '../../shared/preview'
-import type { SearchHit } from '../../shared/types'
+import type { SearchHit, SymbolLocation } from '../../shared/types'
 import { useApp } from '../store'
 
 const MAX_FILES = 8
+const MAX_SYMBOLS = 8
 const MAX_TEXT = 10
 const MIN_TEXT_QUERY = 2
 const DEBOUNCE_MS = 150
@@ -33,7 +34,11 @@ function useFileSection(cwd: string, query: string, open: (path: string) => void
   const [error, setError] = useState<string | undefined>()
   useEffect(() => {
     let live = true
-    window.canopy.listTree(cwd).then((list) => { if (live) setFiles(list) }, (e: unknown) => { if (live) setError(`Liste des fichiers indisponible : ${errorText(e)}`) })
+    setError(undefined)
+    window.canopy.listTree(cwd).then(
+      (list) => { if (live) { setFiles(list); setError(undefined) } },
+      (e: unknown) => { if (live) setError(`Liste des fichiers indisponible : ${errorText(e)}`) }
+    )
     return () => { live = false }
   }, [cwd])
   const q = query.trim()
@@ -43,6 +48,34 @@ function useFileSection(cwd: string, query: string, open: (path: string) => void
     title: 'Fichiers',
     error,
     items: items.map((p) => ({ key: p, label: p, mono: true, run: () => open(p) }))
+  }
+}
+
+function useSymbolSection(cwd: string, query: string, open: (path: string, line: number) => void): Section {
+  const [found, setFound] = useState<{ cwd: string; query: string; list: SymbolLocation[]; error?: string } | null>(null)
+  useEffect(() => {
+    if (query.length < MIN_TEXT_QUERY) return
+    let live = true
+    const timer = setTimeout(() => {
+      window.canopy.symbols(cwd, query).then(
+        (list) => { if (live && list) setFound({ cwd, query, list }) },
+        (e: unknown) => { if (live) setFound({ cwd, query, list: [], error: `Recherche de symboles impossible : ${errorText(e)}` }) }
+      )
+    }, DEBOUNCE_MS)
+    return () => { live = false; clearTimeout(timer) }
+  }, [cwd, query])
+  const current = found && found.cwd === cwd && found.query === query && query.length >= MIN_TEXT_QUERY ? found : null
+  return {
+    id: 'symbols',
+    title: 'Symboles',
+    error: current?.error,
+    items: (current?.list ?? []).slice(0, MAX_SYMBOLS).map((s) => ({
+      key: `${s.name}:${s.path}:${s.line}:${s.column}`,
+      label: s.name,
+      detail: `${basename(s.path)}:${s.line}`,
+      mono: true,
+      run: () => open(s.path, s.line)
+    }))
   }
 }
 
@@ -87,9 +120,9 @@ function Bar(props: { cwd: string; onClose: (restoreFocus: boolean) => void }): 
   }
 
   const files = useFileSection(cwd, query, open)
+  const symbols = useSymbolSection(cwd, query.trim(), open)
   const text = useTextSection(cwd, query.trim(), open)
-  // Symbols (Task 11) come here as one more section.
-  const all = [files, text]
+  const all = [files, symbols, text]
   const sections = all.filter((s) => s.items.length > 0)
   const failures = all.filter((s) => s.error)
   const flat = sections.flatMap((s) => s.items)
@@ -123,7 +156,7 @@ function Bar(props: { cwd: string; onClose: (restoreFocus: boolean) => void }): 
       <div className="cmdbar" role="dialog" aria-modal="true" aria-label="Barre de commandes" onKeyDown={onKeyDown}>
         <input autoFocus role="combobox" aria-expanded={flat.length > 0} aria-controls="cmdbar-list" aria-label="Chercher"
           aria-activedescendant={flat.length > 0 ? `cmdbar-item-${index}` : undefined}
-          placeholder="Chercher un fichier ou du texte…" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
+          placeholder="Chercher un fichier, un symbole ou du texte…" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="cmdbar-list" id="cmdbar-list" role="listbox" ref={list}>
           {sections.map((s) => {
             const start = offset
@@ -149,7 +182,7 @@ function Bar(props: { cwd: string; onClose: (restoreFocus: boolean) => void }): 
   )
 }
 
-/** ⌘K: files and text of the active worktree. */
+/** ⌘K: files, symbols and text of the active worktree. */
 export function CommandBar(): React.JSX.Element | null {
   const cwd = useApp((s) => s.worktree)
   const [shown, setShown] = useState(false)

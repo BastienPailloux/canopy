@@ -35,7 +35,20 @@ export interface UserContent { text: string; images?: { mediaType: string; base6
 export interface ServiceConfig { name: string; command: string; portEnv: string }
 export interface CanopyConfig { setup: string[]; services: ServiceConfig[] }
 export interface SearchHit { path: string; line: number; column: number; text: string }
-export interface Location { path: string; line: number; column: number }
+/** 1-based, like `SearchHit`; columns in UTF-16 units. */
+export interface Location {
+  /** Relative to the worktree, or absolute when `external`. */
+  path: string
+  line: number
+  column: number
+  /** The line, cut to a preview length. Absent for an external file. */
+  text?: string
+  /** Outside the worktree: shown, never opened. */
+  external?: boolean
+  /** Found by searching the word as text, not by the language server. */
+  fallback?: boolean
+}
+export type SymbolLocation = Location & { name: string }
 
 /** Hits `searchText` returns at most, unless asked otherwise. */
 export const DEFAULT_SEARCH_LIMIT = 2000

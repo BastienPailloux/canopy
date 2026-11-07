@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
+import type { LspPool } from './code/lsp'
 import { openExternalUrl } from './externalLinks'
 import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
@@ -104,7 +105,7 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
   })
 }
 
-export function registerIpc(store: AppStore, sessions: SessionManager): void {
+export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspPool): void {
   registerSessionIpc(store, sessions)
 
   ipcMain.handle('repo:open', async (e) => {
@@ -141,7 +142,7 @@ export function registerIpc(store: AppStore, sessions: SessionManager): void {
 
   ipcMain.handle('shell:openExternal', (_e, url: unknown) => openExternalUrl(url, (u) => shell.openExternal(u)))
 
-  registerCodeIpc(broadcast)
+  registerCodeIpc(broadcast, lsp)
 
   ipcMain.handle('worktree:list', (_e, repo: unknown) => {
     assertPath(repo)

@@ -3,15 +3,16 @@ import { watchWorktree } from './files'
 
 const watchers = new Map<string, () => void>()
 
-/** Watches exactly the worktrees `repo` lists now: others, removed or from a repo left behind, are stopped. */
+/** Watches exactly the worktrees `repo` lists now: others, removed or from a repo left behind, are stopped and reported to `onStopped`. */
 export async function syncWatchers(
-  repo: string, onChange: (cwd: string) => void, onError: (cwd: string, error: Error) => void
+  repo: string, onChange: (cwd: string) => void, onError: (cwd: string, error: Error) => void, onStopped?: (cwd: string) => void
 ): Promise<void> {
   const listed = new Set((await listWorktrees(repo)).map((w) => w.path))
   for (const [path, stop] of watchers) {
     if (listed.has(path)) continue
     stop()
     watchers.delete(path)
+    onStopped?.(path)
   }
   for (const path of listed) {
     if (!watchers.has(path)) watchers.set(path, watchWorktree(path, () => onChange(path), undefined, (e) => onError(path, e)))
