@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { closeTab, newTab, openSession, selectTab, syncWorktree, useSessions, type SessionTab, type TabState } from './sessionStore'
+import { closeTab, hasDraft, newTab, openSession, selectTab, syncWorktree, useSessions, type SessionTab, type TabState } from './sessionStore'
 
 const STATE_LABELS: Record<TabState, string> = {
   draft: 'brouillon',
@@ -50,18 +50,29 @@ function ResumeMenu(props: { cwd: string; tabs: SessionTab[] }): React.JSX.Eleme
   )
 }
 
-/** A running session is not stopped on a stray click. */
+/** What closing a tab costs, if anything: a turn stopped, an unsent message dropped. Null when nothing. */
+export function closeWarning(tab: SessionTab): string | null {
+  const live = tab.state === 'running' || tab.state === 'waiting'
+  const parts: string[] = []
+  if (live) parts.push(`« ${tab.title} » est ${tab.state === 'waiting' ? 'en attente de ta réponse' : 'en cours'}. Fermer l'onglet l'arrête.`)
+  if (hasDraft(tab)) parts.push(`Le message non envoyé de « ${tab.title} » sera abandonné.`)
+  return parts.length > 0 ? parts.join(' ') : null
+}
+
+/** A running session or an unsent message is not lost on a stray click. */
 function ConfirmClose(props: { tab: SessionTab; onClose: () => void }): React.JSX.Element {
   const { tab, onClose } = props
+  const live = tab.state === 'running' || tab.state === 'waiting'
+  const title = live ? 'Arrêter la session ?' : 'Fermer l\'onglet ?'
   return (
     <div className="overlay">
-      <div className="dialog" role="alertdialog" aria-modal="true" aria-label="Arrêter la session ?"
+      <div className="dialog" role="alertdialog" aria-modal="true" aria-label={title}
         onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
-        <h2>Arrêter la session ?</h2>
-        <p className="risk">« {tab.title} » est {tab.state === 'waiting' ? 'en attente de ta réponse' : 'en cours'}. Fermer l'onglet l'arrête.</p>
+        <h2>{title}</h2>
+        <p className="risk">{closeWarning(tab)}</p>
         <div className="actions">
           <button type="button" className="secondary" autoFocus onClick={onClose}>Annuler</button>
-          <button type="button" className="danger" onClick={() => closeTab(tab.id)}>Arrêter et fermer</button>
+          <button type="button" className="danger" onClick={() => closeTab(tab.id)}>{live ? 'Arrêter et fermer' : 'Fermer et abandonner'}</button>
         </div>
       </div>
     </div>
@@ -71,9 +82,9 @@ function ConfirmClose(props: { tab: SessionTab; onClose: () => void }): React.JS
 export function SessionTabs(props: { cwd: string; tabs: SessionTab[]; activeId?: string }): React.JSX.Element {
   const { cwd, tabs, activeId } = props
   const [closing, setClosing] = useState<string | null>(null)
-  const confirming = tabs.find((t) => t.id === closing && (t.state === 'running' || t.state === 'waiting'))
+  const confirming = tabs.find((t) => t.id === closing && closeWarning(t) !== null)
   const askClose = (t: SessionTab): void => {
-    if (t.state === 'running' || t.state === 'waiting') setClosing(t.id)
+    if (closeWarning(t) !== null) setClosing(t.id)
     else closeTab(t.id)
   }
   return (

@@ -123,7 +123,7 @@ export function closeTab(id: string): void {
   ensureTab(tab.cwd)
 }
 
-const hasDraft = (t: SessionTab): boolean => t.draft.text.trim() !== '' || t.draft.images.length > 0
+export const hasDraft = (t: SessionTab): boolean => t.draft.text.trim() !== '' || t.draft.images.length > 0
 
 /** ⌘W: closes the selected tab unless that would stop a turn or lose a draft. Then nothing happens. */
 export function closeActiveTabIfSafe(cwd: string): void {
@@ -131,6 +131,9 @@ export function closeActiveTabIfSafe(cwd: string): void {
   if (!tab || tab.state === 'running' || tab.state === 'waiting' || hasDraft(tab)) return
   closeTab(tab.id)
 }
+
+/** Tabs of the worktree holding a message not sent yet. */
+export const worktreeDraftCount = (cwd: string): number => Object.values(useSessions.getState().tabs).filter((t) => t.cwd === cwd && hasDraft(t)).length
 
 /** Tabs holding a message not sent yet. */
 export const composerDraftCount = (): number => Object.values(useSessions.getState().tabs).filter(hasDraft).length
