@@ -33,6 +33,7 @@ interface AppState {
   /**
    * Takes a scan. Of the open folder, it is merged, see `mergeScan`. The selection stays while its entry exists, then
    * goes to what lives on of the active repo, then to the default entry. A scan with nothing in it closes nothing.
+   * Another folder clears `openError`; entering the open one again is up to the caller.
    */
   setWorkspace: (workspace: Workspace) => void
   /** Makes the repo of `entry` active on that worktree. What other repos hold stays, all of it is kept by path. */
@@ -51,6 +52,8 @@ interface AppState {
 }
 
 let requestCount = 0
+
+const noRepoMessage = (root: string): string => `Aucun repo git dans ${root}`
 
 type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees'>
 
@@ -75,9 +78,11 @@ export const useApp = create<AppState>((set) => ({
     const same = s.workspace?.root === scan.root
     const workspace = s.workspace && same ? mergeScan(s.workspace, scan, s.repo) : scan
     const first = defaultEntry(workspace)
-    if (!first) return { openError: `Aucun repo git dans ${scan.root}` }
+    if (!first) return { openError: noRepoMessage(scan.root) }
     const orphans = same ? s.orphans : []
-    const base = { workspace, orphans, openError: null }
+    // A rescan says nothing of a folder that failed to open, only of its own last finding.
+    const openError = same && s.openError !== noRepoMessage(scan.root) ? s.openError : null
+    const base = { workspace, orphans, openError }
     const selected = (p: { path: string }): boolean => p.path === s.worktree
     if (workspace.entries.some((e) => e.repo === s.repo && selected(e.worktree)) || orphans.some(selected)) return base
     const heir = orphans.find((o) => o.repo === s.repo)

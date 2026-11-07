@@ -8,7 +8,9 @@ let opening = 0
 async function enter(folder: string): Promise<void> {
   const id = ++opening
   const workspace = await window.canopy.scanWorkspace(folder)
-  if (id === opening) useApp.getState().setWorkspace(workspace)
+  if (id !== opening) return
+  useApp.getState().setOpenError(null)
+  useApp.getState().setWorkspace(workspace)
 }
 
 /** Native picker, then show the chosen folder. A failure goes to `openError`, in French. */

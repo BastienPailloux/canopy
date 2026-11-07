@@ -223,6 +223,20 @@ describe('workspace', () => {
     expect(useApp.getState().baseEpoch).toBe(before + 1)
   })
 
+  it('a rescan leaves the message of a folder that failed to open', () => {
+    useApp.getState().setWorkspace(ws(a))
+    useApp.getState().setOpenError('/autre : illisible')
+    useApp.getState().setWorkspace(ws(a))
+    expect(useApp.getState().openError).toBe('/autre : illisible')
+  })
+
+  it('a rescan that finds repos again clears the message of the one that found none', () => {
+    useApp.getState().setWorkspace(ws(a))
+    useApp.getState().setWorkspace(ws())
+    useApp.getState().setWorkspace(ws(a))
+    expect(useApp.getState().openError).toBeNull()
+  })
+
   it('a scan that finds repos clears the last message', () => {
     useApp.getState().setOpenError('nope')
     useApp.getState().setWorkspace(ws(a))
