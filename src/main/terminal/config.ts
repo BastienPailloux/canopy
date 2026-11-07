@@ -57,7 +57,7 @@ export async function readConfig(cwd: string): Promise<CanopyConfig> {
 }
 
 /** Free if nothing answers on 127.0.0.1: binds and closes. */
-function isFree(port: number): Promise<boolean> {
+export function isFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer()
     server.once('error', () => resolve(false))

@@ -153,3 +153,35 @@ test('disposeAll kills every running terminal', () => {
   manager.disposeAll()
   expect(ptys.every((p) => p.killed)).toBe(true)
 })
+
+test('a process ended by a signal reports a non-zero code, whatever exitCode says', () => {
+  const id = manager.create(dir)
+  const exits: unknown[] = []
+  manager.on('exit', (e) => exits.push(e))
+  manager.kill(id) // the fake, like node-pty, reports { exitCode: 0, signal: 1 }
+  expect(exits).toEqual([{ id, exitCode: 129 }])
+  expect(manager.list(dir)[0]).toMatchObject({ running: false, exitCode: 129 })
+})
+
+test('a normal exit keeps its own code', () => {
+  const id = manager.create(dir)
+  ptys[0].end(0)
+  expect(manager.list(dir)[0].exitCode).toBe(0)
+  expect(id).toBeTruthy()
+})
+
+test('disposeAll kills a process that ignores the hangup at once, since the app is quitting', () => {
+  manager.create(dir)
+  ptys[0].stubborn = true
+  manager.disposeAll()
+  expect(ptys[0].signals).toEqual([undefined, 'SIGKILL'])
+})
+
+test('notice writes a line the terminal shows and its buffer keeps', () => {
+  const id = manager.create(dir)
+  const seen: string[] = []
+  manager.on('data', (e) => seen.push(e.data))
+  manager.notice(id, 'port pris')
+  expect(seen.join('')).toContain('port pris')
+  expect(manager.buffer(id)).toContain('port pris')
+})

@@ -6,8 +6,7 @@ import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-ag
 import { AppStore } from './appStore'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
-import { loginShellEnv } from './env'
-import { setGitEnv } from './git/exec'
+import { currentEnv, startEnv } from './env'
 import { registerIpc } from './ipc'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
@@ -48,20 +47,19 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(async () => {
-  // Before any git call: git must see the user's login shell env (PATH, config).
-  const env = await loginShellEnv()
-  setGitEnv({ ...env, GIT_OPTIONAL_LOCKS: '0' })
   const store = new AppStore(join(app.getPath('userData'), 'state.json'))
+  // A login shell can take minutes: the window opens on the last known PATH, and new processes get the real env once it resolves.
+  startEnv({ persistedPath: store.loginPath, onResolved: (env) => { if (env.PATH) store.setLoginPath(env.PATH) } })
   const sessions = new SessionManager({
     query: selectQuery(query, { isPackaged: app.isPackaged, env: process.env }),
     listSessions,
     getSessionMessages,
-    env: () => env,
+    env: currentEnv,
     pathToClaudeCodeExecutable: claudeExecutablePath,
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
   })
-  const lsp = new LspPool({ env: () => Promise.resolve(env) })
-  const terminals = new TerminalManager({ spawn: pty.spawn, env: () => env })
+  const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
+  const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
   app.on('before-quit', () => { sessions.stopAll(); terminals.disposeAll(); stopAllWatchers(); lsp.disposeAll() })
   registerIpc(store, sessions, lsp, terminals)
   createWindow()

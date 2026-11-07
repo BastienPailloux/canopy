@@ -11,7 +11,7 @@ import {
   type CancellationToken, type ProtocolConnection, type Range
 } from 'vscode-languageserver-protocol/node'
 import { DEFAULT_SEARCH_LIMIT, type Location, type SymbolLocation } from '../../shared/types'
-import { loginShellEnv } from '../env'
+import { currentEnv } from '../env'
 import { listTree, readFileSafe } from './files'
 import { searchText } from './search'
 
@@ -224,7 +224,7 @@ export class LspPool {
     // Without this one, the language server would look for a tsserver in the repository and run it.
     if (!existsSync(tsserver)) throw new Error(`tsserver introuvable : ${tsserver}`)
     const entry = this.options.server ?? bundled('typescript-language-server/lib/cli.mjs')
-    const [env, real] = await Promise.all([(this.options.env ?? loginShellEnv)(), realpath(server.cwd)])
+    const [env, real] = await Promise.all([(this.options.env ?? (() => Promise.resolve(currentEnv())))(), realpath(server.cwd)])
     if (server.stopped) throw new Error('Serveur de langage arrêté')
     server.roots = [...new Set([server.cwd, real])]
 

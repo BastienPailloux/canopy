@@ -115,12 +115,16 @@ export async function restartService(id: string): Promise<void> {
   }
 }
 
-/** The exit code of a terminal, known now or when it comes. */
-function exitCodeOf(id: string): Promise<number> {
+/** The exit code of a terminal, known now or when it comes. Null if the terminal is closed first. */
+function exitCodeOf(id: string): Promise<number | null> {
   return new Promise((resolve) => {
     const check = (): boolean => {
       const t = useTerminals.getState().terms[id]
-      if (t && !t.running) {
+      if (!t) {
+        resolve(null)
+        return true
+      }
+      if (!t.running) {
         resolve(t.exitCode ?? -1)
         return true
       }
@@ -140,6 +144,10 @@ export async function testPR(cwd: string): Promise<void> {
     if (setup) {
       await upsert([setup])
       const code = await exitCodeOf(setup.id)
+      if (code === null) {
+        setNotice(cwd, 'Le setup a été fermé : les services ne sont pas lancés.')
+        return
+      }
       if (code !== 0) {
         setNotice(cwd, `Le setup a échoué (code ${code}) : les services ne sont pas lancés.`)
         return

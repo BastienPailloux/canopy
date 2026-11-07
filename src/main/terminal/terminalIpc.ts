@@ -4,7 +4,7 @@ import type { TerminalInfo } from '../../shared/api'
 import type { AppStore } from '../appStore'
 import { requireTrustedRoot } from '../repoTrust'
 import { assertId } from '../sessions/validate'
-import { allocatePorts, readConfig, type CanopyConfig } from './config'
+import { allocatePorts, isFree, readConfig, type CanopyConfig } from './config'
 import type { TerminalManager } from './TerminalManager'
 
 const STOP_WAIT_MS = 3000
@@ -47,8 +47,25 @@ async function stop(terminals: TerminalManager, id: string): Promise<void> {
   })
 }
 
-async function runServices(store: AppStore, terminals: TerminalManager, cwd: string, name?: string): Promise<TerminalInfo[]> {
-  const { services } = await trustedConfig(store, cwd)
+/** One start or restart at a time per worktree: two at once would each start the same service. */
+const queues = new Map<string, Promise<unknown>>()
+
+export function runServices(
+  store: AppStore, terminals: TerminalManager, cwd: string, name?: string,
+  getConfig: (store: AppStore, cwd: string) => Promise<CanopyConfig> = trustedConfig
+): Promise<TerminalInfo[]> {
+  const run = (queues.get(cwd) ?? Promise.resolve()).then(() => startServices(store, terminals, cwd, name, getConfig))
+  const tail = run.catch(() => undefined)
+  queues.set(cwd, tail)
+  void tail.then(() => { if (queues.get(cwd) === tail) queues.delete(cwd) })
+  return run
+}
+
+async function startServices(
+  store: AppStore, terminals: TerminalManager, cwd: string, name: string | undefined,
+  getConfig: (store: AppStore, cwd: string) => Promise<CanopyConfig>
+): Promise<TerminalInfo[]> {
+  const { services } = await getConfig(store, cwd)
   const targets = name === undefined ? services : services.filter((s) => s.name === name)
   if (name !== undefined && targets.length === 0) throw new Error(`Service inconnu : ${name}`)
   const ports = await allocatePorts(store, cwd, services.map((s) => s.name))
@@ -59,13 +76,16 @@ async function runServices(store: AppStore, terminals: TerminalManager, cwd: str
       await stop(terminals, old.id)
       terminals.remove(old.id)
     }
+    const port = ports[service.name]
+    const taken = !(await isFree(port))
     const id = terminals.create(cwd, {
       command: service.command,
-      env: { ...shared, PORT: String(ports[service.name]) },
+      env: { ...shared, PORT: String(port) },
       label: service.name,
       kind: 'service',
-      port: ports[service.name]
+      port
     })
+    if (taken) terminals.notice(id, `Le port ${port} est déjà utilisé par un autre processus : « ${service.name} » risque de ne pas démarrer. Libère-le, puis redémarre le service.`)
     started.push(terminals.get(id) as TerminalInfo)
   }
   return started

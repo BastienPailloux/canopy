@@ -9,6 +9,8 @@ interface State {
   approvedConfigs: Record<string, string[]>
   ports: Record<string, Record<string, number>>
   prefs: Record<string, unknown>
+  /** PATH of the last login shell env that resolved, to start with while the next one resolves. */
+  loginPath?: string
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -35,6 +37,7 @@ function sanitize(raw: unknown): State {
     }
   }
   if (isRecord(raw.prefs)) state.prefs = raw.prefs
+  if (typeof raw.loginPath === 'string' && raw.loginPath !== '') state.loginPath = raw.loginPath
   return state
 }
 
@@ -54,6 +57,7 @@ export class AppStore {
 
   get recentRepos(): string[] { return this.state.recentRepos }
   get ports(): State['ports'] { return this.state.ports }
+  get loginPath(): string | undefined { return this.state.loginPath }
   get prefs(): Record<string, unknown> { return this.state.prefs }
 
   addRecentRepo(path: string): void {
@@ -78,6 +82,12 @@ export class AppStore {
 
   setPorts(worktree: string, ports: Record<string, number>): void {
     this.state.ports[worktree] = ports
+    this.save()
+  }
+
+  setLoginPath(path: string): void {
+    if (this.state.loginPath === path) return
+    this.state.loginPath = path
     this.save()
   }
 

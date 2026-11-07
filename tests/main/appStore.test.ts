@@ -96,3 +96,13 @@ describe('AppStore', () => {
     expect(new AppStore(file).isRepoTrusted('all')).toBe(false)
   })
 })
+
+it('keeps the last login PATH across restarts and ignores a bad value', async () => {
+  const file = join(dir, 'state.json')
+  const store = new AppStore(file)
+  expect(store.loginPath).toBeUndefined()
+  store.setLoginPath('/a:/b')
+  expect(new AppStore(file).loginPath).toBe('/a:/b')
+  await writeFile(file, JSON.stringify({ loginPath: 3 }))
+  expect(new AppStore(file).loginPath).toBeUndefined()
+})

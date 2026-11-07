@@ -93,8 +93,10 @@ export class TerminalManager extends EventEmitter {
     }
     this.terminals.set(id, term)
     pty.onData((data) => this.append(term, data))
-    pty.onExit(({ exitCode }) => {
+    pty.onExit(({ exitCode: code, signal }) => {
       if (!term.info.running) return
+      // node-pty reports 0 for a process ended by a signal: that is not a success.
+      const exitCode = signal ? 128 + signal : code
       clearTimeout(term.killTimer)
       term.info = { ...term.info, running: false, exitCode }
       this.emit('exit', { id, exitCode })
@@ -186,7 +188,17 @@ export class TerminalManager extends EventEmitter {
     return { data: term?.buffer ?? '', end: term?.end ?? 0 }
   }
 
+  /** A line shown in the terminal and kept in its buffer, written by Canopy and not by the process. */
+  notice(id: string, text: string): void {
+    const term = this.terminals.get(id)
+    if (term) this.append(term, `\u001b[33m[Canopy] ${text}\u001b[0m\r\n`)
+  }
+
+  /** At quit: no grace period, a timer would not outlive the app and a service would keep running. */
   disposeAll(): void {
-    for (const id of [...this.terminals.keys()]) this.kill(id)
+    for (const term of this.terminals.values()) {
+      this.kill(term.info.id)
+      this.forceKill(term)
+    }
   }
 }
