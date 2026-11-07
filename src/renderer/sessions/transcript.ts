@@ -25,6 +25,8 @@ export interface Transcript {
   blocks: Record<string, number>
   /** Blocks met so far per `message.id`: the SDK sends one `assistant` per block, each holding only that block. */
   blockCounts: Record<string, number>
+  /** The `message.id` each assistant uuid came with, to see a message sent again. */
+  assistantIds: Record<string, string>
   /** Index in `items` of each tool, by tool_use id. */
   tools: Record<string, number>
   /** Message being streamed: stream events only carry the block position. */
@@ -34,6 +36,7 @@ export interface Transcript {
 /** Stream and history share these fields, the rest depends on the message. */
 interface LooseMessage {
   type?: string
+  uuid?: string
   subtype?: string
   parent_tool_use_id?: string | null
   isSynthetic?: boolean
@@ -64,7 +67,7 @@ interface Block {
   source?: { media_type?: string; data?: string }
 }
 
-export const emptyTranscript = (): Transcript => ({ items: [], blocks: {}, blockCounts: {}, tools: {} })
+export const emptyTranscript = (): Transcript => ({ items: [], blocks: {}, blockCounts: {}, assistantIds: {}, tools: {} })
 
 const asBlocks = (content: unknown): Block[] => {
   if (typeof content === 'string') return [{ type: 'text', text: content }]
@@ -105,8 +108,10 @@ function onStreamEvent(t: Transcript, event: StreamEvent | undefined): Transcrip
   return putBlock(t, key, { kind: 'assistant', text, streaming: true })
 }
 
-function onAssistant(t: Transcript, message: LooseMessage['message']): Transcript {
+function onAssistant(t: Transcript, message: LooseMessage['message'], uuid: string | undefined): Transcript {
   const id = message?.id ?? ''
+  // After /compact the CLI sends the last message again: same uuid, new id. Blocks of one message share both.
+  if (uuid !== undefined && t.assistantIds[uuid] !== undefined && t.assistantIds[uuid] !== id) return t
   let next = t
   let position = t.blockCounts[id] ?? 0
   for (const block of asBlocks(message?.content)) {
@@ -118,7 +123,11 @@ function onAssistant(t: Transcript, message: LooseMessage['message']): Transcrip
       next = { ...next, tools: { ...next.tools, [block.id]: next.blocks[key] } }
     }
   }
-  return { ...next, blockCounts: { ...next.blockCounts, [id]: position } }
+  return {
+    ...next,
+    blockCounts: { ...next.blockCounts, [id]: position },
+    assistantIds: uuid === undefined ? next.assistantIds : { ...next.assistantIds, [uuid]: id }
+  }
 }
 
 function completeTool(t: Transcript, block: Block): Transcript {
@@ -185,7 +194,7 @@ export function reduceTranscript(state: Transcript, msg: SDKMessage | SessionMes
   if (m.parent_tool_use_id) return state
   switch (m.type) {
     case 'stream_event': return onStreamEvent(state, m.event)
-    case 'assistant': return onAssistant(state, m.message)
+    case 'assistant': return onAssistant(state, m.message, m.uuid)
     case 'user': return onUser(state, m)
     case 'system': return onSystem(state, m)
     case 'tool_progress': return onToolProgress(state, m)

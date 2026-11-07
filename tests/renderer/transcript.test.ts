@@ -2,10 +2,12 @@ import type { SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from 'vitest'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript } from '../../src/renderer/sessions/transcript'
 
+let uuids = 0
+
 const SESSION = 'session-1'
 
 function msg(m: Record<string, unknown>): SDKMessage {
-  return { uuid: 'u', session_id: SESSION, parent_tool_use_id: null, ...m } as unknown as SDKMessage
+  return { uuid: `u${++uuids}`, session_id: SESSION, parent_tool_use_id: null, ...m } as unknown as SDKMessage
 }
 const stream = (event: Record<string, unknown>): SDKMessage => msg({ type: 'stream_event', event })
 const messageStart = (id: string): SDKMessage => stream({ type: 'message_start', message: { id } })
@@ -222,7 +224,7 @@ describe('history and stream', () => {
       { type: 'assistant', message: { id: 'm1', content: [toolUse('t1')] } },
       { type: 'user', message: { role: 'user', content: [toolResult('t1', 'contenu')] } },
       { type: 'assistant', message: { id: 'm2', content: [{ type: 'text', text: 'Fini.' }] } }
-    ].map((m) => ({ uuid: 'u', session_id: SESSION, parent_tool_use_id: null, parent_agent_id: null, ...m })) as SessionMessage[]
+    ].map((m) => ({ uuid: `u${++uuids}`, session_id: SESSION, parent_tool_use_id: null, parent_agent_id: null, ...m })) as SessionMessage[]
 
     expect(settle(run(history)).items).toEqual(fromStream.items)
   })
@@ -246,5 +248,26 @@ describe('transcript helpers', () => {
   it('settle returns the same transcript when nothing is in progress', () => {
     const t = addUser(emptyTranscript(), { text: 'salut' })
     expect(settle(t)).toBe(t)
+  })
+})
+
+describe('a message the CLI sends again', () => {
+  const text = 'Context Usage'
+  const assistant = (uuid: string, id: string, t = text): SDKMessage =>
+    ({ type: 'assistant', uuid, session_id: 's', parent_tool_use_id: null, message: { id, content: [{ type: 'text', text: t }] } }) as unknown as SDKMessage
+
+  it('shows once what /compact repeats under the same uuid and a new id', () => {
+    const t = [assistant('u1', 'first'), assistant('u1', 'second')].reduce(reduceTranscript, emptyTranscript())
+    expect(t.items.filter((i) => i.kind === 'assistant')).toHaveLength(1)
+  })
+
+  it('still shows two messages with the same text', () => {
+    const t = [assistant('u1', 'a'), assistant('u2', 'b')].reduce(reduceTranscript, emptyTranscript())
+    expect(t.items.filter((i) => i.kind === 'assistant')).toHaveLength(2)
+  })
+
+  it('still adds the blocks of one message that arrive under one uuid', () => {
+    const t = [assistant('u1', 'a', 'un'), assistant('u1', 'a', 'deux')].reduce(reduceTranscript, emptyTranscript())
+    expect(t.items.filter((i) => i.kind === 'assistant')).toHaveLength(2)
   })
 })
