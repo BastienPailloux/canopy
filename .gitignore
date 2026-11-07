@@ -5,3 +5,4 @@ dist
 .worktrees
 .DS_Store
 test-results
+dist-notes
