@@ -144,6 +144,29 @@ describe('AppStore API key', () => {
     const broken = { ...cipher(), decryptString: () => { throw new Error('keychain locked') } }
     expect(new AppStore(file, broken).apiKeyEnv()).toEqual({})
   })
+
+  it('stored key that no longer decrypts is reported unreadable', () => {
+    new AppStore(file, cipher()).saveApiKey('sk-ant-secret')
+    const broken = { ...cipher(), decryptString: () => { throw new Error('keychain locked') } }
+    const a = new AppStore(file, broken)
+    expect(a.hasApiKey()).toBe(true)
+    expect(a.apiKeyReadable()).toBe(false)
+  })
+
+  it('no stored key is readable: there is nothing to re-enter', () => {
+    expect(new AppStore(file, cipher()).apiKeyReadable()).toBe(true)
+    expect(new AppStore(file).apiKeyReadable()).toBe(true)
+  })
+
+  it('a stored key is unreadable when encryption is unavailable', () => {
+    new AppStore(file, cipher()).saveApiKey('sk-ant-secret')
+    expect(new AppStore(file, cipher(false)).apiKeyReadable()).toBe(false)
+  })
+
+  it('a stored key that decrypts is readable', () => {
+    new AppStore(file, cipher()).saveApiKey('sk-ant-secret')
+    expect(new AppStore(file, cipher()).apiKeyReadable()).toBe(true)
+  })
 })
 
 it('revoking a repo forgets its approvals, and survives a restart', () => {

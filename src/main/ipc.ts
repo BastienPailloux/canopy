@@ -202,7 +202,7 @@ export function registerIpc(
   const account = new TtlCache<ClaudeAccount>(ACCOUNT_TTL_MS)
 
   // The key goes in, never out: the renderer only learns whether one is set.
-  ipcMain.handle('settings:apiKeyStatus', () => ({ set: store.hasApiKey(), encryptionAvailable: store.encryptionAvailable }))
+  ipcMain.handle('settings:apiKeyStatus', () => ({ set: store.hasApiKey(), encryptionAvailable: store.encryptionAvailable, readable: store.apiKeyReadable() }))
 
   ipcMain.handle('settings:saveApiKey', (_e, key: unknown) => {
     if (key !== null && (typeof key !== 'string' || key.length > 512 || /\s/.test(key))) throw new Error('Clé API invalide')

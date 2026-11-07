@@ -161,15 +161,26 @@ export class AppStore {
     this.save()
   }
 
+  /** The stored key in clear, or null when none is stored or it cannot be decrypted (keychain locked, app re-signed). */
+  private decryptApiKey(): string | null {
+    if (this.state.apiKey === undefined || !this.cipher?.isEncryptionAvailable()) return null
+    try {
+      return this.cipher.decryptString(Buffer.from(this.state.apiKey, 'base64'))
+    } catch {
+      return null
+    }
+  }
+
   /** `ANTHROPIC_API_KEY` if a key is stored and readable, else nothing: sessions then use the personal Claude login. */
   apiKeyEnv(): Record<string, string> {
-    if (this.state.apiKey === undefined || !this.cipher?.isEncryptionAvailable()) return {}
-    try {
-      const key = this.cipher.decryptString(Buffer.from(this.state.apiKey, 'base64'))
-      return key === '' ? {} : { ANTHROPIC_API_KEY: key }
-    } catch {
-      return {}
-    }
+    const key = this.decryptApiKey()
+    return key ? { ANTHROPIC_API_KEY: key } : {}
+  }
+
+  /** False only when a key is stored but cannot be read back: it must then be entered again. */
+  apiKeyReadable(): boolean {
+    if (this.state.apiKey === undefined) return true
+    return this.decryptApiKey() !== null
   }
 
   get encryptionAvailable(): boolean {

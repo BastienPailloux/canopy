@@ -137,8 +137,8 @@ export interface CanopyApi {
   trustedRepos(): Promise<string[]>
   /** Forgets every approval of that repo: its next session asks again. Sessions already running go on. */
   revokeRepo(root: string): Promise<void>
-  /** Whether an API key is saved, and whether the keychain can store one. The key is never sent back. */
-  apiKeyStatus(): Promise<{ set: boolean; encryptionAvailable: boolean }>
+  /** Whether an API key is saved, whether the keychain can store one, and whether the saved key can still be read (false after a re-signed app). The key is never sent back. */
+  apiKeyStatus(): Promise<{ set: boolean; encryptionAvailable: boolean; readable: boolean }>
   /** Saves the key in the keychain, or removes it with null. Rejects, storing nothing, if the keychain is unavailable. */
   saveApiKey(key: string | null): Promise<void>
   /** The account sessions use. Cached 5 minutes by the main process; a saved or removed API key refreshes it. Never rejects: a failed read is `unknown`. */

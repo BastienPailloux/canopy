@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ACCOUNT_CHANGED } from './AccountFooter'
 
-interface KeyStatus { set: boolean; encryptionAvailable: boolean }
+interface KeyStatus { set: boolean; encryptionAvailable: boolean; readable: boolean }
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
@@ -71,6 +71,11 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
         {!canStore && (
           <p className="risk" role="alert">
             Le trousseau macOS n’est pas disponible : Canopy ne stocke jamais une clé en clair, elle ne peut pas être enregistrée.
+          </p>
+        )}
+        {status?.set && !status.readable && (
+          <p className="risk" role="alert">
+            La clé API enregistrée n&apos;est plus lisible (l&apos;application a changé de signature). Saisis-la à nouveau.
           </p>
         )}
         {trusted.length > 0 && (
