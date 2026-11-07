@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { AppStore } from '../../../src/main/appStore'
-import { allocatePorts, readConfig } from '../../../src/main/terminal/config'
+import { allocatePorts, isFree, readConfig } from '../../../src/main/terminal/config'
 
 let dir: string
 let servers: Server[]
@@ -74,4 +74,19 @@ test('concurrent calls for two worktrees do not share a port', async () => {
   const s = store()
   const [a, b] = await Promise.all([allocatePorts(s, '/wt/a', ['web']), allocatePorts(s, '/wt/b', ['web'])])
   expect(a.web).not.toBe(b.web)
+})
+
+const listening = (port: number, host: string): Promise<void> => new Promise((resolve, reject) => {
+  const server = createServer()
+  servers.push(server)
+  server.once('error', reject)
+  server.listen(port, host, resolve)
+})
+
+test.each(['127.0.0.1', '0.0.0.0', '::', '::1'])('a port listened on at %s is not free', async (host) => {
+  const port = 41873
+  expect(await isFree(port)).toBe(true)
+  await listening(port, host)
+  expect(await isFree(port)).toBe(false)
+  await new Promise((r) => { servers.pop()?.close(r) })
 })

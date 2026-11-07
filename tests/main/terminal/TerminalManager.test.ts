@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { TerminalManager, type PtyProcess, type SpawnPty } from '../../../src/main/terminal/TerminalManager'
+import { MAX_BUFFER_CHARS, TerminalManager, type PtyProcess, type SpawnPty } from '../../../src/main/terminal/TerminalManager'
 
 class FakePty implements PtyProcess {
   written: string[] = []
@@ -184,4 +184,15 @@ test('notice writes a line the terminal shows and its buffer keeps', () => {
   manager.notice(id, 'port pris')
   expect(seen.join('')).toContain('port pris')
   expect(manager.buffer(id)).toContain('port pris')
+})
+
+test('output without newlines is capped too, keeping the end and the running count', () => {
+  const id = manager.create(dir)
+  const chunk = 'x'.repeat(MAX_BUFFER_CHARS / 2)
+  for (let i = 0; i < 3; i++) ptys[0].emit(chunk)
+  ptys[0].emit('la fin')
+  const { data, end } = manager.snapshot(id)
+  expect(data.length).toBeLessThanOrEqual(MAX_BUFFER_CHARS)
+  expect(data.endsWith('la fin')).toBe(true)
+  expect(end).toBe(chunk.length * 3 + 'la fin'.length)
 })

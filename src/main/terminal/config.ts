@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { createServer } from 'node:net'
+import { connect } from 'node:net'
 import { join } from 'node:path'
 import type { AppStore } from '../appStore'
 
@@ -56,13 +56,23 @@ export async function readConfig(cwd: string): Promise<CanopyConfig> {
   return parseConfig(raw)
 }
 
-/** Free if nothing answers on 127.0.0.1: binds and closes. */
-export function isFree(port: number): Promise<boolean> {
+const PROBE_TIMEOUT_MS = 500
+
+/** Whether something accepts connections there. A probe that hangs counts as an answer: the port is not safe to take. */
+function answers(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const server = createServer()
-    server.once('error', () => resolve(false))
-    server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
+    const socket = connect({ port, host, timeout: PROBE_TIMEOUT_MS })
+    const done = (taken: boolean): void => { socket.destroy(); resolve(taken) }
+    socket.once('connect', () => done(true))
+    socket.once('timeout', () => done(true))
+    socket.once('error', () => done(false))
   })
+}
+
+/** Free if nothing answers on the loopback, in either family: that also reaches servers bound to 0.0.0.0 and ::. */
+export async function isFree(port: number): Promise<boolean> {
+  const taken = await Promise.all([answers(port, '127.0.0.1'), answers(port, '::1')])
+  return !taken.includes(true)
 }
 
 let allocating: Promise<unknown> = Promise.resolve()

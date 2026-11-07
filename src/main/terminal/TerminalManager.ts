@@ -35,6 +35,8 @@ export interface TerminalManagerOptions {
 /** After a hangup, how long a process has to end before it is killed with its whole group. */
 const KILL_GRACE_MS = 2000
 const MAX_LINES = 2000
+/** A process printing without newlines would pass any line limit. */
+export const MAX_BUFFER_CHARS = 4 * 1024 * 1024
 const COLS = 80
 const ROWS = 24
 
@@ -114,6 +116,10 @@ export class TerminalManager extends EventEmitter {
       for (let i = 0; i < drop; i++) cut = term.buffer.indexOf('\n', cut) + 1
       term.buffer = term.buffer.slice(cut)
       term.lines = MAX_LINES
+    }
+    if (term.buffer.length > MAX_BUFFER_CHARS) {
+      term.buffer = term.buffer.slice(-MAX_BUFFER_CHARS)
+      term.lines = count(term.buffer)
     }
     this.emit('data', { id: term.info.id, data, end: term.end })
   }
