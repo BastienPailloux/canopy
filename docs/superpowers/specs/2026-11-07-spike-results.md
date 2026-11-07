@@ -32,7 +32,7 @@ Date : 2026-11-07. SDK `@anthropic-ai/claude-agent-sdk` 0.3.319, qui embarque le
 | `permissionMode` omis | partiel | Mode `default` observé avec `haiku` et `opus`, `canUseTool` appelé. Le `sdk.d.ts` annonce `'auto'` là où c'est le défaut : sur ce compte ce n'est pas le cas, rien ne le garantit ailleurs. |
 | `AskUserQuestion` | OK | Voir la section dédiée. |
 | Reprise CLI → SDK | OK | Session créée par `claude -p "reply with OK"`. `options.resume` : même `session_id`, la session cite `reply with OK` à la lettre. `getSessionInfo`, `listSessions`, `getSessionMessages` la voient. |
-| Reprise SDK → CLI | OK | Mot de code donné dans une session SDK, `claude -p --resume <id>` répond `ZEBRA42`, même `session_id`, malgré le CLI plus ancien (2.1.304 contre 2.1.319). |
+| Reprise SDK → CLI | OK | Mot de code donné dans une session SDK, `claude -p --resume <id>` répond `ZEBRA42`, même `session_id`, malgré le CLI plus ancien (2.1.304 contre 2.1.319). Sortie du CLI non conservée, voir « Preuves non conservées ». |
 | Même session ouverte dans les deux | partiel | Aucun verrou, aucune erreur, le fichier n'est pas corrompu, mais la conversation se scinde en silence. Voir plus bas. Testé avec `claude -p --resume`. **Non vérifié** avec le CLI interactif : non tenté, car accepter la confiance d'un dossier risquait de modifier la configuration utilisateur. |
 | Image en bloc de contenu | OK | Bloc `{type:'image', source:{type:'base64', media_type:'image/png', data}}` après un bloc texte : un PNG vert généré répond `Green`, la question ne citant pas la couleur. Bloc conservé dans `getSessionMessages`. Le collage dans l'interface reste à faire (Task 8). |
 | `supportedCommands()` | OK | 172 commandes dont 56 `builtin`, disponibles avant le premier message. Contient les plugins (`superpowers:brainstorming`, `caveman:caveman-help`, `code-review:code-review`, 18 préfixes) et les skills (`loop`, `pdf`, `docx`, …). Absentes : `help`, `plugin`, `resume`, `review`. |
@@ -95,7 +95,22 @@ Session gardée ouverte dans le SDK, `claude -p --resume` lancé en parallèle, 
 - `getSessionMessages` ne suit qu'une branche. Les messages `CLIBETA` et `cli-race` sont absents de l'historique rendu, bien que présents dans le fichier.
 - Pendant les deux tours simultanés, aucun des deux n'échoue.
 
+Ces observations côté CLI et fichier n'ont pas été conservées, voir « Preuves non conservées ».
+
 Conséquence : pas de corruption, mais une perte silencieuse côté affichage. Canopy doit éviter cette situation ou la signaler.
+
+## Preuves non conservées
+
+Les résultats ci-dessous ont été lus une fois, à l'écran pendant le spike, et ne peuvent plus être revérifiés. Les journaux JSONL restants sont dans le dossier temporaire de la session, pas dans le repo.
+
+- **Reprise SDK → CLI.** La sortie JSON de `claude -p --resume` a été envoyée par un tube à un script Python, qui a affiché `session_id`, `result` et `is_error`. Ligne affichée : `SDK->CLI 3581daa6-... expected 3581daa6-... 'ZEBRA42' False`. Rien n'a été écrit sur disque. `sdknew.jsonl` ne garde que le message d'envoi contenant `ZEBRA42`, pas la réponse du CLI.
+- **Réponse `SDKALPHA, CLIBETA` et réponse `cli-race` du CLI.** Lues dans le JSONL de la session sous `~/.claude/projects/`, avec un script Python qui listait chaque message, son `parentUuid` et sa version. Ce fichier a ensuite été supprimé par `deleteSession`. Le log du spike ne les contient pas : `cli.out` et `race.cli` étaient tronqués à 900 et 700 caractères, avant le champ `result`.
+- **Deux branches dans le fichier.** Même script, même fichier supprimé. Il a affiché 181 lignes et deux `parentUuid` ayant chacun deux enfants.
+- **Fichier non corrompu.** Déduit de ce seul script, qui a pu lire chaque ligne en JSON, et de la poursuite des sessions. Aucune vérification dédiée.
+
+Ce qui reste dans les journaux : les réponses côté SDK (`SDKALPHA`, `sdk-race`, `after-race`) et l'absence de `CLIBETA` et `cli-race` dans le `history` de `both.jsonl` et `bothrace.jsonl`. Leur présence dans le fichier de session, elle, n'est plus vérifiable.
+
+Un premier essai de double ouverture (`r-both`) ne compte pas : le test passait au CLI un environnement sans `USER`, qui répondait `Not logged in`. Les résultats ci-dessus viennent du second essai (`r-both2`).
 
 ## Contradictions avec le plan
 
