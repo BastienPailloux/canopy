@@ -279,6 +279,18 @@ async function deliver(tab: SessionTab, content: UserContent): Promise<boolean> 
   return current ? startProcess(current, content) : true
 }
 
+/**
+ * Sends `text` to the worktree's selected session, or to a new one when that tab holds an unsent draft.
+ * Trust is asked as for any message. Resolves the tab used.
+ */
+export function askClaude(cwd: string, text: string): string {
+  const current = tabOf(useSessions.getState().active[cwd])
+  const id = current && current.draft.text === '' && current.draft.images.length === 0 ? current.id : newTab(cwd)
+  setDraftText(id, text)
+  void submit(id)
+  return id
+}
+
 export function interrupt(id: string): void {
   const localId = tabOf(id)?.localId
   if (!localId) return

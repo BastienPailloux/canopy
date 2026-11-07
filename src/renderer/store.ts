@@ -3,12 +3,18 @@ import type { Worktree } from '../shared/types'
 
 export type View = 'sessions' | 'code'
 
+/** A file the Code view must open as soon as it shows. */
+export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; seq: number }
+
 interface AppState {
   repo: string | null
   /** Path of the active worktree. */
   worktree: string | null
   worktrees: Worktree[]
   view: View
+  codeRequest: CodeRequest | null
+  /** Opens the Code view of `cwd` on `path`. */
+  openInCode: (cwd: string, path: string, mode: 'code' | 'diff') => void
   setRepo: (repo: string | null) => void
   setWorktrees: (list: Worktree[]) => void
   setWorktree: (path: string | null) => void
@@ -20,6 +26,9 @@ export const useApp = create<AppState>((set) => ({
   worktree: null,
   worktrees: [],
   view: 'sessions',
+  codeRequest: null,
+  openInCode: (cwd, path, mode) =>
+    set((s) => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, seq: (s.codeRequest?.seq ?? 0) + 1 } })),
   setRepo: (repo) => set({ repo, worktree: null, worktrees: [] }),
   // Keeps the selection if it still exists, else falls back to the main worktree.
   setWorktrees: (worktrees) =>

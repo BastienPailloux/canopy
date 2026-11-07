@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, closeTab, ensureTab, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, closeTab, ensureTab, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -246,5 +246,33 @@ describe('submit', () => {
     setDraftText(id, 'une fois')
     await Promise.all([submit(id), submit(id)])
     expect(api.startSession).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('askClaude', () => {
+  it('sends to the selected session of the worktree, resuming it, without opening another tab', async () => {
+    await openSession(CWD, PAST)
+    const { id } = activeTab()
+    askClaude(CWD, 'à propos de a.ts')
+    await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
+    expect(api.startSession.mock.calls[0][1]).toMatchObject({ content: { text: 'à propos de a.ts' }, resumeId: 'past' })
+    expect(tabs()).toHaveLength(1)
+    expect(activeTab().id).toBe(id)
+  })
+
+  it('starts a new session when there is none', async () => {
+    askClaude(CWD, 'bonjour')
+    await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
+    expect(api.startSession.mock.calls[0][1]).toMatchObject({ content: { text: 'bonjour' } })
+  })
+
+  it('leaves a half-typed draft alone and uses a new tab', async () => {
+    ensureTab(CWD)
+    const typing = activeTab().id
+    setDraftText(typing, 'en cours')
+    askClaude(CWD, 'question')
+    await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
+    expect(tabs()).toHaveLength(2)
+    expect(useSessions.getState().tabs[typing].draft.text).toBe('en cours')
   })
 })

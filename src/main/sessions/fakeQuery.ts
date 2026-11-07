@@ -110,6 +110,8 @@ async function* turn(t: Turn, text: string): AsyncGenerator<SDKMessage> {
     yield* useTool(t, 'mcp__db__write', { table: 'clients', query: 'DELETE FROM clients', options: { force: true } }, [], 'ok')
   } else if (scenario === 'ecrire') {
     yield* useTool(t, 'Write', { file_path: 'note.txt', content: 'bonjour\n' }, [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }], 'ok')
+  } else if (scenario === 'editer') {
+    yield* useTool(t, 'Edit', { file_path: 'src/alpha.ts', old_string: 'a = 1', new_string: 'a = 2' }, [], 'ok')
   } else if (scenario === 'question') {
     yield* useTool(t, 'AskUserQuestion', QUESTIONS, [], '')
   } else if (scenario === 'markdown') {

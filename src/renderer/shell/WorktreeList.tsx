@@ -17,11 +17,16 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
   const [entries, setEntries] = useState<Record<string, StatsEntry>>({})
   const [listError, setListError] = useState<string | null>(null)
   const inFlight = useRef(false)
+  const rerun = useRef(false)
+  const watched = useRef('')
   const current = useRef(repo)
   current.current = repo
 
   const refresh = useCallback(async (): Promise<void> => {
-    if (inFlight.current) return
+    if (inFlight.current) {
+      rerun.current = true
+      return
+    }
     inFlight.current = true
     const forRepo = repo
     try {
@@ -35,6 +40,12 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
       if (current.current !== forRepo) return
       setListError(null)
       setWorktrees(list)
+      // The main process watches exactly these, and drops the ones that left the list.
+      const key = `${forRepo}\0${list.map((w) => w.path).join('\0')}`
+      if (watched.current !== key) {
+        watched.current = key
+        window.canopy.watchWorktrees(forRepo).catch(() => { watched.current = '' })
+      }
       await Promise.all(
         list.map(async (w) => {
           let patch: StatsEntry
@@ -53,12 +64,33 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
       }
     } finally {
       inFlight.current = false
+      if (rerun.current) {
+        rerun.current = false
+        void refresh()
+      }
     }
   }, [repo, setWorktrees])
+
+  // Files or commits changed in a worktree: only its numbers are stale.
+  useEffect(() => window.canopy.on('code:changed', (payload) => {
+    const path = (payload as { cwd?: string } | null)?.cwd
+    if (!path || !useApp.getState().worktrees.some((w) => w.path === path)) return
+    const forRepo = current.current
+    window.canopy.worktreeStats(path).then(
+      (stats) => {
+        if (current.current === forRepo) setEntries((prev) => ({ ...prev, [path]: { stats } }))
+      },
+      (e: unknown) => {
+        const error = e instanceof Error ? e.message : String(e)
+        if (current.current === forRepo) setEntries((prev) => ({ ...prev, [path]: { stats: prev[path]?.stats, error } }))
+      }
+    )
+  }), [])
 
   useEffect(() => {
     setEntries({})
     setListError(null)
+    watched.current = ''
     void refresh()
     const timer = setInterval(() => void refresh(), REFRESH_MS)
     const onFocus = (): void => void refresh()

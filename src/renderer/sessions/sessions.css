@@ -582,3 +582,12 @@
 .dialog.trust:focus {
   outline: none;
 }
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-fg);
+  font-size: 12px;
+  text-decoration: underline;
+}

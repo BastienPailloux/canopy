@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from 'react'
 import type { DiffLine } from './lineDiff'
+import { useApp } from '../store'
 import { clipOutput, outcome, plural, toolDiff, toolTarget, type ToolItem } from './toolDetail'
 
 const MAX_DIFF_LINES = 400
@@ -48,6 +49,17 @@ function InterruptButton(props: CardProps): React.JSX.Element | null {
   return <button type="button" className="interrupt" onClick={props.onInterrupt}>Interrompre</button>
 }
 
+/** Opens the Code view on the file this Edit or Write changed, in Diff mode. */
+function ViewDiffLink(props: { item: ToolItem; cwd: string }): React.JSX.Element | null {
+  const { item, cwd } = props
+  const path = toolTarget(item.name, item.input, cwd)
+  // A file outside the worktree is not in the Code view.
+  if (item.running || item.isError || path === '' || path.startsWith('/') || path.startsWith('..')) return null
+  return (
+    <button type="button" className="link-btn" onClick={() => useApp.getState().openInCode(cwd, path, 'diff')}>Voir le diff</button>
+  )
+}
+
 function DiffCard(props: CardProps & { lines: DiffLine[] }): React.JSX.Element {
   const { lines, ...card } = props
   const { item, cwd } = card
@@ -60,6 +72,7 @@ function DiffCard(props: CardProps & { lines: DiffLine[] }): React.JSX.Element {
           <Summary item={item} cwd={cwd}>
             {added > 0 && <span className="add">+{added}</span>}
             {removed > 0 && <span className="del">−{removed}</span>}
+            <ViewDiffLink item={item} cwd={cwd} />
           </Summary>
         </div>
         <InterruptButton {...card} />

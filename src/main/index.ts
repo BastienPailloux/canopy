@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
 import { AppStore } from './appStore'
+import { stopAllWatchers } from './code/codeIpc'
 import { loginShellEnv } from './env'
 import { setGitEnv } from './git/exec'
 import { registerIpc } from './ipc'
@@ -56,7 +57,7 @@ void app.whenReady().then(async () => {
     pathToClaudeCodeExecutable: claudeExecutablePath,
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
   })
-  app.on('before-quit', () => sessions.stopAll())
+  app.on('before-quit', () => { sessions.stopAll(); stopAllWatchers() })
   registerIpc(store, sessions)
   createWindow()
   app.on('activate', () => {

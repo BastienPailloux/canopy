@@ -1,9 +1,21 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, Worktree, WorktreeStats } from './types'
+import type { BaseRef, ChangedFile, PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, Worktree, WorktreeStats } from './types'
 
 export interface RemovalRisks { dirty: number; unpushed: number }
+
+/** A file of the worktree as the editor shows it. `version` identifies the bytes read, to give back to `writeFile`. */
+export type FileContent =
+  | { kind: 'text'; content: string; version: string }
+  | { kind: 'binary' }
+  | { kind: 'tooLarge'; size: number }
+
+/** File content at the comparison base. null: the file does not exist there. */
+export type BaseContent =
+  | { kind: 'text'; content: string }
+  | { kind: 'tooLarge'; size: number }
+  | { kind: 'notBlob' }
 
 export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode }
 
@@ -56,6 +68,21 @@ export interface CanopyApi {
   openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */
   listTree(cwd: string): Promise<string[]>
+  /** Files changed since the merge-base with `base` (default: the repo's base branch). Rejects on git failures. */
+  codeChanges(cwd: string, base?: string): Promise<{ base: BaseRef; files: ChangedFile[] }>
+  /** Local and remote branches one can compare against. */
+  codeBranches(cwd: string): Promise<string[]>
+  /** `path` as of the merge-base with `base`. Use the file's `oldPath` for a rename. */
+  readBase(cwd: string, base: string, path: string): Promise<BaseContent | null>
+  /** Rejects for a path that leaves the worktree, links included. */
+  readFile(cwd: string, path: string): Promise<FileContent>
+  /**
+   * Resolves the new version. With `expectedVersion`, rejects with FILE_CHANGED (see `isFileChanged`)
+   * if the file is no longer what was read.
+   */
+  writeFile(cwd: string, path: string, content: string, expectedVersion?: string): Promise<string>
+  /** Watches the worktrees `repo` lists now, and no other: emits `code:changed` `{ cwd }` after changes. */
+  watchWorktrees(repo: string): Promise<void>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */

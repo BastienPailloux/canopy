@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { connectSessions } from './sessions/sessionStore'
 import { TrustDialog } from './sessions/TrustDialog'
@@ -31,7 +32,7 @@ function Main(): React.JSX.Element {
       </div>
       {view === 'sessions'
         ? <SessionsView cwd={worktree.path} worktreeLabel={worktreeLabel(worktree)} />
-        : <div className="placeholder" data-testid="view-placeholder">La vue code arrive bientôt.</div>}
+        : <CodeScreen key={worktree.path} cwd={worktree.path} branch={worktreeLabel(worktree)} />}
     </>
   )
 }

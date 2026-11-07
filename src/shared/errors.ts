@@ -12,3 +12,10 @@ export class RepoNotTrustedError extends Error {
 export function isRepoNotTrusted(err: unknown): boolean {
   return err instanceof Error && err.message.includes(REPO_NOT_TRUSTED)
 }
+
+export const FILE_CHANGED = 'FILE_CHANGED'
+
+/** The file changed on disk since it was read: also true for the rejection of an IPC call. */
+export function isFileChanged(err: unknown): boolean {
+  return err instanceof Error && err.message.includes(FILE_CHANGED)
+}

@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import type { AppStore } from './appStore'
-import { listTree } from './code/files'
+import { registerCodeIpc } from './code/codeIpc'
 import { openExternalUrl } from './externalLinks'
 import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
@@ -141,10 +141,7 @@ export function registerIpc(store: AppStore, sessions: SessionManager): void {
 
   ipcMain.handle('shell:openExternal', (_e, url: unknown) => openExternalUrl(url, (u) => shell.openExternal(u)))
 
-  ipcMain.handle('code:listTree', (_e, cwd: unknown) => {
-    assertPath(cwd)
-    return listTree(cwd)
-  })
+  registerCodeIpc(broadcast)
 
   ipcMain.handle('worktree:list', (_e, repo: unknown) => {
     assertPath(repo)
