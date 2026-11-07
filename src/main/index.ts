@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, Menu, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, Menu, powerMonitor, safeStorage } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
@@ -12,13 +13,14 @@ import { createCrashReload } from './crashReload'
 import { currentEnv, startEnv } from './env'
 import { hiddenWindow } from './hiddenWindow'
 import { installCli } from './installCli'
-import { broadcast, registerIpc } from './ipc'
+import { broadcast, registerIpc, registerUpdateIpc } from './ipc'
 import { menuTemplate } from './menu'
 import { createOpenFolders } from './openFolders'
-import { createQuitFlow, quitDetail, type UnsavedCounts } from './quit'
+import { createQuitFlow, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
 import { TerminalManager } from './terminal/TerminalManager'
+import { createUpdater, type Updater } from './update/updater'
 
 /**
  * Undefined in development, where the SDK finds its binary. Packaged, it cannot be run from inside the asar.
@@ -134,9 +136,10 @@ void app.whenReady().then(async () => {
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
   let unsaved: UnsavedCounts = { buffers: 0, drafts: 0 }
+  const running = (): RunningCounts => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved })
   // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const quit = createQuitFlow({
-    counts: () => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved }),
+    counts: running,
     confirm: async (counts) => {
       const options: Electron.MessageBoxOptions = {
         type: 'warning', buttons: ['Quitter', 'Annuler'], defaultId: 1, cancelId: 1,
@@ -158,6 +161,34 @@ void app.whenReady().then(async () => {
   })
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }))
+  const stashFile = join(app.getPath('userData'), 'update-stash.json')
+  // Only a packaged app can update itself; the hidden test runs must not.
+  let updater: Updater | null = null
+  if (app.isPackaged && !hidden) {
+    updater = createUpdater({
+      updater: autoUpdater,
+      now: Date.now,
+      setInterval,
+      broadcast,
+      counts: running,
+      confirm: async (detail) => {
+        const options: Electron.MessageBoxOptions = {
+          type: 'warning', buttons: ['Redémarrer', 'Annuler'], defaultId: 1, cancelId: 1,
+          message: 'Redémarrer pour mettre à jour ?', detail
+        }
+        const win = BrowserWindow.getFocusedWindow()
+        const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+        return response === 0
+      },
+      finish: (then) => { quit.finish(then) },
+      stashFile,
+      stashTimeoutMs: 5000
+    })
+    const u = updater
+    powerMonitor.on('resume', () => { u.tick() })
+    u.start()
+  }
+  registerUpdateIpc(updater, stashFile)
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     isPackaged: app.isPackaged,
     onCloseTab: () => broadcast('menu:closeTab'),

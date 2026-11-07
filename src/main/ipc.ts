@@ -15,6 +15,8 @@ import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife
 import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
 import { dirtyCount, hasSetAsideChanges, switchableBranches, switchBranch } from './git/switchBranch'
 import { parseUnsaved, type UnsavedCounts } from './quit'
+import { parseStash, takeStash } from './update/stash'
+import type { Updater } from './update/updater'
 import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
@@ -119,6 +121,17 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
     assertId(localId)
     return sessions.models(localId)
   })
+}
+
+/**
+ * Registered in every mode: a dev or test build still hands back a stash left by a packaged one.
+ * Without an updater (dev, tests), there is never an update and a restart does nothing.
+ */
+export function registerUpdateIpc(updater: Updater | null, stashFile: string): void {
+  ipcMain.handle('update:state', () => updater?.state() ?? { phase: 'none' })
+  ipcMain.handle('update:restart', () => updater?.restart(true))
+  ipcMain.handle('update:submitStash', (_e, raw: unknown) => { updater?.receiveStash(parseStash(raw)) })
+  ipcMain.handle('update:takeStash', () => takeStash(stashFile))
 }
 
 export function registerIpc(

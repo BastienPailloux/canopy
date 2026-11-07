@@ -2,6 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
+import type { Stash, UpdateState } from './update'
 
 export interface RemovalRisks {
   dirty: number
@@ -158,6 +159,14 @@ export interface CanopyApi {
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
   /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts. */
   reportUnsaved(counts: { buffers: number; drafts: number }): Promise<void>
+  /** Where the downloaded update stands. Changes arrive as `update:state` events. */
+  updateState(): Promise<UpdateState>
+  /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
+  restartToUpdate(): Promise<void>
+  /** The answer to `update:collectStash`: the unsaved work to set aside across the restart. */
+  submitStash(s: Stash): Promise<void>
+  /** The work set aside by the last update restart, once: the file is gone after. */
+  takeStash(): Promise<Stash | null>
   /** Opens a web or mail link in the default browser. Rejects for any other scheme. */
   openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */
