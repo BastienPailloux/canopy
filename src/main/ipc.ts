@@ -205,6 +205,17 @@ export function registerIpc(
     return scan
   })
 
+  ipcMain.handle('workspace:lastEntry', (_e, folder: unknown) => {
+    assertPath(folder)
+    return store.lastEntries[folder] ?? null
+  })
+
+  ipcMain.handle('workspace:setLastEntry', (_e, folder: unknown, path: unknown) => {
+    assertPath(folder)
+    assertPath(path)
+    store.setLastEntry(folder, path)
+  })
+
   ipcMain.handle('repo:setBase', async (_e, repo: unknown, branch: unknown) => {
     assertPath(repo)
     const picked = parseRepoBase(branch)

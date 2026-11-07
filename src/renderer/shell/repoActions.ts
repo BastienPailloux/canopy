@@ -4,13 +4,18 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message.replac
 
 let opening = 0
 
-/** Scans `folder` and shows it. The last folder asked for wins, however long each scan takes. */
-async function enter(folder: string): Promise<void> {
+/** Scans `folder` and shows it, on its last entry with `restore`. The last folder asked for wins, however long each scan takes. */
+async function enter(folder: string, restore = false): Promise<void> {
   const id = ++opening
-  const workspace = await window.canopy.scanWorkspace(folder)
+  const [workspace, last] = await Promise.all([
+    window.canopy.scanWorkspace(folder),
+    restore ? window.canopy.lastEntry(folder).catch(() => null) : null
+  ])
   if (id !== opening) return
   useApp.getState().setOpenError(null)
   useApp.getState().setWorkspace(workspace)
+  const entry = workspace.entries.find((e) => e.worktree.path === last)
+  if (entry) useApp.getState().selectEntry(entry)
 }
 
 /** Native picker, then show the chosen folder. A failure goes to `openError`, in French. */
@@ -23,14 +28,22 @@ export async function openRepoFlow(): Promise<void> {
   }
 }
 
-/** Re-open a known folder. False if it is gone; one that holds no repo anymore is reported through `openError`. */
-export async function selectRepoFlow(path: string): Promise<boolean> {
+/** Re-open a known folder, `restore` for its last entry. False if it is gone; one that holds no repo anymore is reported through `openError`. */
+export async function selectRepoFlow(path: string, restore = false): Promise<boolean> {
   try {
     const folder = await window.canopy.selectRepo(path)
     if (!folder) return false
-    await enter(folder)
+    await enter(folder, restore)
   } catch (e) {
     useApp.getState().setOpenError(`${path} : ${errorText(e)}`)
   }
   return true
+}
+
+/** Saves each selected entry for the next launch. An orphan is not one: it will not be there. Returns the stop function. */
+export function connectLastEntry(): () => void {
+  return useApp.subscribe((s, prev) => {
+    if (s.worktree === prev.worktree || !s.worktree || !s.workspace) return
+    if (s.workspace.entries.some((e) => e.worktree.path === s.worktree)) void window.canopy.setLastEntry(s.workspace.root, s.worktree).catch(() => undefined)
+  })
 }

@@ -107,6 +107,9 @@ export interface CanopyApi {
   selectRepo(path: string): Promise<string | null>
   /** The repos under a folder, with their worktrees. */
   scanWorkspace(root: string): Promise<Workspace>
+  /** Path of the worktree last selected in `folder`, if any. */
+  lastEntry(folder: string): Promise<string | null>
+  setLastEntry(folder: string, path: string): Promise<void>
   /** Remembers the base branch of a repo, shared by its worktrees; null forgets it. Rejects an unknown branch. */
   setRepoBase(repo: string, branch: string | null): Promise<void>
   /** The remembered base branch of a repo, or null. */

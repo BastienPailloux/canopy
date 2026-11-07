@@ -8,7 +8,7 @@ import { connectTerminals } from './terminal/terminalStore'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
-import { openRepoFlow, selectRepoFlow } from './shell/repoActions'
+import { connectLastEntry, openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
 
@@ -57,20 +57,21 @@ export function App(): React.JSX.Element {
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
   useEffect(() => connectUnsaved(), [])
+  useEffect(() => connectLastEntry(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
     if (view === 'sessions' && worktree && !document.querySelector('[aria-modal="true"]')) closeActiveTabIfSafe(worktree)
   }), [])
 
-  // Re-open the most recent folder that still exists.
+  // Re-open the most recent folder that still exists, on the entry left selected.
   useEffect(() => {
     let live = true
     void (async () => {
       const recents = await window.canopy.recentRepos().catch(() => [])
       for (const r of recents) {
         if (!live || useApp.getState().repo) return
-        if (await selectRepoFlow(r)) return
+        if (await selectRepoFlow(r, true)) return
       }
     })()
     return () => { live = false }

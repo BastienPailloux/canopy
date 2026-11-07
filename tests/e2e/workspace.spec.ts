@@ -473,3 +473,18 @@ test('unticking the remembered base goes back to the default one', async () => {
   await expect(picker).toHaveValue('main')
   await expect(page.getByTestId('code-totals')).toContainText('+0')
 })
+
+test('launch returns to the entry last selected in the folder', async () => {
+  await launchWorkspace()
+  await row('beta · feat-x').click()
+  await expect(row('beta · feat-x')).toHaveAttribute('aria-current', 'true')
+  await expect.poll(() => page.evaluate((r) => window.canopy.lastEntry(r), root)).toBe(join(root, '.worktrees', 'feat-x', 'beta'))
+  await closeApp(app!)
+
+  const env = { ...process.env, CANOPY_FAKE_QUERY: '1', SHELL: '/bin/bash' } as Record<string, string>
+  delete env.ELECTRON_RUN_AS_NODE
+  app = await electron.launch({ args: ['.', `--user-data-dir=${userData}`], env })
+  page = await app.firstWindow()
+  await expect(rows()).toHaveCount(6, { timeout: 20_000 })
+  await expect(row('beta · feat-x')).toHaveAttribute('aria-current', 'true')
+})

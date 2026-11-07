@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, test } from 'vitest'
 import { AppStore } from '../../src/main/appStore'
 
 let dir: string
@@ -168,4 +168,23 @@ it('remembers repo bases, forgets one with null, ignores corrupt values', async 
   expect(new AppStore(file).repoBases).toEqual({ '/a': 'main' })
   await writeFile(file, JSON.stringify({ repoBases: ['main'] }))
   expect(new AppStore(file).repoBases).toEqual({})
+})
+
+test('the last entry of a folder survives a restart, a bad value does not', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'canopy-store-')), 'state.json')
+  const store = new AppStore(file)
+  store.addRecentRepo('/ws')
+  store.setLastEntry('/ws', '/ws/a')
+  expect(new AppStore(file).lastEntries).toEqual({ '/ws': '/ws/a' })
+  writeFileSync(file, JSON.stringify({ lastEntries: { '/ws': 3, '/ok': '/ok/a' } }))
+  expect(new AppStore(file).lastEntries).toEqual({ '/ok': '/ok/a' })
+})
+
+test('last entries follow the recents: a folder that left them is dropped', () => {
+  const store = new AppStore(join(mkdtempSync(join(tmpdir(), 'canopy-store-')), 'state.json'))
+  store.addRecentRepo('/old')
+  store.setLastEntry('/old', '/old/a')
+  for (let i = 0; i < 10; i++) store.addRecentRepo(`/r${i}`)
+  store.setLastEntry('/r9', '/r9/a')
+  expect(store.lastEntries).toEqual({ '/r9': '/r9/a' })
 })
