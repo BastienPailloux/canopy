@@ -21,12 +21,16 @@ export interface QuitDeps {
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n > 1 ? many : one}`
 
+/** What is still running, shared by the quit question and the update one. */
+const runningList = ({ sessions, terminals }: RunningCounts): string[] => [
+  ...(sessions > 0 ? [plural(sessions, 'session Claude en cours', 'sessions Claude en cours')] : []),
+  ...(terminals > 0 ? [plural(terminals, 'terminal actif', 'terminaux actifs')] : [])
+]
+
 /** The one question asked at quit, with what is still running and what would be lost. */
-export function quitDetail({ sessions, terminals, buffers, drafts }: RunningCounts): string {
-  const running = [
-    ...(sessions > 0 ? [plural(sessions, 'session Claude en cours', 'sessions Claude en cours')] : []),
-    ...(terminals > 0 ? [plural(terminals, 'terminal actif', 'terminaux actifs')] : [])
-  ]
+export function quitDetail(counts: RunningCounts): string {
+  const { buffers, drafts } = counts
+  const running = runningList(counts)
   const lost = [
     ...(buffers > 0 ? [plural(buffers, 'fichier non enregistré', 'fichiers non enregistrés')] : []),
     ...(drafts > 0 ? [plural(drafts, 'brouillon de message', 'brouillons de message')] : [])
@@ -37,15 +41,34 @@ export function quitDetail({ sessions, terminals, buffers, drafts }: RunningCoun
   ].join(' ')
 }
 
+/** What an update restart says before it stops things: what stops, and what survives it. */
+export function updateDetail(counts: RunningCounts): string {
+  const running = runningList(counts)
+  return [
+    ...(running.length > 0 ? [`Redémarrer arrêtera : ${running.join(', ')}.`] : []),
+    'Les fichiers non enregistrés et les brouillons seront conservés.'
+  ].join(' ')
+}
+
 /**
  * Every way out of the app (⌘Q, closing the window) goes through `request`. Nothing at stake: quits at once.
  * Something running or unsaved: one confirmation, then everything is stopped before quitting. Cancel changes nothing.
+ * `finish` is the update restart: it stops everything without asking, then hands over to `then` instead of quitting.
  */
-export function createQuitFlow(deps: QuitDeps): { request: () => Promise<void>; readonly quitting: boolean } {
+export function createQuitFlow(deps: QuitDeps): {
+  request: () => Promise<void>
+  finish: (then: () => void) => void
+  readonly quitting: boolean
+} {
   let quitting = false
   let asking = false
   return {
     get quitting() { return quitting },
+    finish(then) {
+      quitting = true
+      deps.shutdown()
+      then()
+    },
     async request() {
       if (quitting || asking) return
       const counts = deps.counts()

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest'
-import { createQuitFlow, quitDetail, type RunningCounts } from '../../src/main/quit'
+import { createQuitFlow, quitDetail, updateDetail, type RunningCounts } from '../../src/main/quit'
 
 const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0 }
 
@@ -71,4 +71,15 @@ test('unsaved work alone asks before quitting', async () => {
 test('the question says what stops and what is lost', () => {
   expect(quitDetail({ ...NONE, buffers: 2, drafts: 1 })).toBe('Seront perdus : 2 fichiers non enregistrés, 1 brouillon de message.')
   expect(quitDetail({ sessions: 1, terminals: 0, buffers: 1, drafts: 0 })).toBe('Quitter arrêtera : 1 session Claude en cours. Sera perdu : 1 fichier non enregistré.')
+})
+
+test('finish stops everything and hands over without asking', () => {
+  const h = setup({ sessions: 1 }); const then = vi.fn()
+  h.flow.finish(then)
+  expect(h.confirm).not.toHaveBeenCalled(); expect(h.calls).toEqual(['shutdown']); expect(then).toHaveBeenCalledOnce()
+  expect(h.flow.quitting).toBe(true)
+})
+test('update detail says what stops and that edits are kept', () => {
+  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1 })).toBe(
+    'Redémarrer arrêtera : 2 sessions Claude en cours, 1 terminal actif. Les fichiers non enregistrés et les brouillons seront conservés.')
 })
