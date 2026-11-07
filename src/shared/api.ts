@@ -44,6 +44,8 @@ export interface CanopyApi {
   /** Resolves the base ref, then counts uncommitted files and unpushed commits at `path`. */
   removalRisks(repo: string, path: string): Promise<RemovalRisks>
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
+  /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */
+  listTree(cwd: string): Promise<string[]>
   /** Trust and the listed config both come from the main worktree of `repo`, shared by all its worktrees. */
   repoTrust(repo: string): Promise<RepoTrust>
   trustRepo(repo: string): Promise<void>

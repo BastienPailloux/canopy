@@ -6,6 +6,7 @@ import { AppStore } from './appStore'
 import { loginShellEnv } from './env'
 import { setGitEnv } from './git/exec'
 import { registerIpc } from './ipc'
+import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
 
 /**
@@ -44,7 +45,7 @@ void app.whenReady().then(async () => {
   setGitEnv({ ...env, GIT_OPTIONAL_LOCKS: '0' })
   const store = new AppStore(join(app.getPath('userData'), 'state.json'))
   const sessions = new SessionManager({
-    query,
+    query: selectQuery(query, { isPackaged: app.isPackaged, env: process.env }),
     listSessions,
     getSessionMessages,
     env: () => env,

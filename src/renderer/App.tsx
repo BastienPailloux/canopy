@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { SessionsView } from './sessions/SessionsView'
+import { connectSessions } from './sessions/sessionStore'
+import { TrustDialog } from './sessions/TrustDialog'
 import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
 import { openRepoFlow, selectRepoFlow } from './shell/repoActions'
@@ -26,15 +29,17 @@ function Main(): React.JSX.Element {
         <h1 data-testid="active-worktree">{worktreeLabel(worktree)}</h1>
         <span className="sub mono" title={worktree.path}>{basename(worktree.path)}</span>
       </div>
-      <div className="placeholder" data-testid="view-placeholder">
-        {view === 'sessions' ? 'Les sessions arrivent bientôt.' : 'La vue code arrive bientôt.'}
-      </div>
+      {view === 'sessions'
+        ? <SessionsView cwd={worktree.path} worktreeLabel={worktreeLabel(worktree)} />
+        : <div className="placeholder" data-testid="view-placeholder">La vue code arrive bientôt.</div>}
     </>
   )
 }
 
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
+
+  useEffect(() => connectSessions(), [])
 
   // Re-open the most recent repo that still exists.
   useEffect(() => {
@@ -51,6 +56,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
+      <TrustDialog />
       <Header />
       <div className="body">
         {repo ? (

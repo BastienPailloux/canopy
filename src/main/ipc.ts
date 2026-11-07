@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { isAbsolute } from 'node:path'
 import type { AppStore } from './appStore'
+import { listTree } from './code/files'
 import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
 import { worktreeStats } from './git/diff'
@@ -134,6 +135,11 @@ export function registerIpc(store: AppStore, sessions: SessionManager): void {
   ipcMain.handle('repo:trustRepo', async (_e, repo: unknown) => {
     assertPath(repo)
     store.trustRepo(await mainWorktreeRoot(repo))
+  })
+
+  ipcMain.handle('code:listTree', (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return listTree(cwd)
   })
 
   ipcMain.handle('worktree:list', (_e, repo: unknown) => {
