@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { OrphanedWorktree } from '../../shared/api'
 import type { Worktree, WorktreeStats } from '../../shared/types'
+import { forgetWorktree } from '../sessions/sessionStore'
 import { useApp, worktreeLabel } from '../store'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
 import { createOrdering, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polling'
@@ -15,6 +17,7 @@ interface StatsEntry { stats?: WorktreeStats; error?: string }
  */
 function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; listError: string | null; refresh: () => Promise<void> } {
   const setWorktrees = useApp((s) => s.setWorktrees)
+  const setOrphans = useApp((s) => s.setOrphans)
   const [entries, setEntries] = useState<Record<string, StatsEntry>>({})
   const [listError, setListError] = useState<string | null>(null)
   const inFlight = useRef(false)
@@ -53,9 +56,14 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
         if (current.current === forRepo) setListError(e instanceof Error ? e.message : String(e))
         return
       }
+      // After the list: the main process compares with it. Before the store: the selection may be one of them.
+      const gone = await window.canopy.orphanedWorktrees(forRepo).catch((): OrphanedWorktree[] => [])
       if (current.current !== forRepo) return
       setListError(null)
+      const ended = useApp.getState().orphans.filter((o) => !gone.some((g) => g.path === o.path) && !list.some((w) => w.path === o.path))
+      setOrphans(gone)
       setWorktrees(list)
+      ended.forEach((o) => forgetWorktree(o.path))
       // The main process watches exactly these, and drops the ones that left the list.
       const key = `${forRepo}\0${list.map((w) => w.path).join('\0')}`
       if (watched.current !== key) {
@@ -74,7 +82,7 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
         void refresh()
       }
     }
-  }, [repo, setWorktrees, readStats])
+  }, [repo, setWorktrees, setOrphans, readStats])
 
   // Files or commits changed in a worktree: its numbers are stale, and the list too if one came or went.
   useEffect(() => {
@@ -91,7 +99,11 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
       }, () => undefined)
     })
     const offError = window.canopy.on('code:watchError', () => setWatchFailed(true))
-    return () => { offChanged(); offError() }
+    // An orphan lasts as long as what runs in it.
+    const onEnded = (): void => { if (useApp.getState().orphans.length > 0) void refresh() }
+    const offState = window.canopy.on('session:state', onEnded)
+    const offExit = window.canopy.on('terminal:exit', onEnded)
+    return () => { offChanged(); offError(); offState(); offExit() }
   }, [readStats, refresh])
 
   useEffect(() => {
@@ -154,6 +166,39 @@ function Row(props: { w: Worktree; entry?: StatsEntry; status: WorktreeStatus; a
   )
 }
 
+const count = (n: number, one: string, many: string): string => `${n} ${n > 1 ? many : one}`
+
+function liveText(w: OrphanedWorktree): string {
+  return [
+    ...(w.sessions > 0 ? [count(w.sessions, 'session', 'sessions')] : []),
+    ...(w.terminals > 0 ? [count(w.terminals, 'terminal', 'terminaux')] : [])
+  ].join(', ')
+}
+
+/** Deleted from outside while something runs there: reachable until that ends, closed from its tabs. */
+function Orphans(props: { active: string | null; onPick: (path: string) => void }): React.JSX.Element | null {
+  const orphans = useApp((s) => s.orphans)
+  if (orphans.length === 0) return null
+  return (
+    <>
+      <p className="list-error" role="alert" data-testid="orphan-notice">
+        {orphans.map((w) => `« ${worktreeLabel(w)} » a disparu du disque : ${liveText(w)} encore actif${w.sessions + w.terminals > 1 ? 's' : ''}.`).join(' ')}
+      </p>
+      {orphans.map((w) => (
+        <div key={w.path} className="wt-row">
+          <button className="wt" aria-current={w.path === props.active} onClick={() => props.onPick(w.path)} data-testid="worktree-orphan" data-path={w.path}>
+            <span className="dot" data-status="waiting" aria-hidden="true" />
+            <span className="col">
+              <span className="name" title={w.path}>{worktreeLabel(w)}</span>
+              <span className="status">Dossier disparu · {liveText(w)}</span>
+            </span>
+          </button>
+        </div>
+      ))}
+    </>
+  )
+}
+
 export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
   const worktrees = useApp((s) => s.worktrees)
   const active = useApp((s) => s.worktree)
@@ -175,6 +220,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
           <Row key={w.path} w={w} entry={entries[w.path]} status={statuses[w.path] ?? 'idle'} active={w.path === active}
             onPick={() => setWorktree(w.path)} onRemove={() => setRemoving(w)} />
         ))}
+        <Orphans active={active} onPick={setWorktree} />
       </div>
       {creating && (
         <NewWorktreeDialog repo={repo} onClose={() => setCreating(false)}
@@ -185,7 +231,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
       )}
       {removing && (
         <RemoveWorktreeDialog repo={repo} worktree={removing} onClose={() => setRemoving(null)}
-          onRemoved={() => { setRemoving(null); void refresh() }} />
+          onRemoved={() => { forgetWorktree(removing.path); setRemoving(null); void refresh() }} />
       )}
     </>
   )

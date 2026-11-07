@@ -188,6 +188,16 @@ export class TerminalManager extends EventEmitter {
     return [...this.terminals.values()].filter((t) => t.info.running).length
   }
 
+  /** Terminals of a worktree whose process is still alive. */
+  runningIn(cwd: string): number {
+    return this.list(cwd).filter((t) => t.running).length
+  }
+
+  /** Ends the terminals of a worktree: their shells would sit in a folder that is gone. The exit is reported. */
+  killIn(cwd: string): void {
+    for (const t of this.list(cwd)) this.kill(t.id)
+  }
+
   /** The last 2000 lines, in raw form. */
   buffer(id: string): string {
     return this.terminals.get(id)?.buffer ?? ''

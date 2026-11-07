@@ -812,3 +812,26 @@ test('list tells the localId and mode of a live session, following setMode and t
   expect(old).not.toHaveProperty('localId')
   expect(old).not.toHaveProperty('mode')
 })
+
+test('liveCount counts every session alive in a worktree, idle ones too, and stopIn ends only those', async () => {
+  const h = setup()
+  const here = h.m.start('/wt', { content: content('a') })
+  h.m.start('/wt', { content: content('') })
+  const elsewhere = h.m.start('/other', { content: content('b') })
+  await tick()
+  expect(h.m.liveCount('/wt')).toBe(2)
+
+  h.m.stopIn('/wt')
+  expect(h.m.liveCount('/wt')).toBe(0)
+  expect(h.stateOf(here)).toBe('stopped')
+  expect(h.m.liveCount('/other')).toBe(1)
+  expect(h.stateOf(elsewhere)).not.toBe('stopped')
+})
+
+test('a worktree folder that vanished still lists its live sessions', async () => {
+  const h = setup()
+  const localId = h.m.start('/gone', { content: content('a') })
+  await tick()
+  h.listSessions.mockRejectedValueOnce(new Error('ENOENT'))
+  expect(await h.m.list('/gone')).toMatchObject([{ localId, live: true }])
+})

@@ -196,3 +196,21 @@ test('output without newlines is capped too, keeping the end and the running cou
   expect(data.endsWith('la fin')).toBe(true)
   expect(end).toBe(chunk.length * 3 + 'la fin'.length)
 })
+
+test('runningIn counts the live terminals of a worktree, killIn ends only those', async () => {
+  const other = await mkdtemp(join(tmpdir(), 'canopy-term-other-'))
+  try {
+    manager.create(dir)
+    const ended = manager.create(dir)
+    const kept = manager.create(other)
+    ptys[1].end(0)
+    expect(manager.runningIn(dir)).toBe(1)
+
+    manager.killIn(dir)
+    expect(ptys[0].killed).toBe(true)
+    expect(manager.get(ended)?.running).toBe(false)
+    expect(manager.get(kept)?.running).toBe(true)
+  } finally {
+    await rm(other, { recursive: true, force: true })
+  }
+})

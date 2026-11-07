@@ -3,7 +3,17 @@
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Worktree, WorktreeStats, WorktreeStatus } from './types'
 
-export interface RemovalRisks { dirty: number; unpushed: number }
+export interface RemovalRisks {
+  dirty: number
+  unpushed: number
+  /** Sessions alive in the worktree, idle ones included: removing it stops them. */
+  sessions: number
+  /** Terminals still running there. */
+  terminals: number
+}
+
+/** A worktree that left git's list with processes still running in it. */
+export interface OrphanedWorktree extends Worktree { sessions: number; terminals: number }
 
 export interface NewWorktree {
   /** Folder name. */
@@ -111,9 +121,12 @@ export interface CanopyApi {
   createWorktree(repo: string, o: NewWorktree): Promise<Worktree>
   /** The branch worktrees start from and compare to by default. Null if none resolves. */
   defaultBase(cwd: string): Promise<BaseRef | null>
-  /** Resolves the base ref, then counts uncommitted files and unpushed commits at `path`. */
+  /** Uncommitted files and unpushed commits at `path`, and the sessions and terminals alive there. */
   removalRisks(repo: string, path: string): Promise<RemovalRisks>
+  /** Removes the worktree, then stops its sessions and terminals. If git refuses, nothing stops. */
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
+  /** Worktrees of `repo` that vanished from outside with sessions or terminals still alive. */
+  orphanedWorktrees(repo: string): Promise<OrphanedWorktree[]>
   /** Opens a web or mail link in the default browser. Rejects for any other scheme. */
   openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */

@@ -9,6 +9,7 @@ import { openExternalUrl } from './externalLinks'
 import { git } from './git/exec'
 import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer } from './git/sharedReads'
 import { worktreeStats } from './git/diff'
+import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, removalRisks, removeWorktree } from './git/worktrees'
 import { PrCache, repoNeedsAttention, worktreeStatus } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
@@ -123,6 +124,13 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
   const prs = new PrCache()
+  const orphans = new OrphanTracker()
+  const live: LiveProcesses = {
+    sessions: (cwd) => sessions.liveCount(cwd),
+    terminals: (cwd) => terminals.runningIn(cwd),
+    stopSessions: (cwd) => sessions.stopIn(cwd),
+    killTerminals: (cwd) => terminals.killIn(cwd)
+  }
 
   ipcMain.handle('worktree:status', async (_e, cwd: unknown, onFocus: unknown) => {
     assertPath(cwd)
@@ -181,9 +189,16 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
 
   registerCodeIpc(broadcast, lsp)
 
-  ipcMain.handle('worktree:list', (_e, repo: unknown) => {
+  ipcMain.handle('worktree:list', async (_e, repo: unknown) => {
     assertPath(repo)
-    return cachedWorktrees(repo)
+    const list = await cachedWorktrees(repo)
+    orphans.observe(repo, list)
+    return list
+  })
+
+  ipcMain.handle('worktree:orphans', (_e, repo: unknown) => {
+    assertPath(repo)
+    return orphans.orphans(repo, live)
   })
 
   const stats = new Coalescer<WorktreeStats>()
@@ -209,16 +224,14 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
   ipcMain.handle('worktree:risks', async (_e, repo: unknown, path: unknown) => {
     assertPath(repo)
     assertPath(path)
-    return removalRisks(path, (await cachedBaseRef(repo)).ref)
+    const risks = await removalRisks(path, (await cachedBaseRef(repo)).ref)
+    return { ...risks, sessions: live.sessions(path), terminals: live.terminals(path) }
   })
 
-  ipcMain.handle('worktree:remove', (_e, repo: unknown, path: unknown, force: unknown) => {
+  ipcMain.handle('worktree:remove', async (_e, repo: unknown, path: unknown, force: unknown) => {
     assertPath(repo)
     assertPath(path)
-    return removeWorktree(repo, path, force === true).then(() => {
-      clearSharedReads()
-      // Their shells would sit in a folder that is gone: they end, and the exit is reported.
-      for (const t of terminals.list(path)) terminals.kill(t.id)
-    })
+    await removeAndStop(repo, path, force === true, live, removeWorktree)
+    clearSharedReads()
   })
 }

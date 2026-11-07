@@ -378,3 +378,42 @@ test('a long conversation keeps few rows in the page and follows the end', async
   await expect(page.getByText('Réponse 400', { exact: true })).toHaveCount(0)
   expect(messages).toEqual([])
 })
+
+test('removing a worktree with a live session says so, then stops it', async () => {
+  await launch(true)
+  await worktree('feat/a').click()
+  await send('bonjour')
+  await expect(assistantMessages().first()).toContainText('bonjour')
+
+  await worktree('feat/a').hover()
+  await page.getByRole('button', { name: 'Supprimer feat/a' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog.getByTestId('removal-risk')).toContainText('1 session Claude sera arrêtée')
+  await dialog.getByRole('button', { name: 'Supprimer quand même' }).click()
+  await expect(page.getByTestId('worktree')).toHaveCount(1)
+  await expect(page.getByTestId('worktree-orphan')).toHaveCount(0)
+  expect(await page.evaluate((p) => window.canopy.sessionActivity(p), featPath)).toBe('idle')
+  expect((await page.evaluate((p) => window.canopy.listSessions(p), featPath)).filter((s) => s.live)).toEqual([])
+})
+
+test('a worktree deleted outside Canopy keeps its live session reachable, with a notice', async () => {
+  await launch(true)
+  await worktree('feat/a').click()
+  await send('bonjour')
+  await expect(assistantMessages().first()).toContainText('bonjour')
+
+  await rm(featPath, { recursive: true, force: true })
+  await expect(page.getByTestId('orphan-notice')).toContainText('feat/a', { timeout: 15_000 })
+  await expect(page.getByTestId('orphan-notice')).toContainText('1 session')
+  await expect(page.getByTestId('worktree')).toHaveCount(1)
+
+  // The conversation is where it was, and stays usable.
+  await expect(page.getByTestId('active-worktree')).toHaveText('feat/a')
+  await worktree('main').click()
+  await page.getByTestId('worktree-orphan').click()
+  await expect(assistantMessages().first()).toContainText('bonjour')
+
+  await page.getByRole('button', { name: /^Fermer / }).first().click()
+  await expect(page.getByTestId('worktree-orphan')).toHaveCount(0, { timeout: 10_000 })
+  await expect(page.getByTestId('active-worktree')).toHaveText('main')
+})

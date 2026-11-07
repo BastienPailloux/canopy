@@ -17,6 +17,7 @@ const api: CanopyApi = {
   defaultBase: (cwd) => ipcRenderer.invoke('worktree:defaultBase', cwd),
   removalRisks: (repo, path) => ipcRenderer.invoke('worktree:risks', repo, path),
   removeWorktree: (repo, path, force) => ipcRenderer.invoke('worktree:remove', repo, path, force),
+  orphanedWorktrees: (repo) => ipcRenderer.invoke('worktree:orphans', repo),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   listTree: (cwd) => ipcRenderer.invoke('code:listTree', cwd),
   searchText: (cwd, q, o) => ipcRenderer.invoke('code:search', cwd, q, o),

@@ -35,3 +35,25 @@ describe('openInCode', () => {
     expect(useApp.getState().codeRequest?.path).toBe('b')
   })
 })
+
+describe('setWorktrees with orphans', () => {
+  const main = { path: '/main', branch: 'main', head: 'h', isMain: true }
+  const gone = { path: '/gone', branch: 'feat', head: 'h', isMain: false, sessions: 1, terminals: 0 }
+
+  it('keeps an orphan selected while it is reachable, and falls back once it is not', () => {
+    useApp.setState({ worktree: '/gone', worktrees: [main], orphans: [] })
+    useApp.getState().setOrphans([gone])
+    useApp.getState().setWorktrees([main])
+    expect(useApp.getState().worktree).toBe('/gone')
+
+    useApp.getState().setOrphans([])
+    useApp.getState().setWorktrees([main])
+    expect(useApp.getState().worktree).toBe('/main')
+  })
+
+  it('a new repo starts without orphans', () => {
+    useApp.setState({ orphans: [gone] })
+    useApp.getState().setRepo('/other')
+    expect(useApp.getState().orphans).toEqual([])
+  })
+})

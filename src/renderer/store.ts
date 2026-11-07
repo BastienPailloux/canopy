@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { OrphanedWorktree } from '../shared/api'
 import type { Worktree } from '../shared/types'
 
 export type View = 'sessions' | 'code'
@@ -11,6 +12,8 @@ interface AppState {
   /** Path of the active worktree. */
   worktree: string | null
   worktrees: Worktree[]
+  /** Worktrees deleted from outside, kept reachable for what still runs in them. */
+  orphans: OrphanedWorktree[]
   view: View
   /** Branch each worktree is compared against when the user picked one; absent: the default branch. */
   bases: Record<string, string>
@@ -21,6 +24,7 @@ interface AppState {
   clearCodeRequest: (seq: number) => void
   setRepo: (repo: string | null) => void
   setWorktrees: (list: Worktree[]) => void
+  setOrphans: (list: OrphanedWorktree[]) => void
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
   setBase: (cwd: string, base: string | undefined) => void
@@ -32,18 +36,20 @@ export const useApp = create<AppState>((set) => ({
   repo: null,
   worktree: null,
   worktrees: [],
+  orphans: [],
   view: 'sessions',
   bases: {},
   codeRequest: null,
   openInCode: (cwd, path, mode, line, column) =>
     set(() => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, line, column, seq: ++requestCount } })),
   clearCodeRequest: (seq) => set((s) => (s.codeRequest?.seq === seq ? { codeRequest: null } : s)),
-  setRepo: (repo) => set({ repo, worktree: null, worktrees: [] }),
-  // Keeps the selection if it still exists, else falls back to the main worktree.
+  setRepo: (repo) => set({ repo, worktree: null, worktrees: [], orphans: [] }),
+  setOrphans: (orphans) => set({ orphans }),
+  // Keeps the selection if it can still be reached, else falls back to the main worktree.
   setWorktrees: (worktrees) =>
     set((s) => ({
       worktrees,
-      worktree: worktrees.some((w) => w.path === s.worktree)
+      worktree: [...worktrees, ...s.orphans].some((w) => w.path === s.worktree)
         ? s.worktree
         : (worktrees.find((w) => w.isMain) ?? worktrees[0])?.path ?? null
     })),

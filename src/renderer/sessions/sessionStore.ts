@@ -122,6 +122,14 @@ export function closeTab(id: string): void {
   ensureTab(tab.cwd)
 }
 
+/** The worktree is gone: its tabs have nothing left to show, and their drafts nowhere to go. */
+export function forgetWorktree(cwd: string): void {
+  useSessions.setState((s) => ({
+    tabs: Object.fromEntries(Object.entries(s.tabs).filter(([, t]) => t.cwd !== cwd)),
+    active: omit(s.active, cwd)
+  }))
+}
+
 function omit<T>(record: Record<string, T>, key: string): Record<string, T> {
   const { [key]: _key, ...rest } = record
   return rest

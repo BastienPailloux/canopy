@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react'
 import type { RemovalRisks } from '../../shared/api'
 import type { Worktree } from '../../shared/types'
 import { worktreeLabel } from '../store'
-
-function describe(r: RemovalRisks): string[] {
-  const out: string[] = []
-  if (r.dirty > 0) out.push(`${r.dirty} fichier${r.dirty > 1 ? 's' : ''} non commité${r.dirty > 1 ? 's' : ''}`)
-  if (r.unpushed > 0) out.push(`${r.unpushed} commit${r.unpushed > 1 ? 's' : ''} non poussé${r.unpushed > 1 ? 's' : ''}`)
-  return out
-}
+import { removalWarnings } from './removalText'
 
 /** Always shows the removal risks and waits for confirmation before removing. */
 export function RemoveWorktreeDialog(props: {
@@ -31,7 +25,7 @@ export function RemoveWorktreeDialog(props: {
     return () => { live = false }
   }, [repo, worktree.path])
 
-  const lost = risks ? describe(risks) : []
+  const warnings = risks ? removalWarnings(risks, worktreeLabel(worktree)) : []
 
   const confirm = async (): Promise<void> => {
     if (!risks || busy) return
@@ -53,17 +47,17 @@ export function RemoveWorktreeDialog(props: {
         <h2>Supprimer ce worktree ?</h2>
         <span className="mono">{worktreeLabel(worktree)}</span>
         {risks === null && error === null && <span style={{ color: 'var(--fg-2)' }}>Vérification des risques…</span>}
-        {risks && lost.length > 0 && (
+        {warnings.length > 0 && (
           <p className="risk" data-testid="removal-risk">
-            Attention : {lost.join(' et ')} seront perdus.
+            Attention : {warnings.join(' ')}
           </p>
         )}
-        {risks && lost.length === 0 && <span style={{ color: 'var(--fg-2)' }}>Aucun travail non sauvegardé détecté.</span>}
+        {risks && warnings.length === 0 && <span style={{ color: 'var(--fg-2)' }}>Aucun travail non sauvegardé détecté.</span>}
         {error && <p className="error" role="alert">{error}</p>}
         <div className="actions">
           <button className="secondary" onClick={props.onClose} disabled={busy} autoFocus>Annuler</button>
           <button className="danger" onClick={() => void confirm()} disabled={!risks || busy}>
-            {busy ? 'Suppression…' : lost.length > 0 ? 'Supprimer quand même' : 'Supprimer'}
+            {busy ? 'Suppression…' : warnings.length > 0 ? 'Supprimer quand même' : 'Supprimer'}
           </button>
         </div>
       </div>

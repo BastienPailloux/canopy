@@ -163,6 +163,11 @@ export class SessionManager extends EventEmitter<EventMap> {
     for (const s of [...this.sessions.values()]) this.close(s, 'stopped')
   }
 
+  /** Ends the sessions of a worktree, when it is removed. */
+  stopIn(cwd: string): void {
+    for (const s of [...this.sessions.values()]) if (s.cwd === cwd) this.close(s, 'stopped')
+  }
+
   resolvePermission(requestId: string, d: PermissionDecision): void {
     for (const s of this.sessions.values()) {
       const p = s.pending.get(requestId)
@@ -179,7 +184,8 @@ export class SessionManager extends EventEmitter<EventMap> {
   }
 
   async list(cwd: string): Promise<SessionSummary[]> {
-    const disk = await this.deps.listSessions({ dir: cwd, includeWorktrees: false })
+    // A worktree deleted from outside may not be listable, and its live sessions must stay reachable.
+    const disk = await this.deps.listSessions({ dir: cwd, includeWorktrees: false }).catch(() => [])
     const live = new Map([...this.sessions.values()].map((s) => [s.sessionId, s]))
     const rows = disk.map((info): SessionSummary => {
       const s = live.get(info.sessionId)
@@ -214,6 +220,11 @@ export class SessionManager extends EventEmitter<EventMap> {
   /** Sessions in the middle of a turn or waiting for an answer: what quitting would cut short. */
   runningCount(): number {
     return [...this.sessions.values()].filter((s) => ['running', 'waiting'].includes(currentState(s))).length
+  }
+
+  /** Sessions alive in a worktree, idle ones included: what removing it would end. */
+  liveCount(cwd: string): number {
+    return [...this.sessions.values()].filter((s) => s.cwd === cwd).length
   }
 
   /** Requests still waiting for an answer, for a window that missed their `permission` event. */

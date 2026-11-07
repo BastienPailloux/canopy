@@ -26,21 +26,25 @@ function Empty(): React.JSX.Element {
 function Main(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const worktree = useApp((s) => s.worktrees.find((w) => w.path === s.worktree))
-  if (!worktree) return <div className="placeholder">Aucun worktree sélectionné.</div>
+  const orphan = useApp((s) => s.orphans.find((w) => w.path === s.worktree))
+  const shown = worktree ?? orphan
+  if (!shown) return <div className="placeholder">Aucun worktree sélectionné.</div>
   return (
     <>
       <div className="main-head">
-        <h1 data-testid="active-worktree">{worktreeLabel(worktree)}</h1>
-        <span className="sub mono" title={worktree.path}>{basename(worktree.path)}</span>
+        <h1 data-testid="active-worktree">{worktreeLabel(shown)}</h1>
+        <span className="sub mono" title={shown.path}>{basename(shown.path)}</span>
       </div>
       {view === 'sessions'
         ? (
           <div className="main-row">
-            <SessionsView cwd={worktree.path} worktreeLabel={worktreeLabel(worktree)} />
-            <SidePanel cwd={worktree.path} />
+            <SessionsView cwd={shown.path} worktreeLabel={worktreeLabel(shown)} />
+            {worktree && <SidePanel cwd={worktree.path} />}
           </div>
         )
-        : <CodeScreen key={worktree.path} cwd={worktree.path} branch={worktreeLabel(worktree)} />}
+        : worktree
+          ? <CodeScreen key={worktree.path} cwd={worktree.path} branch={worktreeLabel(worktree)} />
+          : <div className="placeholder">Ce worktree n'existe plus sur le disque : il n'y a plus de code à montrer.</div>}
     </>
   )
 }
