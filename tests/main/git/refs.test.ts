@@ -29,7 +29,7 @@ test('throws when no base branch exists', async () => {
 test('aheadCount and mergeBase on a feature branch', async () => {
   repo = await createRepo()
   const base = await repo.commit('b.txt', 'b')
-  execFileSync('git', ['checkout', '-b', 'feat/x'], { cwd: repo.path })
+  execFileSync('git', ['checkout', '-b', 'feat/x'], { cwd: repo.path, stdio: 'pipe' })
   await repo.commit('c.txt', 'c')
   await repo.commit('d.txt', 'd')
   expect(await aheadCount(repo.path, 'main')).toBe(2)

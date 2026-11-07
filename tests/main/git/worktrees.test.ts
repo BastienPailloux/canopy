@@ -8,7 +8,7 @@ import { listWorktrees } from '../../../src/main/git/worktrees'
 let repo: TestRepo | undefined
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
 
-const g = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
+const g = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' })
 
 test('lists main and a linked worktree with spaces and accents', async () => {
   repo = await createRepo()
