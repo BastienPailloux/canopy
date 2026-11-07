@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { RepoConfig, RepoTrust } from '../shared/api'
 import { RepoNotTrustedError } from '../shared/errors'
 import type { AppStore } from './appStore'
+import { git, GitError } from './git/exec'
 import { listWorktrees, mainWorktreeRoot } from './git/worktrees'
 import { CONFIG_FILE, parseConfig } from './terminal/config'
 
@@ -15,8 +16,10 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 const SETTINGS = join('.claude', 'settings.json')
 const LOCAL_SETTINGS = join('.claude', 'settings.local.json')
 const MCP = '.mcp.json'
-/** What a clone can bring. `settings.local.json` is left out: Canopy writes it, and it is not cloned. */
-/** `.canopy/config.json` is included: its setup and services run commands in a terminal. */
+/**
+ * What a clone can bring. `.canopy/config.json` is included: its setup and services run commands in a terminal.
+ * `settings.local.json` is left out, since « Toujours » writes it, unless a repo tracks it: then a clone brings it too.
+ */
 const HASHED_FILES = [SETTINGS, MCP, CONFIG_FILE]
 
 const isMissing = (err: unknown): boolean => (err as NodeJS.ErrnoException).code === 'ENOENT'
@@ -94,10 +97,20 @@ export async function readRepoConfig(dir: string): Promise<RepoConfig> {
   }
 }
 
+/** Unsure counts as tracked: the worst outcome is asking for approval again. Outside a repo nothing is. */
+async function isTracked(dir: string, file: string): Promise<boolean> {
+  try {
+    return (await git(dir, ['ls-files', '-z', '--', file])) !== ''
+  } catch (err) {
+    return !(err instanceof GitError && err.stderr.includes('not a git repository'))
+  }
+}
+
 /** Identifies the config a session in `dir` would load. Missing and unreadable files hash differently from any content. */
 export async function configHash(dir: string): Promise<string> {
   const hash = createHash('sha256')
-  for (const file of HASHED_FILES) {
+  const files = (await isTracked(dir, LOCAL_SETTINGS)) ? [...HASHED_FILES, LOCAL_SETTINGS] : HASHED_FILES
+  for (const file of files) {
     const content = await readFile(join(dir, file)).catch((err: unknown) => (isMissing(err) ? null : undefined))
     const state = content === null ? 'missing' : content === undefined ? 'unreadable' : `bytes:${content.length}`
     hash.update(`${file}\0${state}\0`)

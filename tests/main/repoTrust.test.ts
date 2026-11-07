@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -238,4 +239,22 @@ test('lists the setup and services commands of .canopy/config.json, and a change
 test('a .canopy/config.json of the wrong shape is listed as unreadable', async () => {
   await write('.canopy/config.json', { setup: 'make' })
   expect((await readRepoConfig(dir)).unknownFiles).toEqual(['.canopy/config.json'])
+})
+
+test('a tracked settings.local.json counts in the hash, an untracked one does not', async () => {
+  repo = await createRepo()
+  await mkdir(join(repo.path, '.claude'), { recursive: true })
+  const local = join(repo.path, '.claude', 'settings.local.json')
+  const before = await configHash(repo.path)
+
+  await writeFile(local, JSON.stringify({ permissions: { allow: ['Bash(ls *)'] } }))
+  expect(await configHash(repo.path)).toBe(before)
+
+  // -f: a user's global gitignore commonly lists this file.
+  execFileSync('git', ['add', '-f', '.claude/settings.local.json'], { cwd: repo.path })
+  const tracked = await configHash(repo.path)
+  expect(tracked).not.toBe(before)
+
+  await writeFile(local, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'evil' }] }] } }))
+  expect(await configHash(repo.path)).not.toBe(tracked)
 })
