@@ -1,7 +1,8 @@
-import { readFile } from 'node:fs/promises'
+import { lstat, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChangedFile, WorktreeStats } from '../../shared/types'
-import { git } from './exec'
+import { git, GitError } from './exec'
 import { aheadCount, mergeBase } from './refs'
 
 type Kind = ChangedFile['kind']
@@ -54,24 +55,42 @@ function countLines(buf: Buffer): number {
   return buf[buf.length - 1] === 10 ? n : n + 1
 }
 
-const MISSING_FILE_CODES = new Set(['ENOENT', 'EISDIR', 'ELOOP'])
+const MISSING_FILE_CODES = new Set(['ENOENT', 'EISDIR', 'ELOOP', 'ENOTDIR'])
 const READ_CONCURRENCY = 32
+const MAX_BASE_BYTES = 64 * 1024 * 1024
 
-/** Read a working-tree file; null if it vanished or is not a regular file. Other errors propagate. */
-async function readWorkingFile(cwd: string, path: string): Promise<Buffer | null> {
+type WorkingFile =
+  | { type: 'missing' }
+  | { type: 'file'; buf: Buffer }
+  | { type: 'symlink'; target: string }
+  | { type: 'other' }
+
+/**
+ * Inspect a working-tree path without ever following symlinks or opening special files
+ * (the repository is untrusted). Only regular files are read; other errors propagate.
+ */
+async function inspectWorkingFile(cwd: string, path: string): Promise<WorkingFile> {
+  const full = join(cwd, path)
   try {
-    return await readFile(join(cwd, path))
+    const st = await lstat(full)
+    if (st.isSymbolicLink()) return { type: 'symlink', target: await readlink(full) }
+    if (!st.isFile()) return { type: 'other' }
+    return { type: 'file', buf: await readFile(full) }
   } catch (e) {
-    if (MISSING_FILE_CODES.has((e as NodeJS.ErrnoException).code ?? '')) return null
+    if (MISSING_FILE_CODES.has((e as NodeJS.ErrnoException).code ?? '')) return { type: 'missing' }
     throw e
   }
 }
 
+const NO_LINES = { added: 0, deleted: 0, binary: false }
+
 async function untrackedEntry(cwd: string, path: string): Promise<ChangedFile> {
-  const buf = await readWorkingFile(cwd, path)
-  if (!buf) return { path, kind: 'A', added: 0, deleted: 0, binary: false }
-  if (buf.subarray(0, 8192).includes(0)) return { path, kind: 'A', added: 0, deleted: 0, binary: true }
-  return { path, kind: 'A', added: countLines(buf), deleted: 0, binary: false }
+  const f = await inspectWorkingFile(cwd, path)
+  // A symlink counts as git would store it: its link text, one line.
+  if (f.type === 'symlink') return { path, kind: 'A', ...NO_LINES, added: 1 }
+  if (f.type !== 'file') return { path, kind: 'A', ...NO_LINES }
+  if (f.buf.subarray(0, 8192).includes(0)) return { path, kind: 'A', ...NO_LINES, binary: true }
+  return { path, kind: 'A', ...NO_LINES, added: countLines(f.buf) }
 }
 
 /** Run fn over items with bounded concurrency, preserving order. Rejects on the first failure. */
@@ -88,19 +107,31 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out
 }
 
-/** Entry for a path the index lost (diff says D) but that exists on disk: compare disk to the base. */
+/**
+ * Entry for a path the index lost (diff says D) but that exists on disk: compare the disk
+ * content to the base blob with `git diff --no-index` on temp copies. Writes no git objects.
+ */
 async function recreatedEntry(cwd: string, mb: string, path: string): Promise<ChangedFile> {
-  const buf = await readWorkingFile(cwd, path)
-  if (!buf) return { path, kind: 'D', added: 0, deleted: 0, binary: false }
-  const [baseBlob, newBlob] = await Promise.all([
-    git(cwd, ['rev-parse', `${mb}:${path}`]),
-    git(cwd, ['hash-object', '-w', '--', path])
-  ])
-  const out = await git(cwd, ['diff', '--numstat', '-z', baseBlob.trim(), newBlob.trim()])
-  const m = /^(-|\d+)\t(-|\d+)\t/.exec(out)
-  if (!m) return { path, kind: 'M', added: 0, deleted: 0, binary: false } // identical content
-  const binary = m[1] === '-'
-  return { path, kind: 'M', added: binary ? 0 : +m[1], deleted: binary ? 0 : +m[2], binary }
+  const f = await inspectWorkingFile(cwd, path)
+  if (f.type === 'missing') return { path, kind: 'D', ...NO_LINES }
+  const baseSize = parseInt((await git(cwd, ['cat-file', '-s', `${mb}:${path}`])).trim(), 10)
+  if (baseSize > MAX_BASE_BYTES) return { path, kind: 'M', ...NO_LINES, binary: true }
+  const dir = await mkdtemp(join(tmpdir(), 'canopy-diff-'))
+  try {
+    const baseFile = join(dir, 'base')
+    const newFile = join(dir, 'new')
+    await writeFile(baseFile, await git(cwd, ['show', `${mb}:${path}`], { maxBuffer: MAX_BASE_BYTES + 1024 * 1024 }))
+    await writeFile(newFile, f.type === 'file' ? f.buf : f.type === 'symlink' ? f.target : '')
+    const out = await git(cwd, ['diff', '--no-index', '--no-ext-diff', '--numstat', '-z', baseFile, newFile], {
+      okCodes: [0, 1]
+    })
+    const m = /^(-|\d+)\t(-|\d+)\t/.exec(out)
+    if (!m) return { path, kind: 'M', ...NO_LINES } // identical content
+    const binary = m[1] === '-'
+    return { path, kind: 'M', added: binary ? 0 : +m[1], deleted: binary ? 0 : +m[2], binary }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
 /** Files changed since the merge-base with `ref`: committed, staged, unstaged and untracked work. */
@@ -128,12 +159,26 @@ export async function changedFiles(cwd: string, ref: string): Promise<ChangedFil
   return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
-/** File content at the merge-base with `ref`, or null if the file does not exist there. */
-export async function readAtBase(cwd: string, ref: string, path: string): Promise<string | null> {
+export type BaseContent =
+  | { kind: 'text'; content: string }
+  | { kind: 'tooLarge'; size: number }
+  | { kind: 'notBlob' }
+
+/**
+ * File content at the merge-base with `ref`. null: the path does not exist there.
+ * notBlob: a directory or submodule. tooLarge: over 64 MiB, not read. Git failures propagate.
+ */
+export async function readAtBase(cwd: string, ref: string, path: string): Promise<BaseContent | null> {
   const mb = await mergeBase(cwd, ref)
   const listed = await git(cwd, ['ls-tree', '-z', mb, '--', path])
   if (listed === '') return null
-  return git(cwd, ['show', `${mb}:${path}`], { maxBuffer: 1024 * 1024 * 1024 })
+  const m = /^\d+ (\w+) ([0-9a-f]+)\t/.exec(listed)
+  if (!m) throw new GitError(`Unexpected ls-tree output for ${path}`, listed)
+  if (m[1] !== 'blob') return { kind: 'notBlob' }
+  const size = parseInt((await git(cwd, ['cat-file', '-s', m[2]])).trim(), 10)
+  if (size > MAX_BASE_BYTES) return { kind: 'tooLarge', size }
+  const content = await git(cwd, ['show', m[2]], { maxBuffer: MAX_BASE_BYTES + 1024 * 1024 })
+  return { kind: 'text', content }
 }
 
 export async function worktreeStats(cwd: string, ref: string): Promise<WorktreeStats> {

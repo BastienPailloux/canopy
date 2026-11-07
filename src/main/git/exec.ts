@@ -18,7 +18,7 @@ export function setGitEnv(env: NodeJS.ProcessEnv | undefined): void {
   gitEnv = env
 }
 
-export function git(cwd: string, args: string[], opts: { maxBuffer?: number } = {}): Promise<string> {
+export function git(cwd: string, args: string[], opts: { maxBuffer?: number; okCodes?: number[] } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
@@ -27,6 +27,10 @@ export function git(cwd: string, args: string[], opts: { maxBuffer?: number } = 
       (err, stdout, stderr) => {
         if (err) {
           const e = err as NodeJS.ErrnoException
+          if (typeof e.code === 'number' && opts.okCodes?.includes(e.code)) {
+            resolve(stdout)
+            return
+          }
           reject(new GitError(`git ${args.join(' ')} failed: ${stderr.trim() || e.message}`, stderr, e.code))
           return
         }

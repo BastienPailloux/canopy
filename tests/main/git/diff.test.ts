@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -18,6 +18,17 @@ const ENV = {
 }
 const sh = async (cwd: string, ...args: string[]): Promise<string> =>
   (await run('git', args, { cwd, env: ENV })).stdout.trim()
+const countObjects = async (repo: TestRepo): Promise<number> => {
+  let n = 0
+  const walk = async (dir: string): Promise<void> => {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) await walk(join(dir, e.name))
+      else n++
+    }
+  }
+  await walk(join(repo.path, '.git', 'objects'))
+  return n
+}
 const write = async (repo: TestRepo, file: string, content: string | Buffer): Promise<void> => {
   const full = join(repo.path, file)
   await mkdir(dirname(full), { recursive: true })
@@ -167,27 +178,71 @@ describe('diff engine', () => {
     await chmod(join(repo.path, 'locked.txt'), 0o644)
   })
 
+  it('never follows an untracked symlink', async () => {
+    await write(repo, '../outside-secret.txt', 's1\ns2\ns3\ns4\ns5\n')
+    await symlink('../outside-secret.txt', join(repo.path, 'link.txt'))
+    const f = (await changedFiles(repo.path, 'origin/main')).find((x) => x.path === 'link.txt')
+    expect(f).toEqual({ path: 'link.txt', kind: 'A', added: 1, deleted: 0, binary: false })
+  })
+
+  it('does not follow or write objects for a recreated symlink', async () => {
+    await write(repo, '../outside-secret.txt', 's1\ns2\ns3\ns4\ns5\n')
+    await sh(repo.path, 'rm', '-q', 'src/a.txt')
+    await sh(repo.path, 'commit', '-m', 'rm')
+    await mkdir(join(repo.path, 'src'), { recursive: true })
+    await symlink('../../outside-secret.txt', join(repo.path, 'src/a.txt'))
+    const before = await countObjects(repo)
+    const files = await changedFiles(repo.path, 'origin/main')
+    expect(files).toEqual([{ path: 'src/a.txt', kind: 'M', added: 1, deleted: 3, binary: false }])
+    expect(await countObjects(repo)).toBe(before)
+  })
+
+  it('adds no object when polling a recreated regular file', async () => {
+    await sh(repo.path, 'rm', '-q', 'src/a.txt')
+    await sh(repo.path, 'commit', '-m', 'rm')
+    await write(repo, 'src/a.txt', 'n1\nn2\n')
+    const before = await countObjects(repo)
+    await changedFiles(repo.path, 'origin/main')
+    await changedFiles(repo.path, 'origin/main')
+    expect(await countObjects(repo)).toBe(before)
+  })
+
+  it('does not hang on an untracked FIFO', async () => {
+    await run('mkfifo', [join(repo.path, 'pipe')])
+    const f = (await changedFiles(repo.path, 'origin/main')).find((x) => x.path === 'pipe')
+    // git may skip FIFOs entirely; if reported, they must count 0 lines
+    if (f) expect(f).toEqual({ path: 'pipe', kind: 'A', added: 0, deleted: 0, binary: false })
+  }, 10000)
+
   describe('readAtBase', () => {
     it('returns the content at the merge-base', async () => {
       await repo.commit('src/a.txt', 'changed\n')
-      expect(await readAtBase(repo.path, 'origin/main', 'src/a.txt')).toBe('one\ntwo\nthree\n')
+      expect(await readAtBase(repo.path, 'origin/main', 'src/a.txt')).toEqual({ kind: 'text', content: 'one\ntwo\nthree\n' })
     })
     it('returns null for a file new on the branch', async () => {
       await repo.commit('fresh.txt', 'x\n')
       expect(await readAtBase(repo.path, 'origin/main', 'fresh.txt')).toBeNull()
     })
-    it('does not report a real git failure as a missing file', async () => {
-      await expect(readAtBase(repo.path, 'origin/nope', 'src/a.txt')).rejects.toThrow()
+    it('rejects on a missing object instead of reporting a missing file', async () => {
+      const oid = await sh(repo.path, 'rev-parse', 'origin/main:src/a.txt')
+      await rm(join(repo.path, '.git/objects', oid.slice(0, 2), oid.slice(2)), { force: true })
+      await expect(readAtBase(repo.path, 'origin/main', 'src/a.txt')).rejects.toThrow()
     })
-    it('reads a file larger than the default buffer', async () => {
+    it('reports a file above the size limit as tooLarge without reading it', async () => {
       await sh(repo.path, 'checkout', 'main')
       await repo.commit('big.txt', 'x'.repeat(70 * 1024 * 1024))
       await sh(repo.path, 'push', 'origin', 'main')
       await sh(repo.path, 'checkout', 'feat/a')
       await sh(repo.path, 'merge', 'main')
       await repo.commit('big.txt', 'y\n')
-      expect((await readAtBase(repo.path, 'origin/main', 'big.txt'))?.length).toBe(70 * 1024 * 1024)
+      expect(await readAtBase(repo.path, 'origin/main', 'big.txt')).toEqual({
+        kind: 'tooLarge',
+        size: 70 * 1024 * 1024
+      })
     }, 60000)
+    it('reports a directory as notBlob', async () => {
+      expect(await readAtBase(repo.path, 'origin/main', 'src')).toEqual({ kind: 'notBlob' })
+    })
     it('handles unicode paths', async () => {
       await sh(repo.path, 'checkout', 'main')
       await repo.commit('été 1.md', 'hello\n')
@@ -195,7 +250,7 @@ describe('diff engine', () => {
       await sh(repo.path, 'checkout', 'feat/a')
       await sh(repo.path, 'merge', 'main')
       await repo.commit('été 1.md', 'edited\n')
-      expect(await readAtBase(repo.path, 'origin/main', 'été 1.md')).toBe('hello\n')
+      expect(await readAtBase(repo.path, 'origin/main', 'été 1.md')).toEqual({ kind: 'text', content: 'hello\n' })
     })
   })
 
