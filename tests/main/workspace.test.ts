@@ -3,8 +3,17 @@ import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findRepos, scanWorkspace } from '../../src/main/workspace'
+
+vi.mock('../../src/main/git/worktrees', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../src/main/git/worktrees')>()
+  return {
+    ...orig,
+    listWorktrees: (repo: string) =>
+      repo.endsWith('broken-list') ? Promise.reject(new Error('worktree list failed')) : orig.listWorktrees(repo)
+  }
+})
 
 const run = promisify(execFile)
 const ENV = {
@@ -37,9 +46,17 @@ describe('findRepos', () => {
     expect(truncated).toBe(false)
   })
 
-  it('skips ignored folders', async () => {
+  it('finds a repo at depth 6', async () => {
+    const d = await mkRepo('1/2/3/4/5/d')
+    expect((await findRepos(root)).repos).toEqual([d])
+  })
+
+  it('skips ignored and hidden folders', async () => {
     await mkRepo('node_modules/x')
     await mkRepo('dist/x')
+    await mkRepo('vendor/x')
+    await mkRepo('build/x')
+    await mkRepo('.cache/x')
     expect((await findRepos(root)).repos).toEqual([])
   })
 
@@ -101,10 +118,28 @@ describe('scanWorkspace', () => {
 
   it('ignores a repo whose worktrees cannot be listed', async () => {
     await mkRepo('good', true)
-    const bad = await mkRepo('bad')
-    await mkdir(join(bad, '.git', 'worktrees', 'broken'), { recursive: true })
-    await rm(join(bad, '.git', 'HEAD'))
+    await mkRepo('broken-list', true)
     const ws = await scanWorkspace(root)
     expect(ws.entries.map((e) => e.repoName)).toEqual(['good'])
+  })
+
+  it('keeps showing the main repo of a linked worktree that lies outside the folder', async () => {
+    const api = await mkRepo('api', true)
+    const inside = join(root, 'ws')
+    await mkdir(inside)
+    await git(api, ['worktree', 'add', '-q', '-b', 'f', join(inside, 'api')])
+    const ws = await scanWorkspace(inside)
+    expect(ws.entries.map((e) => e.repo)).toEqual([api, api])
+  })
+
+  it('returns the real root', async () => {
+    await mkRepo('a', true)
+    const link = join(tmpdir(), `canopy-ws-link-${Date.now()}`)
+    await symlink(root, link)
+    try {
+      expect((await scanWorkspace(link)).root).toBe(root)
+    } finally {
+      await rm(link, { force: true })
+    }
   })
 })

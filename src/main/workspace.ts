@@ -48,19 +48,16 @@ export async function findRepos(root: string): Promise<{ repos: string[]; trunca
         .filter((e) => e.isDirectory() && !IGNORED.has(e.name) && (!e.name.startsWith('.') || e.name === WORKTREES_DIR))
         .map((e) => join(dir, e.name))
       const isRepo = entries.some((e) => e.name === '.git')
-      const id = isRepo ? await repoIdentity(dir) : undefined
-      // A repo is not descended into, except the opened folder itself.
-      return { id, children: !isRepo || dir === root ? children : [] }
-    })
-    const next: string[] = []
-    for (const r of results) {
-      if (r.id && !found.has(r.id.key)) {
-        if (found.size >= MAX_REPOS) { truncated = true; continue }
-        found.set(r.id.key, r.id.main)
+      // Past the cap nothing more is kept: do not spawn git for the rest of a wide level.
+      const id = isRepo && !truncated ? await repoIdentity(dir) : undefined
+      if (id && !found.has(id.key)) {
+        if (found.size >= MAX_REPOS) truncated = true
+        else found.set(id.key, id.main)
       }
-      next.push(...r.children)
-    }
-    level = next
+      // A repo is not descended into, except the opened folder itself.
+      return !isRepo || dir === root ? children : []
+    })
+    level = results.flat()
   }
   return { repos: [...found.values()].sort(), truncated }
 }
@@ -87,5 +84,5 @@ export async function scanWorkspace(root: string): Promise<Workspace> {
       entries.push({ repo, repoName: basename(repo), worktree, ...(space ? { group: 'space' } : g) })
     }
   })
-  return { root, entries, truncated }
+  return { root: real, entries, truncated }
 }
