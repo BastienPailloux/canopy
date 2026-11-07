@@ -56,6 +56,11 @@ export function entryPaths(w: Workspace | null, list: Worktree[]): string[] {
   return [...new Set([...list.map((l) => l.path), ...(w?.entries ?? []).map((e) => e.worktree.path)])]
 }
 
+/** What exists as far as is known: the live list of `repo`, which a scan cannot overrule, and the scan for the other repos. */
+export function listedPaths(w: Workspace | null, repo: string, list: Worktree[]): string[] {
+  return [...list.map((l) => l.path), ...(w?.entries ?? []).filter((e) => e.repo !== repo).map((e) => e.worktree.path)]
+}
+
 /** The paths that reading the live list leaves to read. */
 export const outsideList = (paths: string[], list: Worktree[]): string[] => paths.filter((p) => !list.some((l) => l.path === p))
 

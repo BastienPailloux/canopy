@@ -5,7 +5,7 @@ import { dropDrafts } from '../code/drafts'
 import { forgetWorktree } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { createOrdering, eachLimit, latestOnly, minInterval, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polling'
-import { entryPaths, listDiffers, outsideList } from './workspaceList'
+import { entryPaths, listDiffers, listedPaths, outsideList } from './workspaceList'
 
 /** Each stats read runs several gits. */
 const STATS_CONCURRENCY = 8
@@ -103,7 +103,7 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
     }
     setListError(null)
     setWorktrees(list)
-    settle(ended, list.map((w) => w.path))
+    settle(ended, listedPaths(useApp.getState().workspace, forRepo, list))
     if (listDiffers(useApp.getState().workspace, forRepo, list)) void rescan()
     // The main process watches exactly these, and drops the ones that left the list.
     const key = `${forRepo}\0${list.map((w) => w.path).join('\0')}`

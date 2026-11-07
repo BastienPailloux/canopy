@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultEntry, entryLabel, entryPaths, groupEntries, isSingleRepo, listDiffers, mergeScan, outsideList, repoWorktrees, workspaceRepos } from '../../src/renderer/shell/workspaceList'
+import { defaultEntry, entryLabel, entryPaths, groupEntries, isSingleRepo, listDiffers, listedPaths, mergeScan, outsideList, repoWorktrees, workspaceRepos } from '../../src/renderer/shell/workspaceList'
 import type { Workspace, WorkspaceEntry } from '../../src/shared/types'
 
 function entry(repoName: string, group: WorkspaceEntry['group'], branch: string | null = 'main', feature?: string): WorkspaceEntry {
@@ -128,6 +128,14 @@ describe('helpers', () => {
     const extra = { path: '/new', branch: 'n', head: 'h', isMain: false }
     expect(entryPaths(ws(a, b), [a.worktree, extra])).toEqual(['/ws/a', '/new', '/ws/b'])
     expect(entryPaths(null, [extra])).toEqual(['/new'])
+  })
+
+  it('listedPaths keeps an orphan of another repo that came back: its tabs stay', () => {
+    expect(listedPaths(ws(a, b, bHot), '/ws/a', [a.worktree])).toContain(bHot.worktree.path)
+  })
+
+  it('listedPaths trusts the live list over a scan of the same repo, stale by then', () => {
+    expect(listedPaths(ws(a, aZed, b), '/ws/a', [a.worktree])).toEqual([a.worktree.path, b.worktree.path])
   })
 
   it('outsideList leaves out what reading the live list covers', () => {
