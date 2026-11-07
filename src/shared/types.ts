@@ -19,7 +19,13 @@ export interface ChangedFile {
   /** Could not be read (rights, a submodule never fetched): its numbers say nothing. */
   unreadable?: boolean
 }
-export interface WorktreeStats { ahead: number; added: number; deleted: number }
+export interface WorktreeStats {
+  ahead: number
+  added: number
+  deleted: number
+  /** Its branch has changes set aside by a branch switch, not taken back. */
+  setAside?: boolean
+}
 export type Activity = 'waiting' | 'working' | 'idle'
 export type WorktreeStatus = 'waiting' | 'working' | 'pr_open' | 'idle'
 export type SessionState = 'running' | 'waiting' | 'idle' | 'stopped' | 'error'

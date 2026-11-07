@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import type { Workspace } from '../shared/types'
 import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
@@ -8,6 +9,9 @@ import { connectTerminals } from './terminal/terminalStore'
 import { AccountFooter } from './shell/AccountFooter'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
+import { useLayout } from './shell/layoutStore'
+import { dragLeft, dragRight, LEFT_DEFAULT, RAIL_WIDTH, RIGHT_DEFAULT, stepLeft } from './shell/panelWidths'
+import { Resizer } from './shell/Resizer'
 import { WorktreeList } from './shell/WorktreeList'
 import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
@@ -28,6 +32,43 @@ function Empty(): React.JSX.Element {
   )
 }
 
+/** The worktree list, as wide as dragged, or a rail of initials once dragged too narrow. */
+function Sidebar({ repo, workspace }: { repo: string; workspace: Workspace }): React.JSX.Element {
+  const left = useLayout((s) => s.left)
+  const rail = useLayout((s) => s.rail)
+  const update = useLayout((s) => s.update)
+  const from = useRef(0)
+  const shown = rail ? RAIL_WIDTH : left
+  const apply = (r: { width: number; rail: boolean }): void => update({ left: r.width, rail: r.rail })
+  return (
+    <>
+      <aside className="sidebar" aria-label="Worktrees" data-rail={rail ? 'true' : undefined} style={{ width: shown }}>
+        <WorktreeList key={workspace.root} repo={repo} workspace={workspace} rail={rail} />
+        <AccountFooter />
+      </aside>
+      <Resizer label="Largeur des worktrees" value={shown}
+        onDragStart={() => { from.current = shown }}
+        onDrag={(dx) => apply(dragLeft(from.current + dx, useLayout.getState().left))}
+        onStep={(dx) => apply(stepLeft(useLayout.getState(), dx))}
+        onReset={() => update({ left: LEFT_DEFAULT, rail: false })} />
+    </>
+  )
+}
+
+/** The edge of the Sessions side panel: dragged left, the panel grows. */
+function SidePanelEdge(): React.JSX.Element {
+  const right = useLayout((s) => s.right)
+  const update = useLayout((s) => s.update)
+  const from = useRef(0)
+  return (
+    <Resizer label="Largeur du panneau latéral" value={right}
+      onDragStart={() => { from.current = dragRight(useLayout.getState().right, 0, window.innerWidth) }}
+      onDrag={(dx) => update({ right: dragRight(from.current, -dx, window.innerWidth) })}
+      onStep={(dx) => update({ right: dragRight(useLayout.getState().right, -dx, window.innerWidth) })}
+      onReset={() => update({ right: RIGHT_DEFAULT })} />
+  )
+}
+
 function Main(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const worktree = useApp((s) => s.worktrees.find((w) => w.path === s.worktree))
@@ -44,6 +85,7 @@ function Main(): React.JSX.Element {
         ? (
           <div className="main-row">
             <SessionsView cwd={shown.path} worktreeLabel={worktreeLabel(shown)} />
+            {worktree && <SidePanelEdge />}
             {worktree && <SidePanel cwd={worktree.path} />}
           </div>
         )
@@ -98,10 +140,7 @@ export function App(): React.JSX.Element {
       <div className="body">
         {repo && workspace ? (
           <>
-            <aside className="sidebar" aria-label="Worktrees">
-              <WorktreeList key={workspace.root} repo={repo} workspace={workspace} />
-              <AccountFooter />
-            </aside>
+            <Sidebar repo={repo} workspace={workspace} />
             <main className="main"><Main /></main>
           </>
         ) : (

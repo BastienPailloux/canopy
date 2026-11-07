@@ -13,6 +13,7 @@ import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer, setBaseOve
 import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
+import { dirtyCount, hasSetAsideChanges, switchableBranches, switchBranch } from './git/switchBranch'
 import { parseUnsaved, type UnsavedCounts } from './quit'
 import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
@@ -285,7 +286,10 @@ export function registerIpc(
   const stats = new Coalescer<WorktreeStats>()
   ipcMain.handle('worktree:stats', (_e, cwd: unknown) => {
     assertPath(cwd)
-    return stats.run(cwd, async () => worktreeStats(cwd, (await cachedBaseRef(cwd)).ref))
+    return stats.run(cwd, async () => {
+      const [read, setAside] = await Promise.all([worktreeStats(cwd, (await cachedBaseRef(cwd)).ref), hasSetAsideChanges(cwd)])
+      return { ...read, setAside }
+    })
   })
 
   ipcMain.handle('worktree:defaultBase', (_e, cwd: unknown) => {
@@ -314,5 +318,21 @@ export function registerIpc(
     assertPath(path)
     await removeAndStop(repo, path, force === true, live, removeWorktree)
     clearSharedReads()
+  })
+
+  ipcMain.handle('worktree:switchInfo', async (_e, path: unknown) => {
+    assertPath(path)
+    const [branches, dirty] = await Promise.all([switchableBranches(path), dirtyCount(path)])
+    return { branches, dirty, sessions: live.sessions(path) }
+  })
+
+  ipcMain.handle('worktree:switch', async (_e, path: unknown, branch: unknown) => {
+    assertPath(path)
+    if (typeof branch !== 'string' || branch === '') throw new Error('Branche manquante')
+    try {
+      return await switchBranch(path, branch)
+    } finally {
+      clearSharedReads()
+    }
   })
 }

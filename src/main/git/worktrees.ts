@@ -61,7 +61,7 @@ async function ensureExcluded(repo: string): Promise<void> {
   await appendFile(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${EXCLUDE_ENTRY}\n`)
 }
 
-const hasRef = (repo: string, ref: string): Promise<boolean> =>
+export const hasRef = (repo: string, ref: string): Promise<boolean> =>
   git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false)
 
 /** `git worktree add` arguments checking out a branch that exists: local, or a teammate's on a remote, as `origin/x`. */

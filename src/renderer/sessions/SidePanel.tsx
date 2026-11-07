@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { BaseRef, ChangedFile } from '../../shared/types'
 import { createOrdering, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from '../shell/polling'
+import { useLayout } from '../shell/layoutStore'
 import { useApp } from '../store'
 import { PR_PROMPT, rebasePrompt } from './panelPrompts'
 import { askClaude, useSessions } from './sessionStore'
@@ -49,10 +50,11 @@ export function SidePanel({ cwd }: { cwd: string }): React.JSX.Element {
     added: files.reduce((n, f) => n + f.added, 0),
     deleted: files.reduce((n, f) => n + f.deleted, 0)
   }), [files])
+  const width = useLayout((s) => s.right)
   const openCode = (): void => useApp.getState().setView('code')
 
   return (
-    <aside className="side-panel" aria-label="Panneau latéral">
+    <aside className="side-panel" aria-label="Panneau latéral" style={{ width }}>
       <section>
         <div className="head">
           <button className="title-link" onClick={openCode} data-testid="changes-link">

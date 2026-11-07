@@ -3,8 +3,10 @@ import type { OrphanedWorktree } from '../../shared/api'
 import { MAX_WORKSPACE_REPOS, type Workspace, type WorkspaceEntry, type Worktree, type WorktreeStatus } from '../../shared/types'
 import { basename, useApp, worktreeLabel } from '../store'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
+import { railInitials } from './panelWidths'
 import { RemoveWorktreeDialog } from './RemoveWorktreeDialog'
 import { STATUS_LABEL, useStatuses } from './useStatuses'
+import { SwitchBranchDialog } from './SwitchBranchDialog'
 import { forget, useWorktrees, type StatsEntry } from './useWorktrees'
 import { entryLabel, groupEntries, isSingleRepo } from './workspaceList'
 
@@ -20,16 +22,40 @@ const trashIcon = (
   </svg>
 )
 
-function Row(props: { w: Worktree; label: string; idleMain: string; entry?: StatsEntry; ports?: Record<string, number>; status: WorktreeStatus; active: boolean; onPick: () => void; onRemove: () => void }): React.JSX.Element {
+const branchIcon = (
+  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="6" cy="5" r="2.5" /><circle cx="6" cy="19" r="2.5" /><circle cx="18" cy="7" r="2.5" />
+    <path d="M6 7.5v9M18 9.5c0 4-12 2-12 7" />
+  </svg>
+)
+
+/** A worktree in the rail: its initials and status dot, named on hover. */
+function RailRow(props: { label: string; status: WorktreeStatus; statusText: string; active: boolean; onPick: () => void; testId: string; path: string }): React.JSX.Element {
+  return (
+    <div className="wt-row">
+      <button className="wt wt-rail" aria-current={props.active} aria-label={props.label} title={`${props.label} · ${props.statusText}`}
+        onClick={props.onPick} data-testid={props.testId} data-path={props.path}>
+        <span className="dot" data-status={props.status} aria-hidden="true" />
+        {railInitials(props.label)}
+      </button>
+    </div>
+  )
+}
+
+function Row(props: { w: Worktree; label: string; idleMain: string; entry?: StatsEntry; ports?: Record<string, number>; status: WorktreeStatus; active: boolean; rail: boolean; onPick: () => void; onSwitch: () => void; onRemove: () => void }): React.JSX.Element {
   const { w, entry } = props
   const stats = entry?.stats
+  const statusText = w.isMain && props.status === 'idle' ? props.idleMain : STATUS_LABEL[props.status]
+  if (props.rail) {
+    return <RailRow label={props.label} status={props.status} statusText={statusText} active={props.active} onPick={props.onPick} testId="worktree" path={w.path} />
+  }
   return (
     <div className="wt-row">
       <button className="wt" aria-current={props.active} onClick={props.onPick} data-testid="worktree" data-path={w.path}>
         <span className="dot" data-status={props.status} aria-hidden="true" />
         <span className="col">
           <span className="name" title={props.label}>{props.label}</span>
-          <span className="status" data-status={props.status} data-testid="worktree-status">{w.isMain && props.status === 'idle' ? props.idleMain : STATUS_LABEL[props.status]}</span>
+          <span className="status" data-status={props.status} data-testid="worktree-status">{statusText}</span>
           <span className="numbers">
             {stats && stats.added > 0 && <span className="add">+{stats.added}</span>}
             {stats && stats.deleted > 0 && <span className="del">−{stats.deleted}</span>}
@@ -39,6 +65,9 @@ function Row(props: { w: Worktree; label: string; idleMain: string; entry?: Stat
             {Object.entries(props.ports ?? {}).map(([service, port]) => (
               <span key={service} className="port mono" title={`${service} : localhost:${port}`} data-testid="worktree-port">:{port}</span>
             ))}
+            {stats?.setAside && (
+              <span className="warn" title="Modifications mises de côté lors d'un changement de branche et pas réappliquées. Elles sont dans git stash." data-testid="worktree-set-aside">mis de côté</span>
+            )}
             {entry?.error !== undefined && (
               <span className="warn" title={entry.error} data-testid="worktree-error">
                 {stats ? 'données périmées' : 'état illisible'}
@@ -46,6 +75,9 @@ function Row(props: { w: Worktree; label: string; idleMain: string; entry?: Stat
             )}
           </span>
         </span>
+      </button>
+      <button className="wt-switch" data-alone={w.isMain} aria-label={`Changer la branche de ${props.label}`} title="Changer de branche" onClick={props.onSwitch}>
+        {branchIcon}
       </button>
       {!w.isMain && (
         <button className="wt-remove" aria-label={`Supprimer ${props.label}`} onClick={props.onRemove}>
@@ -66,7 +98,7 @@ function liveText(w: OrphanedWorktree): string {
 }
 
 /** Deleted from outside while something runs there: reachable until that ends, closed from its tabs. */
-function Orphans(props: { active: string | null; single: boolean }): React.JSX.Element | null {
+function Orphans(props: { active: string | null; single: boolean; rail: boolean }): React.JSX.Element | null {
   const orphans = useApp((s) => s.orphans)
   const selectOrphan = useApp((s) => s.selectOrphan)
   if (orphans.length === 0) return null
@@ -76,7 +108,10 @@ function Orphans(props: { active: string | null; single: boolean }): React.JSX.E
       <p className="list-error" role="alert" data-testid="orphan-notice">
         {orphans.map((w) => `« ${label(w)} » a disparu du disque : ${liveText(w)} encore actif${w.sessions + w.terminals > 1 ? 's' : ''}.`).join(' ')}
       </p>
-      {orphans.map((w) => (
+      {orphans.map((w) => props.rail ? (
+        <RailRow key={w.path} label={label(w)} status="waiting" statusText={`Dossier disparu · ${liveText(w)}`} active={w.path === props.active}
+          onPick={() => selectOrphan(w)} testId="worktree-orphan" path={w.path} />
+      ) : (
         <div key={w.path} className="wt-row">
           <button className="wt" aria-current={w.path === props.active} onClick={() => selectOrphan(w)} data-testid="worktree-orphan" data-path={w.path}>
             <span className="dot" data-status="waiting" aria-hidden="true" />
@@ -91,7 +126,7 @@ function Orphans(props: { active: string | null; single: boolean }): React.JSX.E
   )
 }
 
-export function WorktreeList({ repo, workspace }: { repo: string; workspace: Workspace }): React.JSX.Element {
+export function WorktreeList({ repo, workspace, rail }: { repo: string; workspace: Workspace; rail: boolean }): React.JSX.Element {
   const active = useApp((s) => s.worktree)
   const openError = useApp((s) => s.openError)
   const setWorktree = useApp((s) => s.setWorktree)
@@ -100,6 +135,7 @@ export function WorktreeList({ repo, workspace }: { repo: string; workspace: Wor
   const statuses = useStatuses()
   const [creating, setCreating] = useState(false)
   const [removing, setRemoving] = useState<WorkspaceEntry | null>(null)
+  const [switching, setSwitching] = useState<WorkspaceEntry | null>(null)
   const sections = useMemo(() => groupEntries(workspace), [workspace])
   const single = isSingleRepo(workspace)
 
@@ -127,13 +163,13 @@ export function WorktreeList({ repo, workspace }: { repo: string; workspace: Wor
               const { path } = e.worktree
               return (
                 <Row key={path} w={e.worktree} label={entryLabel(e, single)} idleMain={single ? 'Principal' : worktreeLabel(e.worktree)}
-                  entry={entries[path]} ports={ports[path]} status={statuses[path] ?? 'idle'} active={path === active}
-                  onPick={() => selectEntry(e)} onRemove={() => setRemoving(e)} />
+                  entry={entries[path]} ports={ports[path]} status={statuses[path] ?? 'idle'} active={path === active} rail={rail}
+                  onPick={() => selectEntry(e)} onSwitch={() => setSwitching(e)} onRemove={() => setRemoving(e)} />
               )
             })}
           </Fragment>
         ))}
-        <Orphans active={active} single={single} />
+        <Orphans active={active} single={single} rail={rail} />
       </div>
       {creating && (
         <NewWorktreeDialog repo={repo} onClose={() => setCreating(false)}
@@ -141,6 +177,9 @@ export function WorktreeList({ repo, workspace }: { repo: string; workspace: Wor
             setCreating(false)
             void sync().then(() => setWorktree(path))
           }} />
+      )}
+      {switching && (
+        <SwitchBranchDialog worktree={switching.worktree} onClose={() => setSwitching(null)} onSwitched={() => void sync()} />
       )}
       {removing && (
         <RemoveWorktreeDialog repo={removing.repo} worktree={removing.worktree} onClose={() => setRemoving(null)}

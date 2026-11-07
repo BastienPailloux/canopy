@@ -10,6 +10,7 @@ import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { createCrashReload } from './crashReload'
 import { currentEnv, startEnv } from './env'
+import { hiddenWindow } from './hiddenWindow'
 import { installCli } from './installCli'
 import { broadcast, registerIpc } from './ipc'
 import { menuTemplate } from './menu'
@@ -72,6 +73,10 @@ async function installCommand(): Promise<void> {
   await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
 }
 
+/** Tests run the app without a window on screen, a Dock icon, or taking the focus. */
+const hidden = hiddenWindow({ isPackaged: app.isPackaged, env: process.env })
+if (hidden && process.platform === 'darwin') app.setActivationPolicy('accessory')
+
 /** `onClose` runs for every close that is not part of a quit already under way. */
 function createWindow(onClose: () => void, onRendererGone: () => void): void {
   const win = new BrowserWindow({
@@ -79,10 +84,13 @@ function createWindow(onClose: () => void, onRendererGone: () => void): void {
     height: 900,
     backgroundColor: '#0D0E10',
     titleBarStyle: 'hiddenInset',
+    // Hidden, the page must still paint and run as if shown: the tests drive and capture it.
+    ...(hidden ? { show: false, paintWhenInitiallyHidden: true } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      ...(hidden ? { backgroundThrottling: false } : {})
     }
   })
 
@@ -164,6 +172,7 @@ void app.whenReady().then(async () => {
   showWindow = () => {
     const [win] = BrowserWindow.getAllWindows()
     if (!win) { open(); return }
+    if (hidden) return
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()

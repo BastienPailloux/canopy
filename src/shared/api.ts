@@ -28,6 +28,16 @@ export interface NewWorktree {
   existing?: boolean
 }
 
+/** What changing the branch of a worktree involves. */
+export interface SwitchInfo {
+  /** Where it can go: not the branches open in a worktree. */
+  branches: string[]
+  /** Files that would be set aside. */
+  dirty: number
+  /** Sessions running there: the files change under them. */
+  sessions: number
+}
+
 /** A file of the worktree as the editor shows it. `version` identifies the bytes read, to give back to `writeFile`. */
 export type FileContent =
   /** `notUtf8`: `content` is a lossy decoding, shown read-only since saving it would corrupt the file. */
@@ -141,6 +151,9 @@ export interface CanopyApi {
   removalRisks(repo: string, path: string): Promise<RemovalRisks>
   /** Removes the worktree, then stops its sessions and terminals. If git refuses, nothing stops. */
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
+  switchInfo(path: string): Promise<SwitchInfo>
+  /** Sets the changes aside for the branch left and takes back those of `branch`. `conflict`: they could not be applied, and stay aside. */
+  switchBranch(path: string, branch: string): Promise<{ conflict: boolean }>
   /** Worktrees of the repos of the folder `root` that vanished from outside with sessions or terminals still alive. */
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
   /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts. */

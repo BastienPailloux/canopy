@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeApp } from '../helpers/closeApp'
@@ -103,6 +103,34 @@ test('removing a dirty worktree asks for confirmation and shows the risk', async
   await page.getByRole('button', { name: 'Supprimer feat/a' }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Supprimer quand même' }).click()
   await expect(rows()).toHaveCount(1)
+})
+
+test('changing branch sets the changes aside and coming back restores them', async () => {
+  await expect(rows()).toHaveCount(2, { timeout: 20_000 })
+  execFileSync('git', ['branch', 'free'], { cwd: repo.path, env: GIT_ENV })
+  const dialog = page.getByRole('dialog', { name: 'Changer de branche' })
+
+  await page.getByRole('button', { name: 'Changer la branche de feat/a' }).click()
+  await expect(dialog.getByRole('combobox', { name: 'Branche' }).locator('option')).toHaveText(['free'])
+  await expect(page.getByTestId('switch-dirty')).toContainText('1 fichier modifié')
+  await dialog.getByRole('button', { name: 'Changer', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(rows().filter({ hasText: 'free' })).toHaveCount(1)
+  await expect(access(join(featPath, 'dirty.txt'))).rejects.toThrow()
+
+  await page.getByRole('button', { name: 'Changer la branche de free' }).click()
+  await dialog.getByRole('button', { name: 'Changer', exact: true }).click()
+  await expect(rows().filter({ hasText: 'feat/a' })).toHaveCount(1)
+  expect(await readFile(join(featPath, 'dirty.txt'), 'utf8')).toBe('uncommitted\n')
+})
+
+test('the main checkout can change branch too', async () => {
+  await expect(rows()).toHaveCount(2, { timeout: 20_000 })
+  execFileSync('git', ['branch', 'free'], { cwd: repo.path, env: GIT_ENV })
+  await page.getByRole('button', { name: 'Changer la branche de main' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Changer de branche' })
+  await dialog.getByRole('button', { name: 'Changer', exact: true }).click()
+  await expect(rows().filter({ hasText: 'free' })).toHaveCount(1)
 })
 
 test('a worktree whose stats fail keeps its last stats and shows an error, the list survives', async () => {
