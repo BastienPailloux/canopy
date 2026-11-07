@@ -1,0 +1,17 @@
+:root {
+  --bg: #0d0e10;
+  --fg: #e6e7ea;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+}
