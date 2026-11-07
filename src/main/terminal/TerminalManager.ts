@@ -177,6 +177,11 @@ export class TerminalManager extends EventEmitter {
     return [...this.terminals.values()].filter((t) => t.info.cwd === cwd).map((t) => t.info)
   }
 
+  /** Terminals whose process is still alive, whatever the worktree. */
+  runningCount(): number {
+    return [...this.terminals.values()].filter((t) => t.info.running).length
+  }
+
   /** The last 2000 lines, in raw form. */
   buffer(id: string): string {
     return this.terminals.get(id)?.buffer ?? ''

@@ -3,6 +3,21 @@ import { dirname } from 'node:path'
 
 const MAX_RECENT = 10
 
+/** The part of Electron's `safeStorage` the store needs (the macOS keychain). */
+export interface SecretCipher {
+  isEncryptionAvailable(): boolean
+  encryptString(plain: string): Buffer
+  decryptString(encrypted: Buffer): string
+}
+
+/** Thrown when the key cannot be encrypted: it is never stored in clear. */
+export class EncryptionUnavailableError extends Error {
+  constructor() {
+    super("Le trousseau macOS n'est pas disponible : la clé API n'a pas été enregistrée.")
+    this.name = 'EncryptionUnavailableError'
+  }
+}
+
 interface State {
   recentRepos: string[]
   /** Hashes of the project configs sessions may load, by main worktree root. */
@@ -11,6 +26,8 @@ interface State {
   prefs: Record<string, unknown>
   /** PATH of the last login shell env that resolved, to start with while the next one resolves. */
   loginPath?: string
+  /** The Anthropic API key, encrypted with `safeStorage` and base64 encoded. */
+  apiKey?: string
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -38,6 +55,7 @@ function sanitize(raw: unknown): State {
   }
   if (isRecord(raw.prefs)) state.prefs = raw.prefs
   if (typeof raw.loginPath === 'string' && raw.loginPath !== '') state.loginPath = raw.loginPath
+  if (typeof raw.apiKey === 'string' && raw.apiKey !== '') state.apiKey = raw.apiKey
   return state
 }
 
@@ -45,7 +63,7 @@ function sanitize(raw: unknown): State {
 export class AppStore {
   private state: State
 
-  constructor(private readonly file: string) {
+  constructor(private readonly file: string, private readonly cipher?: SecretCipher) {
     let raw: unknown
     try {
       raw = JSON.parse(readFileSync(file, 'utf8'))
@@ -89,6 +107,37 @@ export class AppStore {
     if (this.state.loginPath === path) return
     this.state.loginPath = path
     this.save()
+  }
+
+  /** Whether a key is stored. The key itself never leaves the main process. */
+  hasApiKey(): boolean {
+    return this.state.apiKey !== undefined
+  }
+
+  /** Stores the key encrypted, or removes it with null. Throws `EncryptionUnavailableError` rather than store it in clear. */
+  saveApiKey(key: string | null): void {
+    if (key === null || key === '') {
+      delete this.state.apiKey
+    } else {
+      if (!this.cipher?.isEncryptionAvailable()) throw new EncryptionUnavailableError()
+      this.state.apiKey = this.cipher.encryptString(key).toString('base64')
+    }
+    this.save()
+  }
+
+  /** `ANTHROPIC_API_KEY` if a key is stored and readable, else nothing: sessions then use the personal Claude login. */
+  apiKeyEnv(): Record<string, string> {
+    if (this.state.apiKey === undefined || !this.cipher?.isEncryptionAvailable()) return {}
+    try {
+      const key = this.cipher.decryptString(Buffer.from(this.state.apiKey, 'base64'))
+      return key === '' ? {} : { ANTHROPIC_API_KEY: key }
+    } catch {
+      return {}
+    }
+  }
+
+  get encryptionAvailable(): boolean {
+    return this.cipher?.isEncryptionAvailable() === true
   }
 
   setPrefs(prefs: Record<string, unknown>): void {

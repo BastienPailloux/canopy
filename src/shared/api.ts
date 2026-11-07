@@ -1,7 +1,7 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Worktree, WorktreeStats } from './types'
+import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Worktree, WorktreeStats, WorktreeStatus } from './types'
 
 export interface RemovalRisks { dirty: number; unpushed: number }
 
@@ -81,6 +81,17 @@ export interface CanopyApi {
   selectRepo(path: string): Promise<string | null>
   recentRepos(): Promise<string[]>
   listWorktrees(repo: string): Promise<Worktree[]>
+  /**
+   * What the sidebar shows for the worktree: from its sessions, and from its PR (through gh, polled at most every
+   * 60 s per worktree; `onFocus` allows a refresh sooner). Without gh or a remote, the PR is ignored.
+   */
+  worktreeStatus(cwd: string, onFocus?: boolean): Promise<WorktreeStatus>
+  /** Whether a session in any worktree of the repo, displayed or not, waits for an answer. */
+  repoNeedsAttention(repo: string): Promise<boolean>
+  /** Whether an API key is saved, and whether the keychain can store one. The key is never sent back. */
+  apiKeyStatus(): Promise<{ set: boolean; encryptionAvailable: boolean }>
+  /** Saves the key in the keychain, or removes it with null. Rejects, storing nothing, if the keychain is unavailable. */
+  saveApiKey(key: string | null): Promise<void>
   /** Rejects on unreadable files or a corrupt repo: callers must tolerate it. */
   worktreeStats(cwd: string): Promise<WorktreeStats>
   /** `base` defaults to the repo's resolved base ref. */

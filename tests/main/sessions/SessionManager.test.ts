@@ -701,18 +701,26 @@ test('a trusted start passes no settingSources', () => {
   expect(h.queries[0].options).not.toHaveProperty('settingSources')
 })
 
-test('env keeps process.env under the login env and drops ELECTRON_RUN_AS_NODE', () => {
+test('env is the injected env alone: process.env does not leak back in', () => {
   vi.stubEnv('USER', 'someone')
   vi.stubEnv('ELECTRON_RUN_AS_NODE', '1')
   try {
-    const h = setup({ env: { PATH: '/x', ELECTRON_RUN_AS_NODE: '1' } })
+    const h = setup({ env: { PATH: '/x', ANTHROPIC_API_KEY: 'k' } })
     h.m.start('/a', { content: content('hi') })
     const env = h.queries[0].options.env
-    expect(env).toMatchObject({ PATH: '/x', USER: 'someone' })
-    expect(env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(env).toEqual({ PATH: '/x', ANTHROPIC_API_KEY: 'k' })
   } finally {
     vi.unstubAllEnvs()
   }
+})
+
+test('runningCount counts sessions mid-turn or waiting, not idle ones', async () => {
+  const h = setup()
+  expect(h.m.runningCount()).toBe(0)
+  h.m.start('/a', { content: content('hi') })
+  expect(h.m.runningCount()).toBe(1)
+  h.m.stopAll()
+  expect(h.m.runningCount()).toBe(0)
 })
 
 test('interrupt, setMode and setModel reach the query', async () => {

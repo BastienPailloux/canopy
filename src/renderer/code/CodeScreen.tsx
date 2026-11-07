@@ -16,7 +16,9 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message.replac
 
 export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.Element {
   const { cwd } = props
-  const [pickedBase, setPickedBase] = useState<string | undefined>()
+  // Held by the app: the side panel's actions rebase on the branch being compared.
+  const pickedBase = useApp((st) => st.bases[cwd])
+  const setPickedBase = (b: string | undefined): void => useApp.getState().setBase(cwd, b)
   const [back] = useState(() => getShown(cwd))
   const [scope, setScope] = useState<'all' | 'changed'>(back?.scope ?? 'all')
   const [query, setQuery] = useState('')

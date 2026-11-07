@@ -8,6 +8,7 @@ import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
 import { worktreeStats } from './git/diff'
 import { createWorktree, listWorktrees, removalRisks, removeWorktree } from './git/worktrees'
+import { PrCache, repoNeedsAttention, worktreeStatus } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
 import { registerTerminalIpc } from './terminal/terminalIpc'
@@ -110,6 +111,28 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
 export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
+  const prs = new PrCache()
+
+  ipcMain.handle('worktree:status', async (_e, cwd: unknown, onFocus: unknown) => {
+    assertPath(cwd)
+    return worktreeStatus(sessions.activity(cwd), await prs.get(cwd, onFocus === true))
+  })
+
+  ipcMain.handle('repo:needsAttention', (_e, path: unknown) => {
+    assertPath(path)
+    return repoNeedsAttention(path, {
+      worktrees: async (repo) => (await listWorktrees(repo)).map((w) => w.path),
+      activity: (cwd) => sessions.activity(cwd)
+    })
+  })
+
+  // The key goes in, never out: the renderer only learns whether one is set.
+  ipcMain.handle('settings:apiKeyStatus', () => ({ set: store.hasApiKey(), encryptionAvailable: store.encryptionAvailable }))
+
+  ipcMain.handle('settings:saveApiKey', (_e, key: unknown) => {
+    if (key !== null && (typeof key !== 'string' || key.length > 512 || /\s/.test(key))) throw new Error('Clé API invalide')
+    store.saveApiKey(key)
+  })
 
   ipcMain.handle('repo:open', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)

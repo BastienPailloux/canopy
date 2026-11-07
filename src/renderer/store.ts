@@ -12,6 +12,8 @@ interface AppState {
   worktree: string | null
   worktrees: Worktree[]
   view: View
+  /** Branch each worktree is compared against when the user picked one; absent: the default branch. */
+  bases: Record<string, string>
   codeRequest: CodeRequest | null
   /** Opens the Code view of `cwd` on `path`, at `line` and `column` (1-based) if given. */
   openInCode: (cwd: string, path: string, mode: 'code' | 'diff', line?: number, column?: number) => void
@@ -21,6 +23,7 @@ interface AppState {
   setWorktrees: (list: Worktree[]) => void
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
+  setBase: (cwd: string, base: string | undefined) => void
 }
 
 let requestCount = 0
@@ -30,6 +33,7 @@ export const useApp = create<AppState>((set) => ({
   worktree: null,
   worktrees: [],
   view: 'sessions',
+  bases: {},
   codeRequest: null,
   openInCode: (cwd, path, mode, line, column) =>
     set(() => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, line, column, seq: ++requestCount } })),
@@ -44,7 +48,11 @@ export const useApp = create<AppState>((set) => ({
         : (worktrees.find((w) => w.isMain) ?? worktrees[0])?.path ?? null
     })),
   setWorktree: (worktree) => set({ worktree }),
-  setView: (view) => set({ view })
+  setView: (view) => set({ view }),
+  setBase: (cwd, base) => set((s) => {
+    const { [cwd]: _old, ...rest } = s.bases
+    return { bases: base === undefined ? rest : { ...rest, [cwd]: base } }
+  })
 }))
 
 export function worktreeLabel(w: Worktree): string {

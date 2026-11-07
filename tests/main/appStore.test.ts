@@ -106,3 +106,42 @@ it('keeps the last login PATH across restarts and ignores a bad value', async ()
   await writeFile(file, JSON.stringify({ loginPath: 3 }))
   expect(new AppStore(file).loginPath).toBeUndefined()
 })
+
+describe('AppStore API key', () => {
+  const cipher = (available = true) => ({
+    isEncryptionAvailable: () => available,
+    encryptString: (p: string) => Buffer.from(`enc:${p}`.split('').reverse().join('')),
+    decryptString: (b: Buffer) => b.toString().split('').reverse().join('').slice(4)
+  })
+
+  it('stores the key encrypted, never in clear, and exposes it as ANTHROPIC_API_KEY', () => {
+    const a = new AppStore(file, cipher())
+    expect(a.apiKeyEnv()).toEqual({})
+    a.saveApiKey('sk-ant-secret')
+    expect(readFileSync(file, 'utf8')).not.toContain('sk-ant-secret')
+    expect(a.hasApiKey()).toBe(true)
+    expect(new AppStore(file, cipher()).apiKeyEnv()).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-secret' })
+  })
+
+  it('refuses to store a key when encryption is unavailable', () => {
+    const a = new AppStore(file, cipher(false))
+    expect(() => a.saveApiKey('sk-ant-secret')).toThrow(/trousseau/)
+    expect(a.hasApiKey()).toBe(false)
+    expect(() => readFileSync(file, 'utf8')).toThrow()
+  })
+
+  it('null removes the key', () => {
+    const a = new AppStore(file, cipher())
+    a.saveApiKey('sk-ant-secret')
+    a.saveApiKey(null)
+    expect(a.hasApiKey()).toBe(false)
+    expect(a.apiKeyEnv()).toEqual({})
+    expect(readFileSync(file, 'utf8')).not.toContain('apiKey')
+  })
+
+  it('gives no key when it cannot be decrypted', () => {
+    new AppStore(file, cipher()).saveApiKey('sk-ant-secret')
+    const broken = { ...cipher(), decryptString: () => { throw new Error('keychain locked') } }
+    expect(new AppStore(file, broken).apiKeyEnv()).toEqual({})
+  })
+})

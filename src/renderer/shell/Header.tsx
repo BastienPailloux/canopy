@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useApp, type View } from '../store'
 import { RepoPicker } from './RepoPicker'
+import { Settings } from './Settings'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'sessions', label: 'Sessions' },
@@ -22,6 +24,7 @@ function Logo(): React.JSX.Element {
 export function Header(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
+  const [settings, setSettings] = useState(false)
   return (
     <header className="header">
       <span className="brand">
@@ -36,6 +39,8 @@ export function Header(): React.JSX.Element {
           </button>
         ))}
       </nav>
+      <button className="ctl settings-btn" onClick={() => setSettings(true)}>Réglages</button>
+      {settings && <Settings onClose={() => setSettings(false)} />}
     </header>
   )
 }

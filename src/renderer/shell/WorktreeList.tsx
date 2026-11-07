@@ -3,6 +3,8 @@ import type { Worktree, WorktreeStats } from '../../shared/types'
 import { useApp, worktreeLabel } from '../store'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
 import { RemoveWorktreeDialog } from './RemoveWorktreeDialog'
+import { STATUS_LABEL, useStatuses } from './useStatuses'
+import type { WorktreeStatus } from '../../shared/types'
 
 const REFRESH_MS = 10_000
 
@@ -116,16 +118,16 @@ const trashIcon = (
   </svg>
 )
 
-function Row(props: { w: Worktree; entry?: StatsEntry; active: boolean; onPick: () => void; onRemove: () => void }): React.JSX.Element {
+function Row(props: { w: Worktree; entry?: StatsEntry; status: WorktreeStatus; active: boolean; onPick: () => void; onRemove: () => void }): React.JSX.Element {
   const { w, entry } = props
   const stats = entry?.stats
   return (
     <div className="wt-row">
       <button className="wt" aria-current={props.active} onClick={props.onPick} data-testid="worktree" data-path={w.path}>
-        <span className="dot" aria-hidden="true" />
+        <span className="dot" data-status={props.status} aria-hidden="true" />
         <span className="col">
           <span className="name" title={worktreeLabel(w)}>{worktreeLabel(w)}</span>
-          <span className="status">{w.isMain ? 'Principal' : 'Inactif'}</span>
+          <span className="status" data-status={props.status} data-testid="worktree-status">{STATUS_LABEL[props.status]}</span>
           <span className="numbers">
             {stats && stats.added > 0 && <span className="add">+{stats.added}</span>}
             {stats && stats.deleted > 0 && <span className="del">−{stats.deleted}</span>}
@@ -154,6 +156,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
   const active = useApp((s) => s.worktree)
   const setWorktree = useApp((s) => s.setWorktree)
   const { entries, listError, refresh } = useWorktrees(repo)
+  const statuses = useStatuses(repo)
   const [creating, setCreating] = useState(false)
   const [removing, setRemoving] = useState<Worktree | null>(null)
 
@@ -166,7 +169,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
       {listError && <p className="list-error" role="alert">Liste indisponible : {listError}</p>}
       <div className="wt-list">
         {worktrees.map((w) => (
-          <Row key={w.path} w={w} entry={entries[w.path]} active={w.path === active}
+          <Row key={w.path} w={w} entry={entries[w.path]} status={statuses[w.path] ?? 'idle'} active={w.path === active}
             onPick={() => setWorktree(w.path)} onRemove={() => setRemoving(w)} />
         ))}
       </div>

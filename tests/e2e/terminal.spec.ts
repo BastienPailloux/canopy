@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { closeApp } from '../helpers/closeApp'
 import { createRepo, type TestRepo } from '../helpers/repo'
 
 const SHOT = join(__dirname, '..', '..', '.superpowers', 'sdd', '2026-11-07-canopy-v1', 'task-12-terminal.png')
@@ -47,7 +48,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await app.close()
+  await closeApp(app).catch(() => undefined)
   await repo.cleanup()
   await rm(userData, { recursive: true, force: true })
 })
@@ -147,4 +148,31 @@ test('removing a worktree that has a running terminal reports the exit and nothi
   await expect.poll(() => page.evaluate((p) => window.canopy.listTerminals(p).then((l) => l.find((t) => t.running)), featPath)).toBeUndefined()
   expect(id).toMatch(/^term-/)
   expect(await page.evaluate((p) => window.canopy.createTerminal(p).then(() => 'ok', (e: Error) => e.message), featPath)).toContain('introuvable')
+})
+
+test('quitting with a terminal running asks once with the count; cancel keeps it, confirm stops everything', async () => {
+  await launch()
+  await page.evaluate((p) => window.canopy.createTerminal(p), featPath)
+  // The native dialog is replaced by a recorder whose answer the test picks.
+  await app.evaluate(({ dialog }) => {
+    const g = globalThis as unknown as { asked: string[]; answer: number }
+    g.asked = []
+    g.answer = 1
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      const o = args.at(-1) as { detail: string }
+      g.asked.push(o.detail)
+      return { response: g.answer, checkboxChecked: false }
+    }) as unknown as typeof dialog.showMessageBox
+  })
+
+  await app.evaluate(({ app: a }) => { a.quit() })
+  await expect.poll(() => app.evaluate(() => (globalThis as unknown as { asked: string[] }).asked.length)).toBe(1)
+  expect(await app.evaluate(() => (globalThis as unknown as { asked: string[] }).asked[0])).toBe('Quitter arrêtera : 1 terminal actif.')
+  // Cancelled: the window and the terminal are still there.
+  expect(await page.evaluate((p) => window.canopy.listTerminals(p).then((l) => l.filter((t) => t.running).length), featPath)).toBe(1)
+
+  await app.evaluate(() => { (globalThis as unknown as { answer: number }).answer = 0 })
+  const exited = new Promise<void>((resolve) => app.process().once('exit', () => resolve()))
+  await app.evaluate(({ app: a }) => { a.quit() }).catch(() => undefined)
+  await exited
 })

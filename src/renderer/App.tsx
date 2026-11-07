@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { connectSessions } from './sessions/sessionStore'
+import { SidePanel } from './sessions/SidePanel'
 import { TrustDialog } from './sessions/TrustDialog'
 import { connectTerminals } from './terminal/terminalStore'
 import { CommandBar } from './shell/CommandBar'
@@ -33,7 +34,12 @@ function Main(): React.JSX.Element {
         <span className="sub mono" title={worktree.path}>{basename(worktree.path)}</span>
       </div>
       {view === 'sessions'
-        ? <SessionsView cwd={worktree.path} worktreeLabel={worktreeLabel(worktree)} />
+        ? (
+          <div className="main-row">
+            <SessionsView cwd={worktree.path} worktreeLabel={worktreeLabel(worktree)} />
+            <SidePanel cwd={worktree.path} />
+          </div>
+        )
         : <CodeScreen key={worktree.path} cwd={worktree.path} branch={worktreeLabel(worktree)} />}
     </>
   )

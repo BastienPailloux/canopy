@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog, safeStorage } from 'electron'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
@@ -8,6 +8,7 @@ import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { currentEnv, startEnv } from './env'
 import { registerIpc } from './ipc'
+import { createQuitFlow, quitDetail } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
 import { TerminalManager } from './terminal/TerminalManager'
@@ -22,7 +23,10 @@ function claudeExecutablePath(): string | undefined {
   return binary.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`)
 }
 
-function createWindow(): void {
+let quitting = (): boolean => false
+
+/** `onClose` runs for every close that is not part of a quit already under way. */
+function createWindow(onClose: () => void): void {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -33,6 +37,12 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     }
+  })
+
+  win.on('close', (e) => {
+    if (quitting()) return
+    e.preventDefault()
+    onClose()
   })
 
   // Nothing a session prints may replace the app's page or open a window of its own.
@@ -47,24 +57,47 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(async () => {
-  const store = new AppStore(join(app.getPath('userData'), 'state.json'))
+  const store = new AppStore(join(app.getPath('userData'), 'state.json'), safeStorage)
   // A login shell can take minutes: the window opens on the last known PATH, and new processes get the real env once it resolves.
   startEnv({ persistedPath: store.loginPath, onResolved: (env) => { if (env.PATH) store.setLoginPath(env.PATH) } })
   const sessions = new SessionManager({
     query: selectQuery(query, { isPackaged: app.isPackaged, env: process.env }),
     listSessions,
     getSessionMessages,
-    env: currentEnv,
+    // The personal Claude login is used unless the user saved an API key.
+    env: () => ({ ...currentEnv(), ...store.apiKeyEnv() }),
     pathToClaudeCodeExecutable: claudeExecutablePath,
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
-  app.on('before-quit', () => { sessions.stopAll(); terminals.disposeAll(); stopAllWatchers(); lsp.disposeAll() })
+  // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
+  const quit = createQuitFlow({
+    counts: () => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount() }),
+    confirm: async (counts) => {
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning', buttons: ['Quitter', 'Annuler'], defaultId: 1, cancelId: 1,
+        message: 'Quitter Canopy ?', detail: quitDetail(counts)
+      }
+      const win = BrowserWindow.getFocusedWindow()
+      const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+      return response === 0
+    },
+    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers() },
+    // Deferred: quitting from inside the `before-quit` that was just cancelled is ignored.
+    quit: () => { setImmediate(() => app.quit()) }
+  })
+  quitting = () => quit.quitting
+  app.on('before-quit', (e) => {
+    if (quit.quitting) return
+    e.preventDefault()
+    void quit.request()
+  })
   registerIpc(store, sessions, lsp, terminals)
-  createWindow()
+  const open = (): void => createWindow(() => void quit.request())
+  open()
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) open()
   })
 })
 

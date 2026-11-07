@@ -14,11 +14,37 @@ const chevron = (
   </svg>
 )
 
+const REFRESH_MS = 10_000
+
+/** The recent repos with a session waiting for an answer, displayed or not. Refreshed as sessions change state. */
+function useAttention(repo: string | null): Set<string> {
+  const [waiting, setWaiting] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    let live = true
+    const read = (): void => {
+      void (async () => {
+        const recents = await window.canopy.recentRepos().catch((): string[] => [])
+        const all = [...new Set([...(repo ? [repo] : []), ...recents])]
+        const flags = await Promise.all(all.map((r) => window.canopy.repoNeedsAttention(r).catch(() => false)))
+        if (live) setWaiting(new Set(all.filter((_, i) => flags[i])))
+      })()
+    }
+    read()
+    const timer = setInterval(read, REFRESH_MS)
+    const off = window.canopy.on('session:state', read)
+    const off2 = window.canopy.on('session:permission', read)
+    return () => { live = false; clearInterval(timer); off(); off2() }
+  }, [repo])
+  return waiting
+}
+
 export function RepoPicker(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   const [open, setOpen] = useState(false)
   const [recents, setRecents] = useState<string[]>([])
   const root = useRef<HTMLDivElement>(null)
+  const waiting = useAttention(repo)
+  const otherWaiting = [...waiting].some((r) => r !== repo)
 
   useEffect(() => {
     if (!open) return
@@ -49,6 +75,7 @@ export function RepoPicker(): React.JSX.Element {
         ) : (
           <span>Aucun dépôt</span>
         )}
+        {otherWaiting && <span className="badge" role="img" aria-label="Une session attend ta réponse dans un autre dépôt" data-testid="repo-attention" />}
         {chevron}
       </button>
       {open && (
@@ -56,6 +83,7 @@ export function RepoPicker(): React.JSX.Element {
           {recents.map((r) => (
             <button key={r} role="menuitem" onClick={() => { setOpen(false); void selectRepoFlow(r) }}>
               <span>{basename(r)}</span>
+              {waiting.has(r) && <span className="badge" role="img" aria-label="Une session attend ta réponse" />}
               <span className="muted" title={r}>{r}</span>
             </button>
           ))}

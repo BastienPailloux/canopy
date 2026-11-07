@@ -211,6 +211,11 @@ export class SessionManager extends EventEmitter<EventMap> {
     return states.includes('running') ? 'working' : 'idle'
   }
 
+  /** Sessions in the middle of a turn or waiting for an answer: what quitting would cut short. */
+  runningCount(): number {
+    return [...this.sessions.values()].filter((s) => ['running', 'waiting'].includes(currentState(s))).length
+  }
+
   /** Requests still waiting for an answer, for a window that missed their `permission` event. */
   pendingPermissions(): PermissionRequest[] {
     return [...this.sessions.values()].flatMap((s) => [...s.pending.values()].map((p) => p.request))
@@ -234,8 +239,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     o: StartSessionOptions,
     canUseTool: CanUseTool
   ): Options {
-    // `env` replaces process.env, and a session without USER is logged out.
-    const env = { ...process.env, ...this.deps.env() }
+    // The injected env alone: it already holds the login shell env (USER included) and never ELECTRON_RUN_AS_NODE.
+    const env = { ...this.deps.env() }
     delete env.ELECTRON_RUN_AS_NODE
     const pathToClaudeCodeExecutable = this.deps.pathToClaudeCodeExecutable?.()
     return {
