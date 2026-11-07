@@ -13,15 +13,15 @@ beforeEach(async () => {
   log = join(dir, 'open.log')
   await mkdir(join(dir, 'bin'))
   // A fake `open` that records its arguments, one per line.
-  await writeFile(join(dir, 'bin', 'open'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\n`)
+  await writeFile(join(dir, 'bin', 'open'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\nprintf '%s' "${'$'}{ELECTRON_RUN_AS_NODE-unset}" > "${log}.env"\n`)
   await chmod(join(dir, 'bin', 'open'), 0o755)
 })
 afterEach(() => rm(dir, { recursive: true, force: true }))
 
 interface Result { code: number; stdout: string; stderr: string }
-const run = (args: string[], cwd = dir): Promise<Result> =>
+const run = (args: string[], cwd = dir, extraEnv: Record<string, string> = {}): Promise<Result> =>
   new Promise((done) => {
-    execFile('/bin/sh', [script, ...args], { cwd, env: { PATH: `${join(dir, 'bin')}:/usr/bin:/bin` } }, (err, stdout, stderr) => {
+    execFile('/bin/sh', [script, ...args], { cwd, env: { PATH: `${join(dir, 'bin')}:/usr/bin:/bin`, ...extraEnv } }, (err, stdout, stderr) => {
       done({ code: err ? (err.code as number) : 0, stdout, stderr })
     })
   })
@@ -86,4 +86,11 @@ test('--help and -h print the usage', async () => {
     expect(r.stdout).toMatch(/Usage : canopy/)
   }
   expect(await opened()).toBeNull()
+})
+
+test('ELECTRON_RUN_AS_NODE, set by an editor terminal, does not reach the launched app', async () => {
+  const proj = join(dir, 'proj')
+  await mkdir(proj)
+  await run(['.'], proj, { ELECTRON_RUN_AS_NODE: '1' })
+  expect(await readFile(`${log}.env`, 'utf8')).toBe('unset')
 })

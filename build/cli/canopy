@@ -34,4 +34,7 @@ abs=$(cd -- "$target" 2>/dev/null && pwd -P) || {
   exit 1
 }
 
+# An editor's terminal sets it, and the app would then start as plain Node and die on its first option.
+unset ELECTRON_RUN_AS_NODE
+
 exec open -a Canopy "$abs"
