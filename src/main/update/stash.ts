@@ -47,7 +47,8 @@ export function parseStash(raw: unknown): Stash {
 export function writeStash(file: string, s: Stash): void {
   mkdirSync(dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.tmp`
-  writeFileSync(tmp, JSON.stringify(s, null, 2))
+  // The stash holds whole unsaved files, secrets included: owner only.
+  writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 })
   renameSync(tmp, file)
 }
 

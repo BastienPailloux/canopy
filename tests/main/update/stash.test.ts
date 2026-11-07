@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -75,5 +75,10 @@ describe('stash format', () => {
   it('an empty stash round trips', () => {
     writeStash(file, { format: 1, buffers: [], tabs: [] })
     expect(takeStash(file)).toEqual({ format: 1, buffers: [], tabs: [] })
+  })
+
+  it('is readable by its owner only', () => {
+    writeStash(file, stash)
+    expect(statSync(file).mode & 0o777).toBe(0o600)
   })
 })
