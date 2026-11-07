@@ -1,6 +1,6 @@
 import type { ModelInfo, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { applyCompletion, filterCommands, filterFiles, findTrigger, type Trigger } from './completion'
+import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
 import { interrupt, setDraftImages, setDraftText, setMode, setModel, submit, warmUp, type SessionTab } from './sessionStore'
 import type { UserImage } from './transcript'
 
@@ -72,8 +72,8 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const models = tab.models.length > 0 ? tab.models : MODEL_ALIASES
   const canSend = draft.text.trim() !== '' || draft.images.length > 0
 
-  // Commands come from a running process: the first `/` starts it.
-  const wantsCommands = trigger?.kind === 'command' && !tab.localId
+  // Commands come from a running process: the first command name typed starts it.
+  const wantsCommands = wantsProcess(trigger) && !tab.localId
   useEffect(() => {
     if (wantsCommands) warmUp(tab.id)
   }, [wantsCommands, tab.id])

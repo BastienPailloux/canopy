@@ -20,6 +20,14 @@ export function findTrigger(text: string, caret: number): Trigger | null {
   return { kind: 'file', query: file[1], start: caret - file[1].length - 1 }
 }
 
+/**
+ * Whether the token asks for commands, which only a running process can list.
+ * A lone `/` or the start of a path must not start one.
+ */
+export function wantsProcess(t: Trigger | null): boolean {
+  return t?.kind === 'command' && /^[\w:-]+$/.test(t.query)
+}
+
 /** Stable sort on a rank, dropping what ranks `null`, then capped. */
 function ranked<T>(list: T[], rank: (item: T) => number | null, limit: number): T[] {
   return list

@@ -40,6 +40,7 @@ interface Session {
   startedAt: number
   query: Query
   input: InputQueue<SDKUserMessage>
+  mode: PermissionMode
   turn: TurnState
   /** Why `turn` is 'error'. */
   error?: string
@@ -118,7 +119,7 @@ export class SessionManager extends EventEmitter<EventMap> {
 
     const s: Session = {
       localId, sessionId, cwd, title: o.content.text, startedAt: Date.now(), query: q, input,
-      turn: 'idle', pending: new Map(), terminalCommands: new Set(), initialized: false, closed: false
+      mode: o.mode ?? 'default', turn: 'idle', pending: new Map(), terminalCommands: new Set(), initialized: false, closed: false
     }
     session = s
     this.sessions.set(localId, s)
@@ -143,7 +144,10 @@ export class SessionManager extends EventEmitter<EventMap> {
   }
 
   async setMode(localId: string, mode: PermissionMode): Promise<void> {
-    await this.sessions.get(localId)?.query.setPermissionMode(mode)
+    const s = this.sessions.get(localId)
+    if (!s) return
+    await s.query.setPermissionMode(mode)
+    s.mode = mode
   }
 
   async setModel(localId: string, model: string): Promise<void> {
@@ -186,11 +190,13 @@ export class SessionManager extends EventEmitter<EventMap> {
         lastModified: info.lastModified,
         gitBranch: info.gitBranch,
         live: s !== undefined,
-        state: s ? currentState(s) : 'stopped'
+        state: s ? currentState(s) : 'stopped',
+        ...(s ? { localId: s.localId, mode: s.mode } : {})
       }
     })
     const notOnDiskYet = [...live.values()].filter((s) => s.cwd === cwd).map((s): SessionSummary => ({
-      sessionId: s.sessionId, title: s.title, lastModified: s.startedAt, live: true, state: currentState(s)
+      sessionId: s.sessionId, title: s.title, lastModified: s.startedAt, live: true, state: currentState(s),
+      localId: s.localId, mode: s.mode
     }))
     return [...notOnDiskYet, ...rows]
   }
@@ -267,8 +273,9 @@ export class SessionManager extends EventEmitter<EventMap> {
 
   private onMessage(s: Session, msg: SDKMessage): void {
     if (s.closed) return
-    if (msg.type === 'system' && msg.subtype === 'init' && msg.terminal_slash_commands) {
-      s.terminalCommands = new Set(msg.terminal_slash_commands)
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      if (msg.terminal_slash_commands) s.terminalCommands = new Set(msg.terminal_slash_commands)
+      if (msg.permissionMode) s.mode = msg.permissionMode
     }
     this.notify('message', { localId: s.localId, msg })
     if (msg.type === 'system' && msg.subtype === 'init' && !s.initialized) {

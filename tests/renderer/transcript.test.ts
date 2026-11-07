@@ -1,6 +1,6 @@
 import type { SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from 'vitest'
-import { addNotice, addUser, emptyTranscript, reduceTranscript, settle, type Transcript } from '../../src/renderer/sessions/transcript'
+import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript } from '../../src/renderer/sessions/transcript'
 
 const SESSION = 'session-1'
 
@@ -235,6 +235,12 @@ describe('transcript helpers', () => {
 
   it('addNotice appends a notice', () => {
     expect(addNotice(emptyTranscript(), 'attention').items).toEqual([{ kind: 'notice', text: 'attention' }])
+  })
+
+  it('dropLast removes the given item if it is still the last one', () => {
+    const t = addUser(emptyTranscript(), { text: 'salut' })
+    expect(dropLast(t, t.items[0]).items).toEqual([])
+    expect(dropLast(addNotice(t, 'après'), t.items[0]).items).toHaveLength(2)
   })
 
   it('settle returns the same transcript when nothing is in progress', () => {

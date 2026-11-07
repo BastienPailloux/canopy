@@ -203,6 +203,11 @@ export function addNotice(t: Transcript, text: string): Transcript {
   return append(t, { kind: 'notice', text })
 }
 
+/** Takes back what was added for a message that was not sent. Nothing can follow it then. */
+export function dropLast(t: Transcript, item: TranscriptItem | undefined): Transcript {
+  return item !== undefined && t.items.at(-1) === item ? { ...t, items: t.items.slice(0, -1) } : t
+}
+
 /** Nothing is in progress any more: the turn ended, whether or not each block got its last message. */
 export function settle(t: Transcript): Transcript {
   const inProgress = (i: TranscriptItem): boolean => (i.kind === 'assistant' && i.streaming) || (i.kind === 'tool' && i.running)

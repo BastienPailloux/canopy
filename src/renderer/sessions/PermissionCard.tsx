@@ -23,11 +23,11 @@ export function PermissionCard(props: { request: PermissionRequest }): React.JSX
       {lines && <DiffView lines={lines} whole />}
       {detail.json !== undefined && <pre className="ask-detail" data-testid="permission-json">{detail.json}</pre>}
       <div className="ask-actions">
-        <button type="button" className="primary" onClick={() => answerPermission(r.requestId, { allow: true })}>Autoriser</button>
+        <button type="button" className="primary" onClick={() => void answerPermission(r.requestId, { allow: true })}>Autoriser</button>
         {r.canAlways && (
-          <button type="button" className="secondary" onClick={() => answerPermission(r.requestId, { allow: true, always: true })}>Toujours</button>
+          <button type="button" className="secondary" onClick={() => void answerPermission(r.requestId, { allow: true, always: true })}>Toujours</button>
         )}
-        <button type="button" className="secondary" onClick={() => answerPermission(r.requestId, { allow: false, message: REFUSAL })}>Refuser</button>
+        <button type="button" className="secondary" onClick={() => void answerPermission(r.requestId, { allow: false, message: REFUSAL })}>Refuser</button>
       </div>
     </div>
   )

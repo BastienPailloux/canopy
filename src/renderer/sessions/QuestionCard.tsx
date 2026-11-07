@@ -50,7 +50,7 @@ export function QuestionCard(props: { request: PermissionRequest; questions: Que
 
   const send = (): void => {
     const texts = Object.fromEntries(questions.map((q) => [q.question, answerText(answerOf(q))]))
-    answerPermission(request.requestId, { allow: true, updatedInput: { questions, answers: texts } })
+    void answerPermission(request.requestId, { allow: true, updatedInput: { questions, answers: texts } })
   }
 
   return (
@@ -72,7 +72,7 @@ export function QuestionCard(props: { request: PermissionRequest; questions: Que
       ))}
       <div className="ask-actions">
         <button type="button" className="primary" disabled={questions.some((q) => answerText(answerOf(q)) === '')} onClick={send}>Répondre</button>
-        <button type="button" className="secondary" onClick={() => answerPermission(request.requestId, { allow: false, message: REFUSAL })}>Refuser</button>
+        <button type="button" className="secondary" onClick={() => void answerPermission(request.requestId, { allow: false, message: REFUSAL })}>Refuser</button>
       </div>
     </div>
   )

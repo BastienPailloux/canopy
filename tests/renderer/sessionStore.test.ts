@@ -2,7 +2,9 @@ import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
-import { ensureTab, openSession, setDraftText, submit, useSessions, type SessionTab } from '../../src/renderer/sessions/sessionStore'
+import {
+  answerPermission, closeTab, ensureTab, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+} from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
 const PAST: SessionSummary = { sessionId: 'past', title: 'Ancienne', lastModified: 1, live: false, state: 'stopped' }
@@ -11,7 +13,12 @@ const HISTORY = [
   { type: 'assistant', uuid: 'b', session_id: 'past', parent_tool_use_id: null, message: { id: 'm1', content: [{ type: 'text', text: 'OK' }] } }
 ] as unknown as SessionMessage[]
 
-let api: { [K in 'repoTrust' | 'trustRepo' | 'startSession' | 'sendToSession' | 'sessionHistory' | 'sessionCommands' | 'sessionModels']: ReturnType<typeof vi.fn> }
+type Method = 'repoTrust' | 'trustRepo' | 'startSession' | 'stopSession' | 'sendToSession' | 'interruptSession' | 'resolvePermission'
+  | 'listSessions' | 'sessionHistory' | 'sessionCommands' | 'sessionModels'
+let api: Record<Method, ReturnType<typeof vi.fn>>
+
+const TRUSTED = { trusted: true, configHash: 'h', hooks: [], mcpServers: [], allowRules: [], apiKeyHelper: [], statusLine: [], env: [], settingsKeys: [], unknownFiles: [] }
+const REQUEST = { requestId: 'r1', localId: 'local-1', toolName: 'Bash', input: {}, canAlways: false, toolUseID: 't' }
 
 const tabs = (): SessionTab[] => Object.values(useSessions.getState().tabs)
 const activeTab = (): SessionTab => useSessions.getState().tabs[useSessions.getState().active[CWD]]
@@ -19,10 +26,14 @@ const activeTab = (): SessionTab => useSessions.getState().tabs[useSessions.getS
 beforeEach(() => {
   useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null })
   api = {
-    repoTrust: vi.fn(async () => ({ trusted: true, hooks: [], mcpServers: [], allowRules: [], apiKeyHelper: [], statusLine: [], env: [] })),
+    repoTrust: vi.fn(async () => TRUSTED),
     trustRepo: vi.fn(async () => undefined),
     startSession: vi.fn(async () => 'local-1'),
+    stopSession: vi.fn(async () => undefined),
     sendToSession: vi.fn(async () => undefined),
+    interruptSession: vi.fn(async () => undefined),
+    resolvePermission: vi.fn(async () => undefined),
+    listSessions: vi.fn(async () => []),
     sessionHistory: vi.fn(async () => HISTORY),
     sessionCommands: vi.fn(async () => []),
     sessionModels: vi.fn(async () => [])
@@ -70,6 +81,96 @@ describe('openSession', () => {
   })
 })
 
+describe('a past session whose history cannot be read', () => {
+  beforeEach(() => { api.sessionHistory.mockRejectedValue(new Error('fichier illisible')) })
+
+  it('says so in the tab', async () => {
+    await openSession(CWD, PAST)
+    expect(activeTab().error).toContain('fichier illisible')
+    expect(activeTab().transcript.items.map((i) => i.kind)).toEqual(['notice'])
+  })
+
+  it('still resumes, rather than silently starting a new session', async () => {
+    await openSession(CWD, PAST)
+    const { id } = activeTab()
+    setDraftText(id, 'suite')
+    await submit(id)
+    expect(api.startSession).toHaveBeenCalledWith(CWD, expect.objectContaining({ resumeId: 'past' }))
+  })
+})
+
+describe('warmUp', () => {
+  it('never starts a past session just to list commands', async () => {
+    await openSession(CWD, PAST)
+    warmUp(activeTab().id)
+    await vi.waitFor(() => expect(api.repoTrust).not.toHaveBeenCalled())
+    expect(api.startSession).not.toHaveBeenCalled()
+  })
+
+  it('starts nothing if the tab was closed while trust was checked', async () => {
+    ensureTab(CWD)
+    const { id } = activeTab()
+    warmUp(id)
+    closeTab(id)
+    await vi.waitFor(() => expect(api.repoTrust).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r))
+    expect(api.startSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('closeTab', () => {
+  it('stops the process of a start that finishes after the tab closed', async () => {
+    let finish = (_id: string): void => undefined
+    api.startSession.mockReturnValue(new Promise((r) => { finish = r }))
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'bonjour')
+    const sending = submit(id)
+    await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled())
+    closeTab(id)
+    finish('late')
+    await sending
+    expect(api.stopSession).toHaveBeenCalledWith('late')
+  })
+})
+
+describe('syncWorktree', () => {
+  it('reattaches a running session with its real mode, without starting anything', async () => {
+    api.listSessions.mockResolvedValue([{ ...PAST, live: true, state: 'running', localId: 'running-1', mode: 'plan' }])
+    await syncWorktree(CWD)
+    expect(activeTab()).toMatchObject({ localId: 'running-1', sessionId: 'past', mode: 'plan', state: 'running' })
+    expect(api.startSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('failures reach the user', () => {
+  const live = async (): Promise<string> => {
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'bonjour')
+    await submit(id)
+    return id
+  }
+
+  it('reports a failed interruption', async () => {
+    api.interruptSession.mockRejectedValue(new Error('canal fermé'))
+    interrupt(await live())
+    await vi.waitFor(() => expect(activeTab().error).toContain('canal fermé'))
+  })
+
+  it('keeps a permission card until its answer is accepted, and reports a refusal', async () => {
+    await live()
+    useSessions.setState({ permissions: [REQUEST] })
+    api.resolvePermission.mockRejectedValueOnce(new Error('canal fermé'))
+    await answerPermission('r1', { allow: true })
+    expect(useSessions.getState().permissions).toEqual([REQUEST])
+    expect(activeTab().error).toContain('canal fermé')
+
+    await answerPermission('r1', { allow: true })
+    expect(useSessions.getState().permissions).toEqual([])
+  })
+})
+
 describe('submit', () => {
   it('gives the message back when the start fails', async () => {
     api.startSession.mockRejectedValue(new Error('REPO_NOT_TRUSTED'))
@@ -80,6 +181,51 @@ describe('submit', () => {
 
     expect(activeTab()).toMatchObject({ state: 'error', error: "Ce dépôt n'est pas approuvé : la session n'a pas démarré." })
     expect(activeTab().draft.text).toBe('bonjour')
+  })
+
+  it('leaves no bubble behind a failed start, so a retry shows the message once', async () => {
+    api.startSession.mockRejectedValueOnce(new Error('spawn ENOENT'))
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'bonjour')
+    await submit(id)
+    expect(activeTab().transcript.items).toEqual([])
+
+    await submit(id)
+    expect(activeTab().transcript.items).toEqual([{ kind: 'user', text: 'bonjour', images: [] }])
+    expect(activeTab().error).toBeUndefined()
+  })
+
+  it('asks again when the config changed between the check and the start', async () => {
+    api.startSession.mockRejectedValueOnce(new Error('REPO_NOT_TRUSTED'))
+    api.repoTrust.mockResolvedValueOnce(TRUSTED).mockResolvedValueOnce({ ...TRUSTED, trusted: false, configHash: 'h2' })
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'bonjour')
+    const sending = submit(id)
+    await vi.waitFor(() => expect(useSessions.getState().trustPrompt).not.toBeNull())
+    useSessions.getState().trustPrompt?.answer(true)
+    await sending
+
+    expect(api.trustRepo).toHaveBeenCalledWith(CWD, 'h2')
+    expect(api.startSession).toHaveBeenCalledTimes(2)
+    expect(activeTab().localId).toBe('local-1')
+  })
+
+  it('gives the message back, without a bubble, when that second prompt is refused', async () => {
+    api.startSession.mockRejectedValueOnce(new Error('REPO_NOT_TRUSTED'))
+    api.repoTrust.mockResolvedValueOnce(TRUSTED).mockResolvedValueOnce({ ...TRUSTED, trusted: false, configHash: 'h2' })
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'bonjour')
+    const sending = submit(id)
+    await vi.waitFor(() => expect(useSessions.getState().trustPrompt).not.toBeNull())
+    useSessions.getState().trustPrompt?.answer(false)
+    await sending
+
+    expect(activeTab()).toMatchObject({ state: 'draft', draft: { text: 'bonjour', images: [] } })
+    expect(activeTab().transcript.items).toEqual([])
+    expect(activeTab().error).toBeUndefined()
   })
 
   it('resumes when the process ended without the tab knowing', async () => {

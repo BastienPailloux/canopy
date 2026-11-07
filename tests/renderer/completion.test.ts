@@ -1,6 +1,6 @@
 import type { SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from 'vitest'
-import { applyCompletion, filterCommands, filterFiles, findTrigger } from '../../src/renderer/sessions/completion'
+import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess } from '../../src/renderer/sessions/completion'
 
 describe('findTrigger', () => {
   it('finds a command only at the start of the message', () => {
@@ -18,6 +18,23 @@ describe('findTrigger', () => {
   it('ignores an @ inside a word and one the caret has left', () => {
     expect(findTrigger('moi@exemple.fr', 14)).toBeNull()
     expect(findTrigger('@a puis', 7)).toBeNull()
+  })
+})
+
+describe('wantsProcess', () => {
+  const at = (text: string): boolean => wantsProcess(findTrigger(text, text.length))
+
+  it('needs a command name being typed', () => {
+    expect(at('/c')).toBe(true)
+    expect(at('/superpowers:brain-storm_2')).toBe(true)
+  })
+
+  it('stays false for a lone slash, a path, a file or plain text', () => {
+    expect(at('/')).toBe(false)
+    expect(at('/Users/basti')).toBe(false)
+    expect(at('/usr/')).toBe(false)
+    expect(at('@src')).toBe(false)
+    expect(at('bonjour')).toBe(false)
   })
 })
 

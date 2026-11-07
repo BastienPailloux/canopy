@@ -50,10 +50,35 @@ function ResumeMenu(props: { cwd: string; tabs: SessionTab[] }): React.JSX.Eleme
   )
 }
 
+/** A running session is not stopped on a stray click. */
+function ConfirmClose(props: { tab: SessionTab; onClose: () => void }): React.JSX.Element {
+  const { tab, onClose } = props
+  return (
+    <div className="overlay">
+      <div className="dialog" role="alertdialog" aria-modal="true" aria-label="Arrêter la session ?"
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
+        <h2>Arrêter la session ?</h2>
+        <p className="risk">« {tab.title} » est {tab.state === 'waiting' ? 'en attente de ta réponse' : 'en cours'}. Fermer l'onglet l'arrête.</p>
+        <div className="actions">
+          <button type="button" className="secondary" autoFocus onClick={onClose}>Annuler</button>
+          <button type="button" className="danger" onClick={() => closeTab(tab.id)}>Arrêter et fermer</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function SessionTabs(props: { cwd: string; tabs: SessionTab[]; activeId?: string }): React.JSX.Element {
   const { cwd, tabs, activeId } = props
+  const [closing, setClosing] = useState<string | null>(null)
+  const confirming = tabs.find((t) => t.id === closing && (t.state === 'running' || t.state === 'waiting'))
+  const askClose = (t: SessionTab): void => {
+    if (t.state === 'running' || t.state === 'waiting') setClosing(t.id)
+    else closeTab(t.id)
+  }
   return (
     <div className="session-tabs">
+      {confirming && <ConfirmClose tab={confirming} onClose={() => setClosing(null)} />}
       <div role="tablist" aria-label="Sessions du worktree" className="session-tablist">
         {tabs.map((t) => (
           <div key={t.id} className="session-tab" data-state={t.state}>
@@ -62,7 +87,7 @@ export function SessionTabs(props: { cwd: string; tabs: SessionTab[]; activeId?:
               <span className="label">{t.title}</span>
               <span className="state" data-testid="session-state">{STATE_LABELS[t.state]}</span>
             </button>
-            <button className="close" aria-label={`Fermer ${t.title}`} title="Arrête la session et ferme l'onglet" onClick={() => closeTab(t.id)}>×</button>
+            <button className="close" aria-label={`Fermer ${t.title}`} title="Arrête la session et ferme l'onglet" onClick={() => askClose(t)}>×</button>
           </div>
         ))}
       </div>

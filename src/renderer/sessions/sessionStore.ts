@@ -2,8 +2,8 @@ import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/clau
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
 import { isRepoNotTrusted } from '../../shared/errors'
-import type { PermissionRequest, SessionState, SessionSummary, UserContent } from '../../shared/types'
-import { addNotice, addUser, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
+import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent } from '../../shared/types'
+import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
 
 export type TabState = SessionState | 'draft'
 
@@ -14,6 +14,8 @@ export interface SessionTab {
   localId?: string
   /** Unset until a session exists for this tab. */
   sessionId?: string
+  /** Opened from the past sessions: its next process resumes it, whatever its transcript holds. */
+  resumable: boolean
   title: string
   state: TabState
   error?: string
@@ -78,6 +80,7 @@ function addTab(cwd: string, fields: Partial<SessionTab>): string {
     cwd,
     title: NEW_SESSION_TITLE,
     state: 'draft',
+    resumable: false,
     transcript: emptyTranscript(),
     draft: { text: '', images: [] },
     mode: 'default',
@@ -157,33 +160,51 @@ const warming = new Map<string, Promise<void>>()
 /** Tabs whose draft is being sent. */
 const submitting = new Set<string>()
 
-/** A session that never got a reply has nothing on disk to resume. */
+/** A new session that never got a reply has nothing on disk to resume. */
 function isResumable(tab: SessionTab): boolean {
-  return tab.sessionId !== undefined && tab.transcript.items.some((i) => i.kind === 'assistant' || i.kind === 'tool')
+  return tab.sessionId !== undefined && (tab.resumable || tab.transcript.items.some((i) => i.kind === 'assistant' || i.kind === 'tool'))
 }
 
-async function startProcess(tab: SessionTab, content: UserContent): Promise<void> {
+async function launch(tab: SessionTab, content: UserContent): Promise<void> {
   const localId = await window.canopy.startSession(tab.cwd, {
     content,
     mode: tab.mode,
     ...(tab.model ? { model: tab.model } : {}),
     ...(isResumable(tab) ? { resumeId: tab.sessionId } : {})
   })
+  if (!tabOf(tab.id)) {
+    // Closed during the start: nothing else would ever stop this process.
+    await window.canopy.stopSession(localId).catch(() => undefined)
+    return
+  }
   patchTab(tab.id, { localId })
   refreshCommands({ id: tab.id, localId })
   refreshModels({ id: tab.id, localId })
 }
 
+/** The config may have changed since the last check, and `start` is the last word. False if the user then refused. */
+async function startProcess(tab: SessionTab, content: UserContent): Promise<boolean> {
+  try {
+    await launch(tab, content)
+  } catch (e) {
+    if (!isRepoNotTrusted(e)) throw e
+    if (!(await confirmTrust(tab.cwd))) return false
+    await launch(tab, content)
+  }
+  return true
+}
+
 /**
  * Commands are only known from a running process: starts one without any message.
  * Asks for trust like a first message would, and a refusal just leaves the list empty.
+ * A past session stays closed until a message is really sent.
  */
 export function warmUp(id: string): void {
   const tab = tabOf(id)
-  if (!tab || tab.localId || warming.has(id) || submitting.has(id)) return
+  if (!tab || tab.localId || tab.resumable || warming.has(id) || submitting.has(id)) return
   const run = (async (): Promise<void> => {
     try {
-      if (await confirmTrust(tab.cwd)) await startProcess(tab, { text: '' })
+      if ((await confirmTrust(tab.cwd)) && tabOf(id)) await startProcess(tab, { text: '' })
     } catch (e) {
       patchTab(id, { error: startError(e) })
     }
@@ -221,42 +242,49 @@ async function send(id: string): Promise<void> {
     return
   }
 
+  const transcript = addUser(tabOf(id)?.transcript ?? tab.transcript, content)
+  const sent = transcript.items.at(-1)
   patchTab(id, (t) => ({
-    transcript: addUser(t.transcript, content),
+    transcript,
     draft: { text: '', images: [] },
     state: 'running',
     error: undefined,
     title: t.title === NEW_SESSION_TITLE ? shortTitle(content) : t.title
   }))
+  // Nothing was sent: the message goes back to the composer, unless a new one was typed meanwhile.
+  const takeBack = (fields: Partial<SessionTab>): void => patchTab(id, (t) => ({
+    ...fields,
+    transcript: dropLast(t.transcript, sent),
+    draft: t.draft.text === '' && t.draft.images.length === 0 ? tab.draft : t.draft
+  }))
   try {
-    await deliver(tab, content)
+    if (!(await deliver(tab, content))) takeBack({ state: tab.state, title: tab.title })
   } catch (e) {
-    patchTab(id, (t) => ({
-      state: 'error',
-      error: startError(e),
-      // Nothing was sent: give the message back unless a new one was typed meanwhile.
-      draft: t.draft.text === '' && t.draft.images.length === 0 ? tab.draft : t.draft
-    }))
+    takeBack({ state: 'error', error: startError(e) })
   }
 }
 
-async function deliver(tab: SessionTab, content: UserContent): Promise<void> {
+/** False if the user refused the repo's config. */
+async function deliver(tab: SessionTab, content: UserContent): Promise<boolean> {
   if (tab.localId) {
     try {
       await window.canopy.sendToSession(tab.localId, content)
-      return
+      return true
     } catch {
       // The process ended without this tab knowing yet: resume below.
       patchTab(tab.id, { localId: undefined })
     }
   }
   const current = tabOf(tab.id)
-  if (current) await startProcess(current, content)
+  return current ? startProcess(current, content) : true
 }
 
 export function interrupt(id: string): void {
   const localId = tabOf(id)?.localId
-  if (localId) void window.canopy.interruptSession(localId).catch(() => undefined)
+  if (!localId) return
+  window.canopy.interruptSession(localId).catch((e: unknown) => {
+    patchTab(id, { error: `Interruption impossible : ${errorText(e)}` })
+  })
 }
 
 export function setMode(id: string, mode: PermissionMode): void {
@@ -271,15 +299,29 @@ export function setModel(id: string, model: string): void {
   if (localId) void window.canopy.setSessionModel(localId, model).catch((e: unknown) => patchTab(id, { error: errorText(e) }))
 }
 
-export function answerPermission(requestId: string, decision: Parameters<typeof window.canopy.resolvePermission>[1]): void {
-  useSessions.setState((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId) }))
-  void window.canopy.resolvePermission(requestId, decision).catch(() => undefined)
+/** The card stays until the main process took the answer. */
+export async function answerPermission(requestId: string, decision: PermissionDecision): Promise<void> {
+  try {
+    await window.canopy.resolvePermission(requestId, decision)
+    removePermission(requestId)
+  } catch (e) {
+    const request = useSessions.getState().permissions.find((p) => p.requestId === requestId)
+    const tab = request && tabOfProcess(request.localId)
+    if (tab) patchTab(tab.id, { error: `Réponse non transmise : ${errorText(e)}` })
+  }
 }
 
-async function loadHistory(cwd: string, s: SessionSummary): Promise<Transcript> {
-  const messages = await window.canopy.sessionHistory(cwd, s.sessionId).catch(() => [])
-  const transcript = messages.reduce(reduceTranscript, emptyTranscript())
-  return s.live ? transcript : settle(transcript)
+function removePermission(requestId: string): void {
+  useSessions.setState((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId) }))
+}
+
+async function loadHistory(cwd: string, s: SessionSummary): Promise<{ transcript: Transcript; error?: string }> {
+  try {
+    const transcript = (await window.canopy.sessionHistory(cwd, s.sessionId)).reduce(reduceTranscript, emptyTranscript())
+    return { transcript: s.live ? transcript : settle(transcript) }
+  } catch (e) {
+    return { transcript: emptyTranscript(), error: `Historique illisible : ${errorText(e)}. La session sera quand même reprise.` }
+  }
 }
 
 /** Opens a past session. Nothing runs until a message is sent. */
@@ -289,23 +331,37 @@ export async function openSession(cwd: string, s: SessionSummary): Promise<void>
     selectTab(cwd, open.id)
     return
   }
-  const transcript = addNotice(await loadHistory(cwd, s), RESUME_WARNING)
+  const { transcript, error } = await loadHistory(cwd, s)
   const untouched = tabsOf(cwd).filter((t) => t.state === 'draft' && !t.localId && t.draft.text === '' && t.draft.images.length === 0)
-  addTab(cwd, { sessionId: s.sessionId, title: s.title || NEW_SESSION_TITLE, state: 'stopped', transcript })
+  addTab(cwd, {
+    sessionId: s.sessionId,
+    resumable: true,
+    title: s.title || NEW_SESSION_TITLE,
+    state: 'stopped',
+    error,
+    transcript: addNotice(transcript, RESUME_WARNING)
+  })
   useSessions.setState((state) => ({
     tabs: Object.fromEntries(Object.entries(state.tabs).filter(([id]) => !untouched.some((t) => t.id === id)))
   }))
 }
 
 /** Gives a tab to a session running in the main process, after a reload. */
-async function attach(cwd: string, s: SessionSummary): Promise<void> {
-  const transcript = await loadHistory(cwd, s)
-  // Resuming a live session sends nothing and only tells its localId.
-  const localId = await window.canopy.startSession(cwd, { content: { text: '' }, resumeId: s.sessionId })
-  if (tabOfProcess(localId)) return
-  const id = addTab(cwd, { localId, sessionId: s.sessionId, title: s.title || NEW_SESSION_TITLE, state: s.state, transcript })
-  refreshCommands({ id, localId })
-  refreshModels({ id, localId })
+async function attach(cwd: string, s: SessionSummary & { localId: string }): Promise<void> {
+  const { transcript, error } = await loadHistory(cwd, s)
+  if (tabOfProcess(s.localId)) return
+  const id = addTab(cwd, {
+    localId: s.localId,
+    sessionId: s.sessionId,
+    resumable: true,
+    title: s.title || NEW_SESSION_TITLE,
+    state: s.state,
+    error,
+    transcript,
+    ...(s.mode ? { mode: s.mode } : {})
+  })
+  refreshCommands({ id, localId: s.localId })
+  refreshModels({ id, localId: s.localId })
 }
 
 /** Lists the worktree's sessions and reattaches the ones running without a tab. */
@@ -313,7 +369,8 @@ export async function syncWorktree(cwd: string): Promise<void> {
   const list = await window.canopy.listSessions(cwd).catch((): SessionSummary[] => [])
   useSessions.setState((s) => ({ summaries: { ...s.summaries, [cwd]: list } }))
   for (const s of list) {
-    if (s.live && !tabsOf(cwd).some((t) => t.sessionId === s.sessionId)) await attach(cwd, s).catch(() => undefined)
+    const { localId } = s
+    if (localId && !tabsOf(cwd).some((t) => t.sessionId === s.sessionId)) await attach(cwd, { ...s, localId })
   }
 }
 
@@ -354,9 +411,7 @@ export function connectSessions(): () => void {
     on('message', onMessage),
     on('state', onState),
     on('permission', addPermission),
-    on('permissionCancelled', ({ requestId }) => {
-      useSessions.setState((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== requestId) }))
-    }),
+    on('permissionCancelled', ({ requestId }) => removePermission(requestId)),
     on('commandsChanged', ({ localId }) => {
       const tab = tabOfProcess(localId)
       if (tab) refreshCommands(tab)

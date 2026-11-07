@@ -735,7 +735,7 @@ test('list: a live session shows live:true, without a duplicate from disk', asyn
     { sessionId: 'old', summary: 'Summary', customTitle: 'Renamed', lastModified: 5 }
   ])
   expect(await h.m.list('/a')).toEqual([
-    { sessionId, title: 'From disk', lastModified: 10, gitBranch: 'main', live: true, state: 'running' },
+    { sessionId, title: 'From disk', lastModified: 10, gitBranch: 'main', live: true, state: 'running', localId: id, mode: 'default' },
     { sessionId: 'old', title: 'Renamed', lastModified: 5, gitBranch: undefined, live: false, state: 'stopped' }
   ])
   expect(h.listSessions).toHaveBeenCalledWith({ dir: '/a', includeWorktrees: false })
@@ -784,4 +784,23 @@ test('stopAll closes everything', () => {
   expect(h.stateOf(b)).toBe('stopped')
   for (const q of h.queries) expect(q.close).toHaveBeenCalledOnce()
   expect(h.m.activity('/a')).toBe('idle')
+})
+
+test('list tells the localId and mode of a live session, following setMode and the session itself', async () => {
+  const h = setup({ disk: [{ sessionId: 'on-disk', summary: 'vieille', lastModified: 1 }] })
+  const localId = h.m.start('/a', { content: content('hi'), mode: 'plan' })
+  const row = async (): Promise<unknown> => (await h.m.list('/a')).find((r) => r.live)
+  expect(await row()).toMatchObject({ localId, mode: 'plan' })
+
+  await h.m.setMode(localId, 'acceptEdits')
+  expect(await row()).toMatchObject({ mode: 'acceptEdits' })
+
+  await tick()
+  h.queries[0].emit({ type: 'system', subtype: 'init', permissionMode: 'default' })
+  await tick()
+  expect(await row()).toMatchObject({ mode: 'default' })
+
+  const old = (await h.m.list('/a')).find((r) => !r.live)
+  expect(old).not.toHaveProperty('localId')
+  expect(old).not.toHaveProperty('mode')
 })

@@ -126,7 +126,7 @@ test('a message gets its reply, and the stream goes on across a worktree switch'
   await send('lent')
   await expect(page.getByTestId('user-message')).toHaveText(['lent'])
   await expect(page.getByTestId('session-state')).toHaveText('en cours')
-  await expect(assistantMessages()).toContainText('mot1 ')
+  await expect(assistantMessages()).toContainText('mot1')
 
   await worktree('feat/a').click()
   await expect(page.getByTestId('active-worktree')).toHaveText('feat/a')
@@ -214,7 +214,7 @@ test('a reload finds the running session and its unanswered request again', asyn
 test('interrupting leaves the session usable', async () => {
   await launch(true)
   await send('lent')
-  await expect(assistantMessages()).toContainText('mot1 ')
+  await expect(assistantMessages()).toContainText('mot1')
   await page.getByRole('button', { name: 'Interrompre' }).click()
   await expect(page.getByTestId('session-state')).toHaveText('prête')
   await send('après')
@@ -230,11 +230,18 @@ test('a crashed session shows its error and the next message starts again', asyn
   await expect(assistantMessages().last()).toHaveText('Réponse à : reprise')
 })
 
-test('closing a tab stops its session', async () => {
+test('closing the tab of a running session asks first, then stops it', async () => {
   await launch(true)
   await send('lent')
-  await expect(assistantMessages()).toContainText('mot1 ')
+  await expect(assistantMessages()).toContainText('mot1')
   await page.getByRole('button', { name: 'Fermer lent' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await dialog.getByRole('button', { name: 'Annuler' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('session-state')).toHaveText('en cours')
+
+  await page.getByRole('button', { name: 'Fermer lent' }).click()
+  await dialog.getByRole('button', { name: 'Arrêter et fermer' }).click()
   await expect(page.getByTestId('session-state')).toHaveText('brouillon')
   await expect.poll(() => page.evaluate((r) => window.canopy.sessionActivity(r), repo.path)).toBe('idle')
 })
