@@ -77,3 +77,24 @@ test('listBranches lists local and remote branches, without the origin/HEAD alia
   execFileSync('git', ['branch', 'feat/x'], { cwd: repo.path })
   expect(await listBranches(repo.path)).toEqual(['feat/x', 'main', 'origin/main'])
 })
+
+test('a remote develop is the base when there is no main or master', async () => {
+  const repo = await createRepo({ branch: 'develop', remote: true })
+  execFileSync('git', ['remote', 'set-head', 'origin', '--delete'], { cwd: repo.path })
+  expect(await resolveBaseRef(repo.path)).toEqual({ name: 'develop', ref: 'origin/develop' })
+  await repo.cleanup()
+})
+
+test('a local develop is the base with no remote', async () => {
+  const repo = await createRepo({ branch: 'develop' })
+  await repo.commit('a.txt', 'a\n')
+  expect(await resolveBaseRef(repo.path)).toEqual({ name: 'develop', ref: 'develop' })
+  await repo.cleanup()
+})
+
+test('the only remote branch is the base, whatever its name', async () => {
+  const repo = await createRepo({ branch: 'release', remote: true })
+  execFileSync('git', ['remote', 'set-head', 'origin', '--delete'], { cwd: repo.path })
+  expect(await resolveBaseRef(repo.path)).toEqual({ name: 'release', ref: 'origin/release' })
+  await repo.cleanup()
+})

@@ -10,8 +10,10 @@ async function exists(repo: string, ref: string): Promise<boolean> {
   }
 }
 
+const BASE_NAMES = ['main', 'master', 'develop']
+
 /**
- * origin/HEAD, then origin/main, origin/master, then the local main, master.
+ * origin/HEAD, then the usual names on origin, then locally, then origin's only branch.
  * A remote branch goes first: a clone's local main is often stale, and would show others' commits as this branch's.
  */
 export async function resolveBaseRef(repo: string): Promise<BaseRef> {
@@ -23,13 +25,17 @@ export async function resolveBaseRef(repo: string): Promise<BaseRef> {
   } catch {
     // no origin/HEAD
   }
-  for (const name of ['main', 'master']) {
+  for (const name of BASE_NAMES) {
     if (await exists(repo, `refs/remotes/origin/${name}`)) return { name, ref: `origin/${name}` }
   }
-  for (const name of ['main', 'master']) {
+  for (const name of BASE_NAMES) {
     if (await exists(repo, `refs/heads/${name}`)) return { name, ref: name }
   }
-  throw new GitError('No base branch found (origin/HEAD, main, master)', '')
+  const remote = (await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin']))
+    .split('\n')
+    .filter((b) => b.startsWith('origin/') && b !== 'origin/HEAD')
+  if (remote.length === 1) return { name: remote[0].slice('origin/'.length), ref: remote[0] }
+  throw new GitError('No base branch found (origin/HEAD, main, master, develop)', '')
 }
 
 export async function mergeBase(cwd: string, ref: string): Promise<string> {
