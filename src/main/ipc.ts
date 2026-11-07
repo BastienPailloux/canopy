@@ -150,6 +150,13 @@ export function registerIpc(
     })
   })
 
+  ipcMain.handle('settings:trustedRepos', () => store.trustedRepos)
+
+  ipcMain.handle('settings:revokeRepo', (_e, root: unknown) => {
+    assertPath(root)
+    store.revokeRepo(root)
+  })
+
   // The key goes in, never out: the renderer only learns whether one is set.
   ipcMain.handle('settings:apiKeyStatus', () => ({ set: store.hasApiKey(), encryptionAvailable: store.encryptionAvailable }))
 

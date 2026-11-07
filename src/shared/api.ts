@@ -112,6 +112,10 @@ export interface CanopyApi {
   worktreeStatus(cwd: string, onFocus?: boolean): Promise<WorktreeStatus>
   /** Whether a session in any worktree of the repo, displayed or not, waits for an answer. */
   repoNeedsAttention(repo: string): Promise<boolean>
+  /** Main worktree roots with an approved config. */
+  trustedRepos(): Promise<string[]>
+  /** Forgets every approval of that repo: its next session asks again. Sessions already running go on. */
+  revokeRepo(root: string): Promise<void>
   /** Whether an API key is saved, and whether the keychain can store one. The key is never sent back. */
   apiKeyStatus(): Promise<{ set: boolean; encryptionAvailable: boolean }>
   /** Saves the key in the keychain, or removes it with null. Rejects, storing nothing, if the keychain is unavailable. */
@@ -189,6 +193,8 @@ export interface CanopyApi {
   sessionModels(localId: string): Promise<ModelInfo[]>
   /** Requests still unanswered, to show again after a reload. */
   pendingPermissions(): Promise<PermissionRequest[]>
+  /** The ports reserved for the services of `cwd`, by service name. Emits `terminal:portsChanged` `{ cwd }` once services start. */
+  terminalPorts(cwd: string): Promise<Record<string, number>>
   /** A plain interactive shell in `cwd`: needs no trust. Rejects with a readable message if `cwd` is gone. */
   createTerminal(cwd: string): Promise<TerminalInfo>
   /** Terminals of `cwd`, running or ended. They outlive views, worktree and repo changes. */
@@ -207,8 +213,8 @@ export interface CanopyApi {
    */
   runSetup(cwd: string): Promise<TerminalInfo | null>
   /**
-   * Starts the `services` (only `name` if given), each in a terminal with `PORT` and `PORT_<NAME>` set to reserved
-   * ports, and restarts one already running. Same trust rule as `runSetup`.
+   * Starts the `services` (only `name` if given), each in a terminal with its `portEnv` (`PORT` by default) and the
+   * `PORT_<NAME>` of all of them set to reserved ports, and restarts one already running. Same trust rule as `runSetup`.
    */
   runServices(cwd: string, name?: string): Promise<TerminalInfo[]>
   /**

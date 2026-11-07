@@ -4,7 +4,7 @@ interface KeyStatus { set: boolean; encryptionAvailable: boolean }
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
-/** Settings: the API key. The key goes to the keychain and is never shown again, only whether one is saved. */
+/** Settings: the API key, which goes to the keychain and is never shown again, and the repos trusted so far. */
 export function Settings({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [status, setStatus] = useState<KeyStatus | null>(null)
   const [key, setKey] = useState('')
@@ -12,9 +12,24 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
+  const [trusted, setTrusted] = useState<string[]>([])
+
   useEffect(() => {
     window.canopy.apiKeyStatus().then(setStatus, (e: unknown) => setError(errorText(e)))
+    window.canopy.trustedRepos().then(setTrusted, (e: unknown) => setError(errorText(e)))
   }, [])
+
+  const revoke = async (root: string): Promise<void> => {
+    setError(null)
+    setNotice(null)
+    try {
+      await window.canopy.revokeRepo(root)
+      setTrusted(await window.canopy.trustedRepos())
+      setNotice('Confiance retirée : la prochaine session redemandera.')
+    } catch (e) {
+      setError(errorText(e))
+    }
+  }
 
   const save = async (value: string | null): Promise<void> => {
     setBusy(true)
@@ -55,6 +70,17 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
           <p className="risk" role="alert">
             Le trousseau macOS n’est pas disponible : Canopy ne stocke jamais une clé en clair, elle ne peut pas être enregistrée.
           </p>
+        )}
+        {trusted.length > 0 && (
+          <div className="trusted-repos">
+            <span className="title">Dépôts approuvés</span>
+            {trusted.map((root) => (
+              <span key={root} className="trusted-repo">
+                <span className="mono path" title={root}>{root}</span>
+                <button type="button" className="secondary" aria-label={`Révoquer ${root}`} onClick={() => void revoke(root)}>Révoquer</button>
+              </span>
+            ))}
+          </div>
         )}
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <span role="status" style={{ color: 'var(--add)', fontSize: 12 }}>{notice}</span>}

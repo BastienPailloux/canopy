@@ -17,15 +17,17 @@ function forget(path: string): void {
 }
 
 interface StatsEntry { stats?: WorktreeStats; error?: string }
+type Ports = Record<string, Record<string, number>>
 
 /**
  * Worktrees of `repo`, refreshed on file events, on window focus, and by a poll that is slow while the watcher works.
  * A failing stats call keeps the last good stats and flags that worktree only.
  */
-function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; listError: string | null; refresh: () => Promise<void> } {
+function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; ports: Ports; listError: string | null; refresh: () => Promise<void> } {
   const setWorktrees = useApp((s) => s.setWorktrees)
   const setOrphans = useApp((s) => s.setOrphans)
   const [entries, setEntries] = useState<Record<string, StatsEntry>>({})
+  const [ports, setPorts] = useState<Ports>({})
   const [listError, setListError] = useState<string | null>(null)
   const inFlight = useRef(false)
   const rerun = useRef(false)
@@ -34,6 +36,10 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
   current.current = repo
   const order = useRef(createOrdering())
   const [watchFailed, setWatchFailed] = useState(false)
+
+  const readPorts = useCallback((path: string): void => {
+    window.canopy.terminalPorts(path).then((p) => setPorts((prev) => ({ ...prev, [path]: p })), () => undefined)
+  }, [])
 
   /** Stats of one worktree. An answer overtaken by a later one is dropped. */
   const readStats = useCallback(async (path: string, forRepo: string): Promise<void> => {
@@ -77,6 +83,7 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
         watched.current = key
         window.canopy.watchWorktrees(forRepo).catch(() => { watched.current = '' })
       }
+      list.forEach((w) => readPorts(w.path))
       await Promise.all(list.map((w) => readStats(w.path, forRepo)))
       if (current.current === forRepo) {
         const paths = new Set(list.map((w) => w.path))
@@ -89,7 +96,7 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
         void refresh()
       }
     }
-  }, [repo, setWorktrees, setOrphans, readStats])
+  }, [repo, setWorktrees, setOrphans, readStats, readPorts])
 
   // Files or commits changed in a worktree: its numbers are stale, and the list too if one came or went.
   useEffect(() => {
@@ -110,8 +117,12 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
     const onEnded = (): void => { if (useApp.getState().orphans.length > 0) void refresh() }
     const offState = window.canopy.on('session:state', onEnded)
     const offExit = window.canopy.on('terminal:exit', onEnded)
-    return () => { offChanged(); offError(); offState(); offExit() }
-  }, [readStats, refresh])
+    const offPorts = window.canopy.on('terminal:portsChanged', (p) => {
+      const path = (p as { cwd?: string } | null)?.cwd
+      if (path) readPorts(path)
+    })
+    return () => { offChanged(); offError(); offState(); offExit(); offPorts() }
+  }, [readStats, readPorts, refresh])
 
   useEffect(() => {
     setEntries({})
@@ -125,7 +136,7 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
 
   useEffect(() => poll(() => void refresh(), watchFailed ? POLL_DEGRADED_MS : POLL_HEALTHY_MS), [refresh, watchFailed])
 
-  return { entries, listError, refresh }
+  return { entries, ports, listError, refresh }
 }
 
 const plusIcon = (
@@ -140,7 +151,7 @@ const trashIcon = (
   </svg>
 )
 
-function Row(props: { w: Worktree; entry?: StatsEntry; status: WorktreeStatus; active: boolean; onPick: () => void; onRemove: () => void }): React.JSX.Element {
+function Row(props: { w: Worktree; entry?: StatsEntry; ports?: Record<string, number>; status: WorktreeStatus; active: boolean; onPick: () => void; onRemove: () => void }): React.JSX.Element {
   const { w, entry } = props
   const stats = entry?.stats
   return (
@@ -156,6 +167,9 @@ function Row(props: { w: Worktree; entry?: StatsEntry; status: WorktreeStatus; a
             {stats && (
               <span className="ahead">{stats.ahead === 0 ? 'à jour' : `${stats.ahead} commit${stats.ahead > 1 ? 's' : ''}`}</span>
             )}
+            {Object.entries(props.ports ?? {}).map(([service, port]) => (
+              <span key={service} className="port mono" title={`${service} : localhost:${port}`} data-testid="worktree-port">:{port}</span>
+            ))}
             {entry?.error !== undefined && (
               <span className="warn" title={entry.error} data-testid="worktree-error">
                 {stats ? 'données périmées' : 'état illisible'}
@@ -210,7 +224,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
   const worktrees = useApp((s) => s.worktrees)
   const active = useApp((s) => s.worktree)
   const setWorktree = useApp((s) => s.setWorktree)
-  const { entries, listError, refresh } = useWorktrees(repo)
+  const { entries, ports, listError, refresh } = useWorktrees(repo)
   const statuses = useStatuses(repo)
   const [creating, setCreating] = useState(false)
   const [removing, setRemoving] = useState<Worktree | null>(null)
@@ -224,7 +238,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
       {listError && <p className="list-error" role="alert">Liste indisponible : {listError}</p>}
       <div className="wt-list">
         {worktrees.map((w) => (
-          <Row key={w.path} w={w} entry={entries[w.path]} status={statuses[w.path] ?? 'idle'} active={w.path === active}
+          <Row key={w.path} w={w} entry={entries[w.path]} ports={ports[w.path]} status={statuses[w.path] ?? 'idle'} active={w.path === active}
             onPick={() => setWorktree(w.path)} onRemove={() => setRemoving(w)} />
         ))}
         <Orphans active={active} onPick={setWorktree} />

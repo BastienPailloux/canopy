@@ -10,6 +10,11 @@ function stateOf(t: TerminalInfo): { text: string; tone: 'run' | 'ok' | 'fail' }
   return t.exitCode === 0 ? { text: 'terminé', tone: 'ok' } : { text: `code ${t.exitCode ?? '?'}`, tone: 'fail' }
 }
 
+/** A terminal appearing, a service restarting, must not take the keys of someone typing in the composer. */
+function typingElsewhere(el: Element | null): boolean {
+  return el !== null && ['TEXTAREA', 'INPUT', 'SELECT'].includes(el.tagName) && !el.closest('.xterm')
+}
+
 /** The screen of the selected terminal, resized with its box. */
 function Screen(props: { id: string }): React.JSX.Element {
   const { id } = props
@@ -23,7 +28,7 @@ function Screen(props: { id: string }): React.JSX.Element {
       if (el.clientWidth > 0 && el.clientHeight > 0) view.fit.fit()
     }
     fit()
-    view.term.focus()
+    if (!typingElsewhere(document.activeElement)) view.term.focus()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
     return () => observer.disconnect()

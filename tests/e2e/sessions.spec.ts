@@ -460,3 +460,23 @@ test('a crashed renderer comes back, and finds its session', async () => {
   await expect.poll(() => inPage(`document.querySelectorAll('[data-testid="worktree"]').length`), { timeout: 20_000 }).toBe(2)
   expect(await inPage(`window.canopy.listSessions(${JSON.stringify(featPath)}).then((l) => l.filter((s) => s.live).length)`)).toBe(1)
 })
+
+test('a plan shows as Markdown, and a refusal carries the feedback', async () => {
+  await launch(true)
+  await send('plan')
+  const card = page.getByTestId('permission-card')
+  await expect(card.getByTestId('permission-plan').getByRole('heading', { name: 'Mon plan' })).toBeVisible()
+  await expect(card.getByTestId('permission-plan').getByRole('listitem')).toHaveCount(2)
+  await card.getByLabel('Que changer ?').fill('Ajoute des tests')
+  await card.getByRole('button', { name: 'Refuser' }).click()
+  await page.getByTestId('tool-card').locator('.tool-summary').click()
+  await expect(page.getByTestId('tool-card')).toContainText('Ajoute des tests')
+})
+
+test('revoking a repo in the settings asks for trust again', async () => {
+  await launch(true)
+  await page.getByRole('button', { name: 'Réglages' }).click()
+  await page.getByRole('button', { name: `Révoquer ${repo.path}` }).click()
+  await expect(page.getByRole('button', { name: `Révoquer ${repo.path}` })).toHaveCount(0)
+  expect((await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).trusted).toBe(false)
+})

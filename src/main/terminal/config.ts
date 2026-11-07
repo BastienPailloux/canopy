@@ -3,7 +3,12 @@ import { connect } from 'node:net'
 import { join } from 'node:path'
 import type { AppStore } from '../appStore'
 
-export interface CanopyService { name: string; command: string }
+export interface CanopyService {
+  name: string
+  command: string
+  /** The variable that receives the service's port. */
+  portEnv: string
+}
 /** What `.canopy/config.json` declares: commands to run once, then long-running services. */
 export interface CanopyConfig { setup: string[]; services: CanopyService[] }
 
@@ -11,6 +16,8 @@ export const CONFIG_FILE = join('.canopy', 'config.json')
 const FIRST_PORT = 4100
 /** A service name ends up in `PORT_<NAME>`. */
 const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+const DEFAULT_PORT_ENV = 'PORT'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -39,7 +46,9 @@ export function parseConfig(raw: string): CanopyConfig {
     if (!SERVICE_NAME.test(s.name)) throw invalid(`nom de service "${s.name}" : lettres, chiffres, - et _ seulement`)
     if (seen.has(s.name)) throw invalid(`le service "${s.name}" est déclaré deux fois`)
     seen.add(s.name)
-    return { name: s.name, command: s.command }
+    const { portEnv = DEFAULT_PORT_ENV } = s
+    if (typeof portEnv !== 'string' || !ENV_NAME.test(portEnv)) throw invalid(`"portEnv" du service "${s.name}" : un nom de variable est attendu`)
+    return { name: s.name, command: s.command, portEnv }
   })
   return { setup: [...setup] as string[], services: parsed }
 }

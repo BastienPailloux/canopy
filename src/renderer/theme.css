@@ -453,6 +453,27 @@ button:disabled {
   font-size: 12.5px;
 }
 
+.dialog .trusted-repos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg-2);
+}
+
+.dialog .trusted-repo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dialog .trusted-repo .path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dialog .actions {
   display: flex;
   justify-content: flex-end;

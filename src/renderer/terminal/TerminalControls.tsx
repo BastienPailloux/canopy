@@ -11,6 +11,8 @@ export function TerminalControls(props: { cwd: string }): React.JSX.Element {
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === '`' || e.code === 'Backquote')) {
         e.preventDefault()
         e.stopPropagation()
+        // Asking for the terminal is the one case where it should take the keys.
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
         toggleTerminals()
       }
     }

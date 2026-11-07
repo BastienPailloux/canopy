@@ -87,6 +87,38 @@ test('a shell works under the CSP, survives view and worktree changes, and ⌃` 
   expect(violations).toEqual([])
 })
 
+test('a terminal showing up does not take the focus from the composer', async () => {
+  await launch()
+  await worktree('feat/a').click()
+  await page.keyboard.press('Control+`')
+  await expect(screen()).toBeVisible({ timeout: 15_000 })
+  await panel().getByRole('button', { name: 'Nouveau terminal' }).click()
+  await expect(panel().getByRole('tab')).toHaveCount(2)
+  const composer = page.getByLabel(/^Message à Claude/)
+  await composer.focus()
+  // Not a mouse click, which would take the focus itself: what a restarted service does.
+  await panel().getByRole('tab').first().evaluate((el) => (el as HTMLElement).click())
+  await expect(panel().getByRole('tab').first()).toHaveAttribute('aria-selected', 'true')
+  await page.waitForTimeout(200)
+  await expect(composer).toBeFocused()
+})
+
+test('a service gets its portEnv, and its port shows on the worktree row', async () => {
+  await mkdir(join(featPath, '.canopy'), { recursive: true })
+  await writeFile(join(featPath, '.canopy', 'config.json'), JSON.stringify({ services: [{ name: 'web', command: 'echo got-$VITE_PORT; sleep 60', portEnv: 'VITE_PORT' }] }))
+  await launch()
+  await worktree('feat/a').click()
+  await page.evaluate(async (p) => {
+    await window.canopy.trustRepo(p, (await window.canopy.repoTrust(p)).configHash)
+    await window.canopy.runServices(p)
+  }, featPath)
+  await expect(worktree('feat/a').getByTestId('worktree-port')).toHaveText(':4100', { timeout: 10_000 })
+  await expect.poll(async () => page.evaluate(async (p) => {
+    const [t] = await window.canopy.listTerminals(p)
+    return (await window.canopy.terminalSnapshot(t.id)).data
+  }, featPath), { timeout: 60_000 }).toContain('got-4100')
+})
+
 test('« Tester la PR » asks to trust the commands, runs setup then the services on reserved ports, and sends logs to Claude', async () => {
   await mkdir(join(featPath, '.canopy'))
   await writeFile(join(featPath, '.canopy', 'config.json'), JSON.stringify({

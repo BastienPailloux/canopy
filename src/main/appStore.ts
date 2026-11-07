@@ -98,6 +98,16 @@ export class AppStore {
     this.save()
   }
 
+  /** Repos with at least one approved config. */
+  get trustedRepos(): string[] {
+    return Object.keys(this.state.approvedConfigs).filter((root) => this.isRepoTrusted(root))
+  }
+
+  revokeRepo(root: string): void {
+    delete this.state.approvedConfigs[root]
+    this.save()
+  }
+
   setPorts(worktree: string, ports: Record<string, number>): void {
     this.state.ports[worktree] = ports
     this.save()

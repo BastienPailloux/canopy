@@ -80,7 +80,7 @@ async function startServices(
     const taken = !(await isFree(port))
     const id = terminals.create(cwd, {
       command: service.command,
-      env: { ...shared, PORT: String(port) },
+      env: { ...shared, [service.portEnv]: String(port) },
       label: service.name,
       kind: 'service',
       port
@@ -92,6 +92,11 @@ async function startServices(
 }
 
 export function registerTerminalIpc(store: AppStore, terminals: TerminalManager, broadcast: (event: string, payload?: unknown) => void): void {
+  ipcMain.handle('terminal:ports', (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return store.ports[cwd] ?? {}
+  })
+
   terminals.on('data', (e) => broadcast('terminal:data', e))
   terminals.on('exit', (e) => broadcast('terminal:exit', e))
 
@@ -145,9 +150,11 @@ export function registerTerminalIpc(store: AppStore, terminals: TerminalManager,
     return terminals.get(id) as TerminalInfo
   })
 
-  ipcMain.handle('terminal:runServices', (_e, cwd: unknown, name: unknown) => {
+  ipcMain.handle('terminal:runServices', async (_e, cwd: unknown, name: unknown) => {
     assertPath(cwd)
     if (name !== undefined) assertId(name)
-    return runServices(store, terminals, cwd, name)
+    const started = await runServices(store, terminals, cwd, name)
+    broadcast('terminal:portsChanged', { cwd })
+    return started
   })
 }

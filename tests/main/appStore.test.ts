@@ -145,3 +145,15 @@ describe('AppStore API key', () => {
     expect(new AppStore(file, broken).apiKeyEnv()).toEqual({})
   })
 })
+
+it('revoking a repo forgets its approvals, and survives a restart', () => {
+  const store = new AppStore(file)
+  store.approveConfig('/repo', 'h1')
+  store.approveConfig('/other', 'h2')
+  expect(store.trustedRepos).toEqual(['/repo', '/other'])
+
+  store.revokeRepo('/repo')
+  expect(store.isConfigApproved('/repo', 'h1')).toBe(false)
+  expect(store.isRepoTrusted('/repo')).toBe(false)
+  expect(new AppStore(file).trustedRepos).toEqual(['/other'])
+})

@@ -20,7 +20,7 @@ let dir: string
 let store: AppStore
 let manager: TerminalManager
 let server: Server | undefined
-const config = async () => ({ setup: [], services: [{ name: 'web', command: 'x' }] })
+const config = async () => ({ setup: [], services: [{ name: 'web', command: 'x', portEnv: 'PORT' }] })
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'canopy-run-'))
@@ -54,4 +54,21 @@ test('a reserved port that a foreign process holds is reported in the terminal',
 test('a free reserved port gives no hint', async () => {
   const [info] = await runServices(store, manager, dir, undefined, config)
   expect(manager.buffer(info.id)).toBe('')
+})
+
+test('each service gets its port in its own portEnv, PORT by default', async () => {
+  const envs: Record<string, string>[] = []
+  const spying = new TerminalManager({ spawn: (_f, _a, o) => { envs.push(o.env); return new Pty() }, env: () => ({}) })
+  const services = async () => ({
+    setup: [],
+    services: [{ name: 'api', command: 'a', portEnv: 'API_PORT' }, { name: 'web', command: 'w', portEnv: 'PORT' }]
+  })
+  const [api, web] = await runServices(store, spying, dir, undefined, services)
+  expect(envs[0].API_PORT).toBe(String(api.port))
+  expect(envs[0]).not.toHaveProperty('PORT')
+  expect(envs[1].PORT).toBe(String(web.port))
+  expect(envs[1]).not.toHaveProperty('API_PORT')
+  // Each still finds the others.
+  expect(envs[1].PORT_API).toBe(String(api.port))
+  spying.disposeAll()
 })

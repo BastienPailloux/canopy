@@ -24,7 +24,7 @@ const writeConfig = async (content: unknown): Promise<void> => {
 
 test('reads setup and services', async () => {
   await writeConfig({ setup: ['npm install'], services: [{ name: 'web', command: 'npm run dev' }] })
-  expect(await readConfig(dir)).toEqual({ setup: ['npm install'], services: [{ name: 'web', command: 'npm run dev' }] })
+  expect(await readConfig(dir)).toEqual({ setup: ['npm install'], services: [{ name: 'web', command: 'npm run dev', portEnv: 'PORT' }] })
 })
 
 test('a missing file is an empty config', async () => {
@@ -38,6 +38,8 @@ test.each([
   ['a setup command that is not text', { setup: [1] }],
   ['a service without a command', { services: [{ name: 'web' }] }],
   ['a service name that cannot be an env variable', { services: [{ name: 'my web', command: 'x' }] }],
+  ['a portEnv that is not a variable name', { services: [{ name: 'web', command: 'x', portEnv: 'A B' }] }],
+  ['a portEnv that is not a string', { services: [{ name: 'web', command: 'x', portEnv: 3000 }] }],
   ['two services with the same name', { services: [{ name: 'web', command: 'a' }, { name: 'web', command: 'b' }] }]
 ])('rejects %s with a readable error', async (_label, content) => {
   await writeConfig(content)
@@ -89,4 +91,9 @@ test.each(['127.0.0.1', '0.0.0.0', '::', '::1'])('a port listened on at %s is no
   await listening(port, host)
   expect(await isFree(port)).toBe(false)
   await new Promise((r) => { servers.pop()?.close(r) })
+})
+
+test('a service names the variable that receives its port', async () => {
+  await writeConfig({ services: [{ name: 'web', command: 'x', portEnv: 'VITE_PORT' }] })
+  expect((await readConfig(dir)).services).toEqual([{ name: 'web', command: 'x', portEnv: 'VITE_PORT' }])
 })
