@@ -206,3 +206,15 @@ Le spike est réussi si une session SDK permet : stream, interruption, autorisat
 - Stratégie de surveillance des fichiers et cadence de rafraîchissement git.
 - Format exact des fichiers `.canopy/` et `.tickets/`.
 - Signature et notarisation, à traiter seulement avant distribution.
+
+## 11. Mode espace de travail
+
+Ajout du 2026-11-07, après le premier essai réel sur `foxy-app`. La spec supposait un repo unique. Bastien travaille aussi dans un dossier parent qui contient plusieurs repos indépendants.
+
+- À l'ouverture d'un dossier, Canopy cherche tous les repos git dans ses sous-dossiers **[Bastien]**.
+- Limites du scan **[Choix conception]** : profondeur 6, 200 repos au plus, jamais dans `node_modules`, `.git`, `dist`, `build`, `vendor`, ni dans un dossier déjà identifié comme repo. Liens symboliques non suivis.
+- Liste à gauche : repos principaux, puis une section par feature, puis les autres worktrees **[proposé, accepté]**. Une feature est le dossier `.worktrees/<feature>/` contenant des worktrees de plusieurs repos.
+- Le dépôt parent, s'il est un repo git, apparaît comme une entrée « Espace » : docs, `.claude`, sessions transverses.
+- Sélectionner une entrée rend son repo actif. Sessions, code, diff, terminal et confiance restent par repo, sans changement.
+- Un dossier sans repo imbriqué se comporte exactement comme avant.
+- Branche de base mémorisée par repo dans les préférences de l'application **[Choix conception]**, depuis le sélecteur de comparaison. Elle passe avant `origin/HEAD`, qui pointe sur `master` dans les repos Foxy alors que la branche de travail est `develop`. Rien n'est écrit dans les repos de Bastien.
