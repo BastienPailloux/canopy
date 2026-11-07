@@ -67,6 +67,13 @@ describe('filters a repo sets for itself', () => {
     expect(await ran('clean-ran')).toBe(false)
   })
 
+  test('a filter with an empty name does not run either', async () => {
+    await filtered('')
+    config('filter..clean', `touch '${marker('empty-name-ran')}'; cat`)
+    await git(repo!.path, ['diff', '--numstat', 'HEAD'])
+    await expect(stat(marker('empty-name-ran'))).rejects.toThrow()
+  })
+
   test('a process filter does not run either', async () => {
     await filtered('evil')
     config('filter.evil.process', `touch '${marker('process-ran')}'`)

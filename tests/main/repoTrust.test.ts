@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -347,4 +347,15 @@ describe('the .mcp.json of folders above: a session loads them, across repos', (
     await write('.claude/settings.json', { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'nope' }] }] } })
     expect((await readRepoConfig(nested)).hooks).toEqual([])
   })
+})
+
+test('a folder reached through a symlink answers for the parents of its real location', async () => {
+  const real = join(dir, 'physical', 'repo')
+  await mkdir(real, { recursive: true })
+  const link = join(dir, 'link')
+  await symlink(real, link)
+  const before = await configHash(link)
+  await writeFile(join(dir, 'physical', '.mcp.json'), JSON.stringify({ mcpServers: { evil: { command: 'evil-mcp' } } }))
+  expect(await configHash(link)).not.toBe(before)
+  expect((await readRepoConfig(link)).mcpServers.join()).toContain('evil: evil-mcp')
 })

@@ -28,10 +28,17 @@ const isMissing = (err: unknown): boolean => (err as NodeJS.ErrnoException).code
  * A session also loads and runs the `.mcp.json` of every folder above its own, past repo boundaries, unlike the
  * parent's settings and skills: see "Config du parent" in the spike results. Nearest first.
  */
-function parentMcpFiles(dir: string): string[] {
-  const files: string[] = []
-  for (let at = dir; dirname(at) !== at; at = dirname(at)) files.push(join(dirname(at), MCP))
-  return files
+async function parentMcpFiles(dir: string): Promise<string[]> {
+  const above = (from: string): string[] => {
+    const files: string[] = []
+    for (let at = from; dirname(at) !== at; at = dirname(at)) files.push(join(dirname(at), MCP))
+    return files
+  }
+  // A session runs in the real folder: through a symlink, its parents are not the ones the path shows.
+  const shown = above(dir)
+  const reached = new Set(await Promise.all(shown.map((f) => realpath(dirname(f)).catch(() => dirname(f)))))
+  const real = above(await realpath(dir).catch(() => dir))
+  return [...shown, ...real.filter((f) => !reached.has(dirname(f)))]
 }
 
 /** The parsed object, empty if the file is missing. `unknown` when the file exists but says nothing readable. */
@@ -95,7 +102,7 @@ export async function readRepoConfig(dir: string): Promise<RepoConfig> {
   const canopyConfig = canopy.unknown ? undefined : await canopyCommands(dir)
   if (canopyConfig === null) canopy.unknown = true
   const fromSettings = (read: (settings: Record<string, unknown>) => string[]): string[] => unique(read(shared.data), read(local.data))
-  const parents = parentMcpFiles(dir)
+  const parents = await parentMcpFiles(dir)
   const parentReads = await Promise.all(parents.map((f) => readJson(f)))
   const serverLines = (data: Record<string, unknown>): string[] =>
     isRecord(data.mcpServers) ? Object.entries(data.mcpServers).map(([name, server]) => mcpLine(name, server)) : []
@@ -133,7 +140,7 @@ export async function configHash(dir: string): Promise<string> {
     if (content) hash.update(content)
   }
   // After the rest, and only when there is one: the hash of a config approved before stays.
-  for (const file of parentMcpFiles(dir)) {
+  for (const file of await parentMcpFiles(dir)) {
     const content = await readFile(file).catch((err: unknown) => (isMissing(err) ? null : undefined))
     if (content === null) continue
     hash.update(`${file}\0${content === undefined ? 'unreadable' : `bytes:${content.length}`}\0`)

@@ -63,7 +63,7 @@ async function readBlankFilters(cwd: string): Promise<NodeJS.ProcessEnv> {
   const fields = out.split('\0')
   const names = new Set<string>()
   for (let i = 0; i + 1 < fields.length; i += 2) {
-    const name = /^filter\.(.+)\.[^.]+$/.exec(fields[i + 1])?.[1]
+    const name = /^filter\.(.*)\.[^.]+$/.exec(fields[i + 1])?.[1]
     if (name !== undefined && OWN_SCOPES.has(fields[i])) names.add(name)
   }
   const blank = [...names].flatMap((name) => [
