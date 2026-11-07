@@ -1,4 +1,6 @@
 import { useEffect, useMemo } from 'react'
+import { TerminalControls } from '../terminal/TerminalControls'
+import { TerminalPanel } from '../terminal/TerminalPanel'
 import { Composer } from './Composer'
 import { Conversation } from './Conversation'
 import { SessionTabs } from './SessionTabs'
@@ -18,6 +20,7 @@ export function SessionsView(props: { cwd: string; worktreeLabel: string }): Rea
 
   return (
     <div className="sessions">
+      <TerminalControls cwd={cwd} />
       <SessionTabs cwd={cwd} tabs={tabs} activeId={activeId} />
       {tab && (
         <>
@@ -25,6 +28,7 @@ export function SessionsView(props: { cwd: string; worktreeLabel: string }): Rea
           <Composer key={`composer-${tab.id}`} tab={tab} worktreeLabel={worktreeLabel} />
         </>
       )}
+      <TerminalPanel cwd={cwd} />
     </div>
   )
 }

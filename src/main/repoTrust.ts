@@ -5,6 +5,7 @@ import type { RepoConfig, RepoTrust } from '../shared/api'
 import { RepoNotTrustedError } from '../shared/errors'
 import type { AppStore } from './appStore'
 import { listWorktrees, mainWorktreeRoot } from './git/worktrees'
+import { CONFIG_FILE, parseConfig } from './terminal/config'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -15,7 +16,8 @@ const SETTINGS = join('.claude', 'settings.json')
 const LOCAL_SETTINGS = join('.claude', 'settings.local.json')
 const MCP = '.mcp.json'
 /** What a clone can bring. `settings.local.json` is left out: Canopy writes it, and it is not cloned. */
-const HASHED_FILES = [SETTINGS, MCP]
+/** `.canopy/config.json` is included: its setup and services run commands in a terminal. */
+const HASHED_FILES = [SETTINGS, MCP, CONFIG_FILE]
 
 const isMissing = (err: unknown): boolean => (err as NodeJS.ErrnoException).code === 'ENOENT'
 
@@ -56,11 +58,26 @@ function mcpLine(name: string, server: unknown): string {
   return target === '' ? name : `${name}: ${target}`
 }
 
+/** The commands `.canopy/config.json` declares. Null if the file exists but is not valid. */
+async function canopyCommands(dir: string): Promise<{ setup: string[]; services: string[] } | null> {
+  const raw = await readFile(join(dir, CONFIG_FILE), 'utf8').catch(() => undefined)
+  if (raw === undefined) return { setup: [], services: [] }
+  try {
+    const config = parseConfig(raw)
+    return { setup: config.setup, services: config.services.map((s) => `${s.name}: ${s.command}`) }
+  } catch {
+    return null
+  }
+}
+
 /** What the config files at `dir` would run or allow. Missing files count as empty, unreadable ones are flagged. */
 export async function readRepoConfig(dir: string): Promise<RepoConfig> {
-  const files = [SETTINGS, LOCAL_SETTINGS, MCP]
+  const files = [SETTINGS, LOCAL_SETTINGS, MCP, CONFIG_FILE]
   const reads = await Promise.all(files.map((f) => readJson(join(dir, f))))
-  const [shared, local, mcp] = reads
+  const [shared, local, mcp, canopy] = reads
+  // A config of the wrong shape is listed as unreadable: the terminal refuses it, and anything may be in it.
+  const canopyConfig = canopy.unknown ? undefined : await canopyCommands(dir)
+  if (canopyConfig === null) canopy.unknown = true
   const fromSettings = (read: (settings: Record<string, unknown>) => string[]): string[] => unique(read(shared.data), read(local.data))
   const servers = mcp.data.mcpServers
   return {
@@ -71,6 +88,8 @@ export async function readRepoConfig(dir: string): Promise<RepoConfig> {
     statusLine: fromSettings((s) => (isRecord(s.statusLine) ? stringOf(s.statusLine.command) : [])),
     env: fromSettings((s) => (isRecord(s.env) ? Object.keys(s.env) : [])),
     settingsKeys: fromSettings((s) => Object.keys(s)),
+    setup: canopyConfig?.setup ?? [],
+    services: canopyConfig?.services ?? [],
     unknownFiles: files.filter((_, i) => reads[i].unknown)
   }
 }

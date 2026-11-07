@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
@@ -10,6 +11,7 @@ import { setGitEnv } from './git/exec'
 import { registerIpc } from './ipc'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
+import { TerminalManager } from './terminal/TerminalManager'
 
 /**
  * Undefined in development, where the SDK finds its binary. Packaged, it cannot be run from inside the asar.
@@ -59,8 +61,9 @@ void app.whenReady().then(async () => {
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
   })
   const lsp = new LspPool({ env: () => Promise.resolve(env) })
-  app.on('before-quit', () => { sessions.stopAll(); stopAllWatchers(); lsp.disposeAll() })
-  registerIpc(store, sessions, lsp)
+  const terminals = new TerminalManager({ spawn: pty.spawn, env: () => env })
+  app.on('before-quit', () => { sessions.stopAll(); terminals.disposeAll(); stopAllWatchers(); lsp.disposeAll() })
+  registerIpc(store, sessions, lsp, terminals)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

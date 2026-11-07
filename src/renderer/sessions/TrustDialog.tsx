@@ -3,6 +3,8 @@ import type { RepoConfig } from '../../shared/api'
 import { useSessions } from './sessionStore'
 
 const SECTIONS: { key: keyof RepoConfig; label: string }[] = [
+  { key: 'setup', label: 'Commandes de setup (terminal)' },
+  { key: 'services', label: 'Services (terminal)' },
   { key: 'hooks', label: 'Hooks' },
   { key: 'mcpServers', label: 'Serveurs MCP' },
   { key: 'allowRules', label: "Règles d'autorisation" },

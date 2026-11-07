@@ -39,6 +39,15 @@ const api: CanopyApi = {
   sessionCommands: (localId) => ipcRenderer.invoke('session:commands', localId),
   sessionModels: (localId) => ipcRenderer.invoke('session:models', localId),
   pendingPermissions: () => ipcRenderer.invoke('session:pendingPermissions'),
+  createTerminal: (cwd) => ipcRenderer.invoke('terminal:create', cwd),
+  listTerminals: (cwd) => ipcRenderer.invoke('terminal:list', cwd),
+  writeTerminal: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
+  resizeTerminal: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+  killTerminal: (id) => ipcRenderer.invoke('terminal:kill', id),
+  removeTerminal: (id) => ipcRenderer.invoke('terminal:remove', id),
+  terminalSnapshot: (id) => ipcRenderer.invoke('terminal:snapshot', id),
+  runSetup: (cwd) => ipcRenderer.invoke('terminal:runSetup', cwd),
+  runServices: (cwd, name) => ipcRenderer.invoke('terminal:runServices', cwd, name),
   on(event, cb) {
     const listener = (_e: Electron.IpcRendererEvent, name: string, payload: unknown): void => {
       if (name === event) cb(payload)

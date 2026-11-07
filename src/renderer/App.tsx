@@ -3,6 +3,7 @@ import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { connectSessions } from './sessions/sessionStore'
 import { TrustDialog } from './sessions/TrustDialog'
+import { connectTerminals } from './terminal/terminalStore'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
@@ -42,6 +43,7 @@ export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
 
   useEffect(() => connectSessions(), [])
+  useEffect(() => connectTerminals(), [])
 
   // Re-open the most recent repo that still exists.
   useEffect(() => {

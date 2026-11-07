@@ -10,6 +10,8 @@ import { worktreeStats } from './git/diff'
 import { createWorktree, listWorktrees, removalRisks, removeWorktree } from './git/worktrees'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
+import { registerTerminalIpc } from './terminal/terminalIpc'
+import type { TerminalManager } from './terminal/TerminalManager'
 import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
 
 /** Push an event to every renderer (received through `CanopyApi.on`). */
@@ -105,8 +107,9 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
   })
 }
 
-export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspPool): void {
+export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager): void {
   registerSessionIpc(store, sessions)
+  registerTerminalIpc(store, terminals, broadcast)
 
   ipcMain.handle('repo:open', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
@@ -172,6 +175,9 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
   ipcMain.handle('worktree:remove', (_e, repo: unknown, path: unknown, force: unknown) => {
     assertPath(repo)
     assertPath(path)
-    return removeWorktree(repo, path, force === true)
+    return removeWorktree(repo, path, force === true).then(() => {
+      // Their shells would sit in a folder that is gone: they end, and the exit is reported.
+      for (const t of terminals.list(path)) terminals.kill(t.id)
+    })
   })
 }

@@ -146,7 +146,7 @@ function refreshModels(tab: Pick<SessionTab, 'id' | 'localId'>): void {
 }
 
 /** Resolves true when `cwd`'s repo is trusted, asking first if needed. A refusal starts nothing. */
-async function confirmTrust(cwd: string): Promise<boolean> {
+export async function confirmTrust(cwd: string): Promise<boolean> {
   const trust = await window.canopy.repoTrust(cwd)
   if (trust.trusted) return true
   const accepted = await new Promise<boolean>((answer) => { useSessions.setState({ trustPrompt: { trust, answer } }) })
