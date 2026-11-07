@@ -65,6 +65,7 @@ export function createQuitFlow(deps: QuitDeps): {
   return {
     get quitting() { return quitting },
     finish(then) {
+      if (quitting) return
       quitting = true
       deps.shutdown()
       then()
@@ -80,6 +81,8 @@ export function createQuitFlow(deps: QuitDeps): {
           asking = false
         }
       }
+      // An update restart may have finished everything while the question was open.
+      if (quitting) return
       quitting = true
       deps.shutdown()
       deps.quit()

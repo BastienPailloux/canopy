@@ -83,3 +83,31 @@ test('update detail says what stops and that edits are kept', () => {
   expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1 })).toBe(
     'Redémarrer arrêtera : 2 sessions Claude en cours, 1 terminal actif. Les fichiers non enregistrés et les brouillons seront conservés.')
 })
+
+test('finish while the quit question is open: a later confirm does not stop or quit again', async () => {
+  const counts = { ...NONE, sessions: 1 }
+  const calls: string[] = []
+  let answer: (ok: boolean) => void = () => {}
+  const flow = createQuitFlow({
+    counts: () => counts,
+    confirm: () => new Promise<boolean>((resolve) => { answer = resolve }),
+    shutdown: () => { calls.push('shutdown') },
+    quit: () => { calls.push('quit') }
+  })
+  const asked = flow.request()
+  flow.finish(() => { calls.push('then') })
+  answer(true)
+  await asked
+  expect(calls).toEqual(['shutdown', 'then'])
+})
+
+test('finish twice stops and hands over once', () => {
+  const h = setup({ sessions: 1 }); const then = vi.fn()
+  h.flow.finish(then)
+  h.flow.finish(then)
+  expect(h.calls).toEqual(['shutdown']); expect(then).toHaveBeenCalledOnce()
+})
+
+test('update detail with nothing running keeps only the sentence about edits', () => {
+  expect(updateDetail(NONE)).toBe('Les fichiers non enregistrés et les brouillons seront conservés.')
+})
