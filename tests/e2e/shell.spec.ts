@@ -137,7 +137,7 @@ test('trusting a repo approves the config it listed, not the other configs of it
   await writeFile(join(repo.path, '.mcp.json'), JSON.stringify({ mcpServers: { db: { command: 'db-mcp' } } }))
   const trust = await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)
   expect(trust).toEqual({
-    trusted: false, configHash: trust.configHash, setup: [], services: [], hooks: [], mcpServers: ['db: db-mcp'], allowRules: [], apiKeyHelper: [],
+    repo: repo.path, trusted: false, configHash: trust.configHash, setup: [], services: [], hooks: [], mcpServers: ['db: db-mcp'], allowRules: [], apiKeyHelper: [],
     statusLine: [], env: [], settingsKeys: [], unknownFiles: []
   })
   // Refused before any process starts, so this runs no Claude session.
