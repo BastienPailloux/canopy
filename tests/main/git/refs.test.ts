@@ -11,6 +11,28 @@ test('uses origin/HEAD when a remote exists', async () => {
   expect(await resolveBaseRef(repo.path)).toEqual({ name: 'main', ref: 'origin/main' })
 })
 
+const dropOriginHead = (path: string): void => { execFileSync('git', ['remote', 'set-head', 'origin', '--delete'], { cwd: path }) }
+
+test('with a remote but no origin/HEAD, prefers origin/main over a stale local main', async () => {
+  repo = await createRepo({ remote: true })
+  dropOriginHead(repo.path)
+  expect(await resolveBaseRef(repo.path)).toEqual({ name: 'main', ref: 'origin/main' })
+})
+
+test('with a remote but no origin/HEAD, finds origin/master before any local branch', async () => {
+  repo = await createRepo({ remote: true, branch: 'master' })
+  dropOriginHead(repo.path)
+  execFileSync('git', ['branch', 'main'], { cwd: repo.path })
+  expect(await resolveBaseRef(repo.path)).toEqual({ name: 'master', ref: 'origin/master' })
+})
+
+test('a remote without main or master falls back to the local branch', async () => {
+  repo = await createRepo({ remote: true, branch: 'trunk' })
+  dropOriginHead(repo.path)
+  execFileSync('git', ['branch', 'main'], { cwd: repo.path })
+  expect(await resolveBaseRef(repo.path)).toEqual({ name: 'main', ref: 'main' })
+})
+
 test('falls back to master without remote', async () => {
   repo = await createRepo({ branch: 'master' })
   expect(await resolveBaseRef(repo.path)).toEqual({ name: 'master', ref: 'master' })

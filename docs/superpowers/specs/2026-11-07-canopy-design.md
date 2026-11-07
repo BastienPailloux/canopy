@@ -103,7 +103,7 @@ Une session lancée hors de Canopy dans un autre terminal ne donne pas de statut
 - Arbre de tout le repo sur la branche du worktree, avec filtre « Modifiés » et recherche ⌘P.
 - Vue Code avec marquage des lignes ajoutées, et vue Diff.
 - Le diff compare le working tree, modifications non commitées incluses, au merge-base avec `origin/<défaut>` si le remote existe, sinon avec la branche locale par défaut **[Choix conception]**. Les commits de Claude restent donc visibles. La douleur 2 impose ce comportement **[Bastien]**.
-- Branche par défaut lue depuis `origin/HEAD`, avec repli sur `main` puis `master`. Branche de comparaison modifiable via le sélecteur de la maquette.
+- Branche par défaut lue depuis `origin/HEAD`, avec repli sur `origin/main`, `origin/master`, puis `main` et `master` en local. Branche de comparaison modifiable via le sélecteur de la maquette.
 - Rafraîchissement automatique quand les fichiers changent.
 - Recherche de texte dans tout le worktree, avec résultats cliquables **[Bastien : usage quotidien]**.
 - Aller à la définition d'une fonction et lister tous ses appels, au clic dans le code **[Bastien : usage quotidien]**. Passe par un serveur de langage, TypeScript/JavaScript d'abord. Pour les autres langages, repli sur la recherche de texte **[Choix conception]**.

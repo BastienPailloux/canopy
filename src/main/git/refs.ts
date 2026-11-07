@@ -10,7 +10,10 @@ async function exists(repo: string, ref: string): Promise<boolean> {
   }
 }
 
-/** origin/HEAD, then main, then master. */
+/**
+ * origin/HEAD, then origin/main, origin/master, then the local main, master.
+ * A remote branch goes first: a clone's local main is often stale, and would show others' commits as this branch's.
+ */
 export async function resolveBaseRef(repo: string): Promise<BaseRef> {
   try {
     const out = (await git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])).trim()
@@ -19,6 +22,9 @@ export async function resolveBaseRef(repo: string): Promise<BaseRef> {
     }
   } catch {
     // no origin/HEAD
+  }
+  for (const name of ['main', 'master']) {
+    if (await exists(repo, `refs/remotes/origin/${name}`)) return { name, ref: `origin/${name}` }
   }
   for (const name of ['main', 'master']) {
     if (await exists(repo, `refs/heads/${name}`)) return { name, ref: name }

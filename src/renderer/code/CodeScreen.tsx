@@ -133,7 +133,9 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         <span className="mono">{props.branch}</span>
         <span className="muted">comparé à</span>
         <select aria-label="Branche de comparaison" className="ctl-select mono" value={pickedBase ?? data.base?.ref ?? ''}
-          disabled={!data.base} onChange={(e) => { setBaseNotice(null); setPickedBase(e.target.value) }}>
+          disabled={branchOptions.length === 0} onChange={(e) => { setBaseNotice(null); setPickedBase(e.target.value) }}>
+          {/* No default branch was found: picking one is the way out. */}
+          {pickedBase === undefined && !data.base && <option value="" disabled>Choisir une branche…</option>}
           {branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         <span className="mono totals" data-testid="code-totals">

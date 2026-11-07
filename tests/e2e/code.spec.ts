@@ -98,6 +98,34 @@ test('a committed change shows in "Modifiés" and in the Diff view, with no CSP 
   expect(violations).toEqual([])
 })
 
+test('a whitespace-only change shows in the Diff view', async () => {
+  await writeFile(join(featPath, 'indent.py'), 'def a():\n        return 1\n')
+  git(featPath, 'add', '-A')
+  git(featPath, 'commit', '-qm', 'feat: base for the indent')
+  git(repo.path, 'branch', 'indent-base', 'feat/a')
+  await writeFile(join(featPath, 'indent.py'), 'def a():\n    return 1\n')
+  await launch()
+  await openCode()
+  await page.getByLabel('Branche de comparaison').selectOption('indent-base')
+  await expect(page.getByTestId('scope-changed')).toHaveText('Modifiés · 1')
+  await page.getByTestId('scope-changed').click()
+  await treeFile('indent.py').click()
+  await page.getByRole('button', { name: /^Diff vs indent-base/ }).click()
+  const diff = page.getByTestId('diff-editor')
+  await expect(diff).toContainText('return 1')
+  await expect(diff.locator('.line-insert, .char-insert').first()).toBeVisible({ timeout: 5_000 })
+})
+
+test('with no base branch, the comparison picker stays usable and a pick loads the diff', async () => {
+  git(repo.path, 'branch', '-m', 'main', 'trunk')
+  await launch()
+  await openCode()
+  const picker = page.getByLabel('Branche de comparaison')
+  await expect(picker).toBeEnabled({ timeout: 10_000 })
+  await picker.selectOption('trunk')
+  await expect(page.getByTestId('scope-changed')).toHaveText('Modifiés · 2')
+})
+
 test('an external write refreshes the changed list and the sidebar numbers', async () => {
   await launch()
   await openCode()
