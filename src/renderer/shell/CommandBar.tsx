@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { matches } from '../code/FileTree'
-import { preview } from '../code/SearchPanel'
+import { preview } from '../../shared/preview'
+import type { SearchHit } from '../../shared/types'
 import { useApp } from '../store'
 
 const MAX_FILES = 8
@@ -9,7 +10,9 @@ const MIN_TEXT_QUERY = 2
 const DEBOUNCE_MS = 150
 
 interface Item { key: string; label: string; detail?: string; mono?: boolean; run: () => void }
-interface Section { id: string; title: string; items: Item[] }
+interface Section { id: string; title: string; items: Item[]; /** The source failed: its absence of items is not an absence of results. */ error?: string }
+
+const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
 const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
 
@@ -27,9 +30,10 @@ function rankFiles(files: string[], query: string): string[] {
 
 function useFileSection(cwd: string, query: string, open: (path: string) => void): Section {
   const [files, setFiles] = useState<string[]>([])
+  const [error, setError] = useState<string | undefined>()
   useEffect(() => {
     let live = true
-    window.canopy.listTree(cwd).then((list) => { if (live) setFiles(list) }, () => undefined)
+    window.canopy.listTree(cwd).then((list) => { if (live) setFiles(list) }, (e: unknown) => { if (live) setError(`Liste des fichiers indisponible : ${errorText(e)}`) })
     return () => { live = false }
   }, [cwd])
   const q = query.trim()
@@ -37,28 +41,31 @@ function useFileSection(cwd: string, query: string, open: (path: string) => void
   return {
     id: 'files',
     title: 'Fichiers',
+    error,
     items: items.map((p) => ({ key: p, label: p, mono: true, run: () => open(p) }))
   }
 }
 
 function useTextSection(cwd: string, query: string, open: (path: string, line: number) => void): Section {
-  const [hits, setHits] = useState<{ cwd: string; query: string; list: { path: string; line: number; column: number; text: string }[] } | null>(null)
+  const [hits, setHits] = useState<{ cwd: string; query: string; list: SearchHit[]; error?: string } | null>(null)
   useEffect(() => {
     if (query.length < MIN_TEXT_QUERY) return
     let live = true
     const timer = setTimeout(() => {
-      window.canopy.searchText(cwd, query, { limit: MAX_TEXT }).then(
+      window.canopy.searchText(cwd, query, { channel: 'bar', limit: MAX_TEXT }).then(
         (list) => { if (live && list) setHits({ cwd, query, list }) },
-        () => { if (live) setHits({ cwd, query, list: [] }) }
+        (e: unknown) => { if (live) setHits({ cwd, query, list: [], error: `Recherche de texte impossible : ${errorText(e)}` }) }
       )
     }, DEBOUNCE_MS)
     return () => { live = false; clearTimeout(timer) }
   }, [cwd, query])
   // Hits of an older query stay out until the answer for this one arrives.
-  const list = hits && hits.cwd === cwd && hits.query === query && query.length >= MIN_TEXT_QUERY ? hits.list : []
+  const current = hits && hits.cwd === cwd && hits.query === query && query.length >= MIN_TEXT_QUERY ? hits : null
+  const list = current?.list ?? []
   return {
     id: 'text',
     title: 'Texte',
+    error: current?.error,
     items: list.map((h) => ({
       key: `${h.path}:${h.line}:${h.column}`,
       label: preview(h.text),
@@ -82,7 +89,9 @@ function Bar(props: { cwd: string; onClose: (restoreFocus: boolean) => void }): 
   const files = useFileSection(cwd, query, open)
   const text = useTextSection(cwd, query.trim(), open)
   // Symbols (Task 11) come here as one more section.
-  const sections = [files, text].filter((s) => s.items.length > 0)
+  const all = [files, text]
+  const sections = all.filter((s) => s.items.length > 0)
+  const failures = all.filter((s) => s.error)
   const flat = sections.flatMap((s) => s.items)
 
   // The answers change under the cursor: start again from the first one.
@@ -132,7 +141,8 @@ function Bar(props: { cwd: string; onClose: (restoreFocus: boolean) => void }): 
               </div>
             )
           })}
-          {query.trim() !== '' && flat.length === 0 && <p className="cmdbar-empty">Aucun résultat.</p>}
+          {failures.map((s) => <p key={s.id} className="cmdbar-empty" role="alert" data-testid="cmdbar-error">{s.error}</p>)}
+          {query.trim() !== '' && flat.length === 0 && failures.length === 0 && <p className="cmdbar-empty">Aucun résultat.</p>}
         </div>
       </div>
     </div>

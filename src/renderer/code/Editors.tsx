@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react'
 import { monaco, THEME } from './monaco'
 
 export interface Selection { text: string; startLine: number; endLine: number }
-/** Lets the screen read what is selected, when "Demander à Claude" opens. */
 /** A line to bring into view, once per `seq`. */
 export interface Reveal { line: number; seq: number }
+/** Lets the screen read what is selected, when "Demander à Claude" opens. */
 export interface EditorHandle { selection: () => Selection | null }
 
 type Editor = monaco.editor.IStandaloneCodeEditor

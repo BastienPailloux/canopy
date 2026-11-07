@@ -70,10 +70,10 @@ export interface CanopyApi {
   listTree(cwd: string): Promise<string[]>
   /**
    * Text search in the files of `cwd` (.gitignore honored, links not followed), at most 2000 hits unless `limit`.
-   * One search runs per window: a new call cancels the previous one, which then resolves null.
+   * One search runs per window and `channel`: a new call on the same channel cancels the previous one, which then resolves null.
    * Rejects with a readable message for an invalid regex.
    */
-  searchText(cwd: string, q: string, o?: { regex?: boolean; caseSensitive?: boolean; limit?: number }): Promise<SearchHit[] | null>
+  searchText(cwd: string, q: string, o: { channel: 'panel' | 'bar'; regex?: boolean; caseSensitive?: boolean; limit?: number }): Promise<SearchHit[] | null>
   /** Files changed since the merge-base with `base` (default: the repo's base branch). Rejects on git failures. */
   codeChanges(cwd: string, base?: string): Promise<{ base: BaseRef; files: ChangedFile[] }>
   /** Local and remote branches one can compare against. */

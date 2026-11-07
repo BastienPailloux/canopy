@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { preview } from '../../shared/preview'
 import { DEFAULT_SEARCH_LIMIT, type SearchHit } from '../../shared/types'
 
 const DEBOUNCE_MS = 200
-const MAX_TEXT = 200
 
 /** What was typed, per worktree: it outlives a visit to Sessions. */
 interface Typed { query: string; regex: boolean; caseSensitive: boolean }
@@ -14,12 +14,6 @@ function group(hits: SearchHit[]): { path: string; hits: SearchHit[] }[] {
   const byPath = new Map<string, SearchHit[]>()
   for (const h of hits) byPath.set(h.path, [...(byPath.get(h.path) ?? []), h])
   return [...byPath].map(([path, list]) => ({ path, hits: list }))
-}
-
-/** Shown as a line of code: indentation dropped, and cut when very long. */
-export function preview(text: string): string {
-  const t = text.trim()
-  return t.length > MAX_TEXT ? `${t.slice(0, MAX_TEXT)}…` : t
 }
 
 export function SearchPanel(props: {
@@ -50,7 +44,7 @@ export function SearchPanel(props: {
     }
     setSearching(true)
     const timer = setTimeout(() => {
-      window.canopy.searchText(cwd, query, { regex, caseSensitive, limit: DEFAULT_SEARCH_LIMIT }).then(
+      window.canopy.searchText(cwd, query, { channel: 'panel', regex, caseSensitive, limit: DEFAULT_SEARCH_LIMIT }).then(
         (found) => {
           if (run.current !== id) return
           setSearching(false)

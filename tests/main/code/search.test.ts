@@ -1,4 +1,4 @@
-import { mkdir, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChildProcess } from 'node:child_process'
@@ -116,5 +116,46 @@ describe('searchText', () => {
     ctl.abort()
     await expect(searchText(repo.path, 'x', { signal: ctl.signal })).rejects.toMatchObject({ name: 'AbortError' })
     expect(spawned).toHaveLength(0)
+  })
+
+  it('still answers when some file cannot be read', async () => {
+    await repo.commit('ok.txt', 'needle\n')
+    await writeFile(join(repo.path, 'locked.txt'), 'needle\n')
+    await chmod(join(repo.path, 'locked.txt'), 0o000)
+    expect((await searchText(repo.path, 'needle', {})).map((h) => h.path)).toEqual(['ok.txt'])
+    expect(await searchText(repo.path, 'needle', { caseSensitive: true, regex: true })).toHaveLength(1)
+    await rm(join(repo.path, 'ok.txt'))
+    await repo.commit('other.txt', 'x\n')
+    await expect(searchText(repo.path, 'needle', {})).resolves.toEqual([])
+  })
+
+  it('rejects when something else kills the process', async () => {
+    await repo.commit('a.txt', 'hit\n'.repeat(50))
+    const search = searchText(repo.path, 'hit', {})
+    spawned[0].kill('SIGKILL')
+    await expect(search).rejects.toThrow(/Recherche interrompue/)
+  })
+
+  it('cuts very long lines', async () => {
+    await repo.commit('min.js', `${'x'.repeat(3000)}needle${'y'.repeat(3000)}\n`)
+    const [hit] = await searchText(repo.path, 'needle', {})
+    expect(hit.text).toHaveLength(500)
+    expect(hit.column).toBe(3001)
+  })
+
+  it('bounds the work on a huge line with many matches', async () => {
+    await repo.commit('huge.txt', `${'a é '.repeat(20_000)}\n`)
+    const started = Date.now()
+    const hits = await searchText(repo.path, 'a', { limit: 100 })
+    expect(hits).toHaveLength(100)
+    expect(hits[99].column).toBe(1 + 99 * 4)
+    expect(hits[0].text.length).toBeLessThanOrEqual(500)
+    expect(Date.now() - started).toBeLessThan(5000)
+  })
+
+  it('drops a line past the output cap without failing the search', async () => {
+    await repo.commit('ok.txt', 'needle\n')
+    await repo.commit('wide.txt', `needle${'z'.repeat(9 * 1024 * 1024)}\n`)
+    expect((await searchText(repo.path, 'needle', {})).map((h) => h.path)).toEqual(['ok.txt'])
   })
 })

@@ -18,6 +18,10 @@ export interface SearchOptions {
 const RG = rgPath.replace(`app.asar${sep}`, `app.asar.unpacked${sep}`)
 
 const MAX_STDERR = 4000
+/** A minified line must not flood the IPC. Columns still refer to the whole line. */
+const MAX_TEXT = 500
+/** A line of output longer than this is dropped: a repo's content is untrusted. */
+const MAX_PENDING = 8 * 1024 * 1024
 
 function abortError(): Error {
   const e = new Error('Recherche annulée')
@@ -35,18 +39,21 @@ function readableError(stderr: string, regex: boolean): string {
 interface RgText { text?: string; bytes?: string }
 const bytesOf = (t: RgText): Buffer => (t.text !== undefined ? Buffer.from(t.text) : Buffer.from(t.bytes ?? '', 'base64'))
 
-/** The hits of one `match` message of `rg --json`: one per occurrence on the line. */
-function hitsOf(data: { path: RgText; lines: RgText; line_number: number; submatches: { start: number }[] }): SearchHit[] {
+/** At most `budget` hits of one `match` message of `rg --json`: one per occurrence on the line. */
+function hitsOf(data: { path: RgText; lines: RgText; line_number: number; submatches: { start: number }[] }, budget: number): SearchHit[] {
   const path = bytesOf(data.path).toString().replace(/^\.\//, '')
   const line = bytesOf(data.lines)
-  const text = line.toString().replace(/\r?\n$/, '')
-  // ripgrep counts bytes; editors count UTF-16 units.
-  return data.submatches.map((m) => ({
-    path,
-    line: data.line_number,
-    column: line.subarray(0, m.start).toString().length + 1,
-    text
-  }))
+  const text = line.toString().replace(/\r?\n$/, '').slice(0, MAX_TEXT)
+  const hits: SearchHit[] = []
+  // ripgrep counts bytes; editors count UTF-16 units. Each column continues from the previous one.
+  let column = 1
+  let at = 0
+  for (const m of data.submatches.slice(0, budget)) {
+    column += line.subarray(at, m.start).toString().length
+    at = m.start
+    hits.push({ path, line: data.line_number, column, text })
+  }
+  return hits
 }
 
 /**
@@ -59,7 +66,7 @@ export function searchText(cwd: string, q: string, o: SearchOptions = {}): Promi
   if (q === '' || limit <= 0) return Promise.resolve([])
 
   const args = [
-    '--json', '--no-config', '--hidden', '--glob', '!.git', '--max-filesize', '5M',
+    '--json', '--no-config', '--hidden', '--max-columns', '2000', '--max-columns-preview', '--glob', '!.git', '--max-filesize', '5M',
     ...(o.regex ? [] : ['--fixed-strings']),
     o.caseSensitive ? '--case-sensitive' : '--ignore-case',
     '--', q, '.'
@@ -70,6 +77,7 @@ export function searchText(cwd: string, q: string, o: SearchOptions = {}): Promi
     const child = spawn(RG, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     const hits: SearchHit[] = []
     let pending = ''
+    let dropping = false
     let stderr = ''
     let done = false
 
@@ -92,10 +100,7 @@ export function searchText(cwd: string, q: string, o: SearchOptions = {}): Promi
       let msg: { type: string; data: Parameters<typeof hitsOf>[0] }
       try { msg = JSON.parse(line) } catch { return }
       if (msg.type !== 'match') return
-      for (const hit of hitsOf(msg.data)) {
-        if (hits.length >= limit) break
-        hits.push(hit)
-      }
+      hits.push(...hitsOf(msg.data, limit - hits.length))
       if (hits.length >= limit) {
         child.kill()
         finish(() => resolve(sorted()))
@@ -104,18 +109,36 @@ export function searchText(cwd: string, q: string, o: SearchOptions = {}): Promi
 
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
-      pending += chunk
-      const lines = pending.split('\n')
-      pending = lines.pop() ?? ''
-      lines.forEach(take)
+      // Only the new chunk is scanned for line ends.
+      let start = 0
+      for (let nl = chunk.indexOf('\n'); nl >= 0; nl = chunk.indexOf('\n', start)) {
+        if (dropping) dropping = false
+        else take(pending + chunk.slice(start, nl))
+        pending = ''
+        start = nl + 1
+      }
+      if (dropping) return
+      if (pending.length + chunk.length - start > MAX_PENDING) {
+        pending = ''
+        dropping = true
+      } else {
+        pending += chunk.slice(start)
+      }
     })
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (chunk: string) => { if (stderr.length < MAX_STDERR) stderr += chunk })
     child.on('error', (e) => finish(() => reject(new Error(`Recherche impossible : ${e.message}`))))
     child.on('close', (code) => {
-      take(pending)
-      // 1: no match. 2: errors, such as an invalid pattern, or a file that could not be read among matches.
-      finish(() => (code === 2 && hits.length === 0 ? reject(new Error(readableError(stderr, o.regex === true))) : resolve(sorted())))
+      if (!dropping) take(pending)
+      finish(() => {
+        // Killed from outside: the hits so far are not the answer.
+        if (code === null) return reject(new Error('Recherche interrompue'))
+        // 2 with a pattern ripgrep cannot compile is the user's error; 2 otherwise is unreadable files among others.
+        if (code === 2 && hits.length === 0 && o.regex === true && /^(rg: )?regex parse error/m.test(stderr)) {
+          return reject(new Error(readableError(stderr, true)))
+        }
+        resolve(sorted())
+      })
     })
   })
 }
