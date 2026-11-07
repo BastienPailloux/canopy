@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promise
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FILE_CHANGED } from '../../../src/shared/errors'
+import { EXPECT_ABSENT, FILE_CHANGED } from '../../../src/shared/errors'
 import { listTree, readFileSafe, watchWorktree, writeFileSafe } from '../../../src/main/code/files'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
@@ -132,6 +132,12 @@ describe('readFileSafe', () => {
 })
 
 describe('writeFileSafe', () => {
+  it('expect-absent writes over a missing file and refuses an existing one', async () => {
+    await expect(writeFileSafe(repo.path, 'README.md', 'mine\n', { expectedVersion: EXPECT_ABSENT })).rejects.toThrow(FILE_CHANGED)
+    await writeFileSafe(repo.path, 'fresh.txt', 'ok\n', { expectedVersion: EXPECT_ABSENT })
+    expect(await readFile(join(repo.path, 'fresh.txt'), 'utf8')).toBe('ok\n')
+  })
+
   let repo: TestRepo
 
   beforeEach(async () => { repo = await createRepo() })

@@ -127,7 +127,10 @@ export function App(): React.JSX.Element {
       // Work set aside by an update comes back before any folder opens, and a failed read must not stop the launch.
       launchStash ??= window.canopy.takeStash().catch(() => null)
       const stash = await launchStash
-      if (stash && !restored) { restored = true; restoreStash(stash) }
+      if (stash && !restored) {
+        restored = true
+        try { restoreStash(stash) } catch (e) { console.error('Restauration impossible', e) }
+      }
       launchFolder ??= window.canopy.takeOpenFolder().catch(() => null)
       const asked = await launchFolder
       // The page is told once: a second run of this effect (StrictMode) finds the same answer.

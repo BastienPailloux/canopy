@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropDrafts, getDraft, setDraft } from '../../src/renderer/code/drafts'
-import { setDraftText, useSessions, type SessionTab } from '../../src/renderer/sessions/sessionStore'
+import { useSessions, type SessionTab } from '../../src/renderer/sessions/sessionStore'
 import { collectStash, connectUpdateStash, restoreStash, useRestoredFiles } from '../../src/renderer/update/stash'
 import { keepOverMissing } from '../../src/renderer/code/draftOverMissing'
 import type { Stash } from '../../src/shared/update'
@@ -70,7 +70,25 @@ describe('stash', () => {
     await vi.waitFor(() => expect(Object.keys(useSessions.getState().tabs)).toHaveLength(1))
     const [t] = Object.values(useSessions.getState().tabs)
     expect(t.transcript.items.some((i) => i.kind === 'notice' && i.text.startsWith('Session interrompue'))).toBe(false)
-    setDraftText(t.id, '')
+  })
+})
+
+describe('restoreTabs placement', () => {
+  const stashed = (sessionId: string): Stash => ({ format: 1, buffers: [], tabs: [{ cwd: CWD, sessionId, title: 'X', draft: { text: '', images: [] }, interrupted: false }] })
+
+  it('skips a tab whose session is already open in that cwd', async () => {
+    useSessions.setState({ tabs: { o: tab({ id: 'o', sessionId: 's9', state: 'stopped' }) }, active: {} })
+    restoreStash(stashed('s9'))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(Object.keys(useSessions.getState().tabs)).toEqual(['o'])
+  })
+
+  it('removes untouched placeholder tabs of that cwd', async () => {
+    useSessions.setState({ tabs: { p: tab({ id: 'p' }), q: tab({ id: 'q', cwd: '/other' }) }, active: {} })
+    restoreStash(stashed('s8'))
+    await vi.waitFor(() => expect(Object.values(useSessions.getState().tabs).some((t) => t.sessionId === 's8')).toBe(true))
+    expect(Object.keys(useSessions.getState().tabs)).not.toContain('p')
+    expect(Object.keys(useSessions.getState().tabs)).toContain('q')
   })
 })
 

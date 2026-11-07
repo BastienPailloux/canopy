@@ -357,6 +357,15 @@ async function loadHistory(cwd: string, s: SessionSummary): Promise<{ transcript
   }
 }
 
+/** An empty placeholder tab: nothing typed, nothing running. */
+const isUntouched = (t: SessionTab): boolean => t.state === 'draft' && !t.localId && t.draft.text === '' && t.draft.images.length === 0
+
+function dropTabs(gone: SessionTab[]): void {
+  useSessions.setState((state) => ({
+    tabs: Object.fromEntries(Object.entries(state.tabs).filter(([id]) => !gone.some((t) => t.id === id)))
+  }))
+}
+
 /** Opens a past session. Nothing runs until a message is sent. */
 export async function openSession(cwd: string, s: SessionSummary): Promise<void> {
   const open = tabsOf(cwd).find((t) => t.sessionId === s.sessionId)
@@ -365,7 +374,7 @@ export async function openSession(cwd: string, s: SessionSummary): Promise<void>
     return
   }
   const { transcript, error } = await loadHistory(cwd, s)
-  const untouched = tabsOf(cwd).filter((t) => t.state === 'draft' && !t.localId && t.draft.text === '' && t.draft.images.length === 0)
+  const untouched = tabsOf(cwd).filter(isUntouched)
   addTab(cwd, {
     sessionId: s.sessionId,
     resumable: true,
@@ -374,9 +383,7 @@ export async function openSession(cwd: string, s: SessionSummary): Promise<void>
     error,
     transcript: addNotice(transcript, RESUME_WARNING)
   })
-  useSessions.setState((state) => ({
-    tabs: Object.fromEntries(Object.entries(state.tabs).filter(([id]) => !untouched.some((t) => t.id === id)))
-  }))
+  dropTabs(untouched)
 }
 
 const INTERRUPTED_NOTICE = 'Session interrompue par la mise à jour. Envoie un message pour la reprendre.'
@@ -401,9 +408,13 @@ export function restoreTabs(tabs: StashedTab[]): void {
     return loadHistory(t.cwd, { sessionId: t.sessionId, title: t.title, lastModified: Date.now(), live: false, state: 'stopped' })
   })).then((histories) => {
     tabs.forEach((t, i) => {
+      // Already open (a session reattached meanwhile): keep that tab.
+      if (t.sessionId && tabsOf(t.cwd).some((o) => o.sessionId === t.sessionId)) return
+      const untouched = tabsOf(t.cwd).filter(isUntouched)
       const history = histories[i]
       if (!t.sessionId || !history) {
         addTab(t.cwd, { title: t.title, draft: t.draft })
+        dropTabs(untouched)
         return
       }
       addTab(t.cwd, {
@@ -415,6 +426,7 @@ export function restoreTabs(tabs: StashedTab[]): void {
         draft: t.draft,
         transcript: addNotice(history.transcript, t.interrupted ? INTERRUPTED_NOTICE : RESUME_WARNING)
       })
+      dropTabs(untouched)
     })
   })
 }

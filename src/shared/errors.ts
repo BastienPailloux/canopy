@@ -14,6 +14,8 @@ export function isRepoNotTrusted(err: unknown): boolean {
 }
 
 export const FILE_CHANGED = 'FILE_CHANGED'
+/** As `expectedVersion`: the write only goes through if the file does not exist (saving over a deleted file). */
+export const EXPECT_ABSENT = '\0absent'
 
 /** The file changed on disk since it was read: also true for the rejection of an IPC call. */
 export function isFileChanged(err: unknown): boolean {

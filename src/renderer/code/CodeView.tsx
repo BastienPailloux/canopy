@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BaseContent, FileContent } from '../../shared/api'
-import { isFileChanged } from '../../shared/errors'
+import { EXPECT_ABSENT, isFileChanged } from '../../shared/errors'
 import type { BaseRef, ChangedFile } from '../../shared/types'
 import { lineDiff } from '../sessions/lineDiff'
 import { askClaude } from '../sessions/sessionStore'
@@ -162,7 +162,7 @@ export function CodeView(props: {
     const { loaded: cur, text: buffer } = state.current
     if (cur?.work.kind !== 'text') return
     try {
-      const version = await window.canopy.writeFile(cwd, path, buffer, force || gone ? undefined : cur.work.version)
+      const version = await window.canopy.writeFile(cwd, path, buffer, force ? undefined : gone ? EXPECT_ABSENT : cur.work.version)
       setGone(false)
       setLoaded({ ...cur, work: { kind: 'text', content: buffer, version } })
       setSaveError(null)

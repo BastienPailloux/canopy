@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileContent } from '../../shared/api'
-import { FILE_CHANGED } from '../../shared/errors'
+import { EXPECT_ABSENT, FILE_CHANGED } from '../../shared/errors'
 import { git } from '../git/exec'
 
 /** Files of the working tree relative to `cwd`: tracked and untracked, without ignored ones. */
@@ -86,7 +86,8 @@ export async function writeFileSafe(
   }
   // What was shown is a lossy decoding: writing it back would replace every byte it could not read.
   if (current && !current.subarray(0, 8192).includes(0) && !isUtf8(current)) throw new Error('Fichier non UTF-8 : modification refusée')
-  if (opts.expectedVersion !== undefined && (current ? versionOf(current) : null) !== opts.expectedVersion) throw new Error(FILE_CHANGED)
+  const found = current ? versionOf(current) : EXPECT_ABSENT
+  if (opts.expectedVersion !== undefined && found !== opts.expectedVersion) throw new Error(FILE_CHANGED)
   await mkdir(dirname(real), { recursive: true })
   const bytes = Buffer.from(content, 'utf8')
   await writeFile(real, bytes)
