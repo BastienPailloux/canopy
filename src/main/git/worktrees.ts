@@ -1,7 +1,7 @@
 import type { Worktree } from '../../shared/types'
 import { existsSync } from 'node:fs'
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
+import { appendFile, lstat, mkdir, readFile, realpath } from 'node:fs/promises'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import { git } from './exec'
 
 export async function listWorktrees(repo: string): Promise<Worktree[]> {
@@ -49,15 +49,41 @@ export async function createWorktree(
   repo: string,
   o: { name: string; branch: string; base: string; parentDir?: string }
 ): Promise<Worktree> {
+  if (o.name === '' || o.name === '.' || o.name === '..' || /[/\\]/.test(o.name)) {
+    throw new Error(`Nom de worktree invalide : "${o.name}"`)
+  }
   const main = (await listWorktrees(repo)).find((w) => w.isMain)?.path ?? repo
-  const path = resolve(o.parentDir ?? join(main, '.worktrees'), o.name)
+
+  let parent: string
+  if (o.parentDir === undefined) {
+    // A cloned repo may commit `.worktrees` as a symlink: never follow it out of the repo.
+    const dir = join(main, '.worktrees')
+    const st = await lstat(dir).catch(() => undefined)
+    if (st && !st.isDirectory()) {
+      throw new Error('Le dossier .worktrees du dépôt n\'est pas un vrai dossier (lien symbolique ou fichier) : création refusée')
+    }
+    await mkdir(dir, { recursive: true })
+    parent = await realpath(dir)
+    const root = await realpath(main)
+    if (parent !== join(root, '.worktrees') && !parent.startsWith(root + sep)) {
+      throw new Error('Le dossier .worktrees sort du dépôt : création refusée')
+    }
+  } else {
+    await mkdir(o.parentDir, { recursive: true })
+    parent = await realpath(o.parentDir)
+  }
+
+  const path = join(parent, o.name)
   if (existsSync(path)) throw new Error(`Le dossier du worktree "${o.name}" existe déjà : ${path}`)
   const branchTaken = await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${o.branch}`]).then(() => true, () => false)
   if (branchTaken) throw new Error(`La branche "${o.branch}" existe déjà`)
 
   if (o.parentDir === undefined) await ensureExcluded(repo)
   await git(repo, ['worktree', 'add', '-b', o.branch, '--', path, o.base])
-  const created = (await listWorktrees(repo)).find((w) => w.path === path)
+  let created: Worktree | undefined
+  for (const w of await listWorktrees(repo)) {
+    if ((await realpath(w.path).catch(() => w.path)) === path) created = w
+  }
   if (!created) throw new Error(`Worktree introuvable après création : ${path}`)
   return created
 }
@@ -73,7 +99,10 @@ export async function removalRisks(path: string, ref: string): Promise<{ dirty: 
 }
 
 export async function removeWorktree(repo: string, path: string, force: boolean): Promise<void> {
-  const target = (await listWorktrees(repo)).find((w) => w.path === resolve(path))
+  const real = (p: string): Promise<string> => realpath(p).catch(() => resolve(p))
+  const wanted = await real(path)
+  let target: Worktree | undefined
+  for (const w of await listWorktrees(repo)) if ((await real(w.path)) === wanted) target = w
   if (target?.isMain) throw new Error('Impossible de supprimer le worktree principal')
   await git(repo, ['worktree', 'remove', ...(force ? ['--force'] : []), '--', path])
 }

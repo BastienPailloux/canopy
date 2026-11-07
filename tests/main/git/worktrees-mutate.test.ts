@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readdirSync } from 'node:fs'
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 import { createWorktree, listWorktrees, removalRisks, removeWorktree } from '../../../src/main/git/worktrees'
@@ -103,4 +103,45 @@ test('refuses to remove the main worktree', async () => {
   repo = await createRepo()
   await expect(removeWorktree(repo.path, repo.path, true)).rejects.toThrow(/principal|main/i)
   expect(existsSync(repo.path)).toBe(true)
+})
+
+test('rejects a .worktrees symlink and creates nothing outside the repo', async () => {
+  repo = await createRepo()
+  const outside = join(repo.path, '..', 'outside')
+  await mkdir(outside)
+  await symlink(outside, join(repo.path, '.worktrees'))
+  await expect(createWorktree(repo.path, { name: 'a', branch: 'feat/a', base: 'main' })).rejects.toThrow(/\.worktrees/)
+  expect(readdirSync(outside)).toEqual([])
+  expect(g(repo.path, 'branch', '--list', 'feat/a')).toBe('')
+})
+
+test('rejects .worktrees that is a regular file', async () => {
+  repo = await createRepo()
+  await writeFile(join(repo.path, '.worktrees'), 'x')
+  await expect(createWorktree(repo.path, { name: 'a', branch: 'feat/a', base: 'main' })).rejects.toThrow(/\.worktrees/)
+})
+
+test.each(['', '.', '..', '../evil', 'a/b', 'a\\b'])('rejects unsafe name %j', async (name) => {
+  repo = await createRepo()
+  await expect(createWorktree(repo.path, { name, branch: 'feat/z', base: 'main' })).rejects.toThrow(/nom/i)
+  expect(g(repo.path, 'branch', '--list', 'feat/z')).toBe('')
+})
+
+test('symlinked parentDir works and returns the real path', async () => {
+  repo = await createRepo()
+  const real = join(repo.path, '..', 'real-parent')
+  const link = join(repo.path, '..', 'link-parent')
+  await mkdir(real)
+  await symlink(real, link)
+  const wt = await createWorktree(repo.path, { name: 'x', branch: 'feat/x', base: 'main', parentDir: link })
+  expect(wt.path).toBe(join(real, 'x'))
+  await removeWorktree(repo.path, join(link, 'x'), false)
+  expect(existsSync(join(real, 'x'))).toBe(false)
+})
+
+test('main worktree guard compares realpaths', async () => {
+  repo = await createRepo()
+  const link = join(repo.path, '..', 'main-link')
+  await symlink(repo.path, link)
+  await expect(removeWorktree(repo.path, link, true)).rejects.toThrow(/principal/)
 })
