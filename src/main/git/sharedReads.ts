@@ -55,14 +55,14 @@ export function setBaseOverride(lookup: BaseOverride | undefined): void {
   baseOverride = lookup
 }
 
-/** The remembered base while its ref exists, else the repo's default one. */
+/** The remembered base while its ref exists, else the repo's default one, which says so. */
 async function readBaseRef(cwd: string): Promise<BaseRef> {
   const remembered = await baseOverride?.(cwd).catch(() => null)
   if (remembered) {
     try {
       return await resolveCompareRef(cwd, remembered)
     } catch {
-      // the branch is gone: fall back
+      return { ...await resolveBaseRef(cwd), lostBase: remembered }
     }
   }
   return resolveBaseRef(cwd)

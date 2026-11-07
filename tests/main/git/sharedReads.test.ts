@@ -125,6 +125,17 @@ test('cachedBaseRef falls back when the remembered base is gone', async () => {
   } finally { await repo.cleanup() }
 })
 
+test('a base that fell back names the remembered one that is gone', async () => {
+  const repo = await repoWithRemotes()
+  try {
+    setBaseOverride(async () => 'origin/deleted')
+    expect(await cachedBaseRef(repo.path)).toMatchObject({ ref: 'origin/master', lostBase: 'origin/deleted' })
+    setBaseOverride(async () => 'origin/develop')
+    clearSharedReads()
+    expect((await cachedBaseRef(repo.path)).lostBase).toBeUndefined()
+  } finally { await repo.cleanup() }
+})
+
 test('the base read is renewed after clearSharedReads', async () => {
   const repo = await repoWithRemotes()
   try {

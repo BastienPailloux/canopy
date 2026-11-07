@@ -446,3 +446,15 @@ test('the trust dialog names the repo the session would run in', async () => {
   await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Faire confiance à beta ?')
   await expect(dialog.getByTestId('trust-repo')).toHaveText(beta)
 })
+
+test('a remembered base that vanished says so, like a picked one', async () => {
+  await writeFile(join(userData, 'state.json'), JSON.stringify({ recentRepos: [alpha], ports: {}, prefs: {}, repoBases: { [alpha]: 'disparue' } }))
+  const env = { ...process.env, CANOPY_FAKE_QUERY: '1', SHELL: '/bin/bash' } as Record<string, string>
+  delete env.ELECTRON_RUN_AS_NODE
+  app = await electron.launch({ args: ['.', `--user-data-dir=${userData}`], env })
+  page = await app.firstWindow()
+  await expect(rows()).toHaveCount(2, { timeout: 20_000 })
+  await page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: 'Code' }).click()
+  await expect(page.getByLabel('Branche de comparaison')).toHaveValue('main')
+  await expect(page.getByTestId('base-notice')).toHaveText('La branche « disparue » est introuvable : retour à la branche par défaut.')
+})

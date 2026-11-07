@@ -1,7 +1,12 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 
 export interface Worktree { path: string; branch: string | null; head: string; isMain: boolean }
-export interface BaseRef { name: string; ref: string }            // name: "main", ref: "origin/main" ou "main"
+export interface BaseRef {
+  name: string                                                    // "main"
+  ref: string                                                     // "origin/main" ou "main"
+  /** The remembered base this one stands in for, its branch being gone. */
+  lostBase?: string
+}
 export interface ChangedFile {
   path: string
   oldPath?: string

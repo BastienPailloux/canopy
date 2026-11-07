@@ -12,6 +12,8 @@ import './code.css'
 const UNKNOWN_BASE = 'Branche de comparaison inconnue'
 const SLOW_MS = 400
 
+const baseGone = (branch: string): string => `La branche « ${branch} » est introuvable : retour à la branche par défaut.`
+
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
 export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.Element {
@@ -126,10 +128,13 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   // A comparison that cannot be made (the branch is gone) must not leave the screen without a base.
   useEffect(() => {
     if (pickedBase !== undefined && data.error?.includes(UNKNOWN_BASE)) {
-      setBaseNotice(`La branche « ${pickedBase} » est introuvable : retour à la branche par défaut.`)
+      setBaseNotice(baseGone(pickedBase))
       setPickedBase(undefined)
     }
   }, [pickedBase, data.error])
+
+  const lostBase = data.base?.lostBase
+  useEffect(() => { if (lostBase !== undefined) setBaseNotice(baseGone(lostBase)) }, [lostBase])
 
   const totals = useMemo(() => ({
     added: data.files.reduce((n, f) => n + f.added, 0),
