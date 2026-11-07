@@ -166,3 +166,26 @@ Sans changement : `settingSources` non défini charge bien les trois sources, `s
 
 - `~/.claude/projects` : sessions supprimées par `deleteSession`. Cette fonction laisse le dossier du projet et un éventuel `memory/` vide : ces dossiers vides ont été retirés avec `rmdir`.
 - Pendant les tests, des fichiers récents sont apparus dans `~/.claude/` : `backups/.claude.json.backup.*`, `file-history/`, `security/`, `sessions/`. Ils sont écrits par le CLI et les plugins, sans que je puisse distinguer ceux du spike de ceux de la session qui l'a exécuté. Non modifiés ni nettoyés. Aucun réglage n'a été changé par le spike. `~/.claude.json` ne contient aucune référence aux repos jetables.
+
+## Validation de l'app packagée
+
+Date : 2026-11-07. App construite par `npm run build` et `npx electron-builder --mac`, lancée par `open -n` sous `env -i` (`HOME`, `USER`, `PATH=/usr/bin:/bin`, `TMPDIR`, `LANG`), pilotée par CDP. Sessions réelles uniquement sur un `git clone` jetable, modèle `haiku` (confirmé par `/context` : `claude-haiku-5-5`), aucune clé API enregistrée.
+
+| Point vérifié | Résultat | Observation |
+|---|---|---|
+| `/context` | OK | 4 tableaux et 5 titres rendus en Markdown, aucun `\|---` brut. |
+| `/compact` | OK après correctif | Notices « Conversation compactée » et « reprise depuis son résumé ». **Bug trouvé** : le CLI renvoie le dernier message assistant avec le même `uuid` et un nouveau `message.id`, d'où un `/context` affiché deux fois. Corrigé, revérifié sur le build final : une seule copie. |
+| Interruption | OK | `perl -e "sleep 83"` en cours (1 process), « Interrompre » : 0 process, onglet « prête », le tour suivant répond. |
+| QuestionCard | OK | `AskUserQuestion` affiché, choix « Bleu », Claude répond `Bleu`. |
+| Collage d'image | OK, avec réserve | Miniature affichée, un PNG vert généré donne `Vert`. Le collage est un événement `paste` synthétique avec un `DataTransfer` : le presse-papiers du système n'a pas été utilisé, pour ne pas écraser celui de l'utilisateur. |
+| Toujours | OK | Règle `Bash(touch toujours-a.txt)` écrite dans `.claude/settings.local.json` du clone. La même commande relancée ne demande plus rien. |
+| Outils parallèles | OK | Deux `Write` en cours en même temps. Les autorisations arrivent l'une après l'autre, chaque résultat rejoint sa carte, le tour se termine. |
+| Sous-agent | OK | Une carte `Agent`, les outils internes n'encombrent pas la conversation, réponse `canopy`. |
+| Approbation d'un plan | OK après correctif | Plan rendu en Markdown (`H1`, `H2`, `OL`, `CODE`). Le refus avec retour produit un plan révisé qui en tient compte, l'approbation lance l'exécution. **Bug trouvé** : le sélecteur restait sur `plan`, car le CLI annonce le nouveau mode par un `system/status`, sans `init`. Corrigé et couvert par une E2E sur le faux `query`. Non rejoué en réel, voir ci-dessous. |
+
+Limites et observations :
+
+- Le correctif du mode n'a pas été rejoué sur une vraie session : le mode plan du CLI écrit dans `~/.claude/plans/`. La séquence de messages reproduite par le faux `query` est celle enregistrée sur la vraie session.
+- Une fois, pendant que deux scripts de pilotage se chevauchaient, un onglet a affiché « en cours » alors que le process principal disait `waiting`. Non reproduit sur un onglet propre : cause inconnue.
+- Le lancement d'une commande Bash a pris 66 s : le zsh de Bastien attend le verrou `~/.pyenv/shims/.pyenv-shim`, et le message d'erreur de pyenv apparaît dans la sortie de l'outil.
+- Après `/compact`, un hook `PostCompact` de la configuration de Bastien apparaît en entier dans une notice. C'est la sortie réelle du CLI, laissée telle quelle.
