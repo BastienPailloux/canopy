@@ -15,9 +15,11 @@ vi.mock('chokidar', () => ({
 import { watchWorktree } from '../../../src/main/code/files'
 
 describe('watchWorktree errors', () => {
-  it('reports a watcher failure instead of swallowing it', () => {
+  it('reports a watcher failure instead of swallowing it', async () => {
     const errors: string[] = []
     const stop = watchWorktree('/nowhere', () => undefined, undefined, (e) => errors.push(e.message))
+    // It starts once git said what to ignore.
+    await vi.waitFor(() => expect(fake.watcher).not.toBeNull())
     ;(fake.watcher as EventEmitter).emit('error', new Error('EMFILE: too many open files'))
     stop()
     expect(errors).toEqual(['EMFILE: too many open files'])

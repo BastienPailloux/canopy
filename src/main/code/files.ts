@@ -1,4 +1,4 @@
-import chokidar from 'chokidar'
+import chokidar, { type FSWatcher } from 'chokidar'
 import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
@@ -95,46 +95,95 @@ export async function writeFileSafe(
 
 const DEBOUNCE_MS = 300
 
-/** Git state worth reacting to: a commit or a checkout, not the index or object churn. */
+/** Git state worth reacting to: a commit, a checkout, a worktree added or removed; not the index or object churn. */
 function gitPathKept(parts: string[]): boolean {
+  if (parts[1] === 'worktrees') return parts.length <= 3
   return parts.length === 1 || parts[1] === 'HEAD' || parts[1] === 'refs'
 }
 
+/** What git ignores right now, relative to `cwd`, whole folders as one entry. Empty if git cannot tell. */
+async function ignoredPaths(cwd: string): Promise<Set<string>> {
+  try {
+    const out = await git(cwd, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])
+    return new Set(out.split('\0').filter((p) => p !== '').map((p) => p.replace(/\/$/, '')))
+  } catch {
+    return new Set()
+  }
+}
+
+/** In a linked worktree `.git` is a file: its HEAD and the shared refs live elsewhere. */
+async function linkedGitPaths(cwd: string): Promise<string[]> {
+  try {
+    const [gitDir, common] = (await git(cwd, ['rev-parse', '--absolute-git-dir', '--git-common-dir'])).trim().split('\n')
+    return isInside(cwd, gitDir) ? [] : [join(gitDir, 'HEAD'), join(resolve(cwd, common), 'refs')]
+  } catch {
+    // Not a git worktree any more: the files themselves are still watched.
+    return []
+  }
+}
+
+/** Whether a burst says more than "ignored files changed". Git state and anything git cannot judge count. */
+async function burstMatters(cwd: string, paths: string[]): Promise<boolean> {
+  const inTree = paths.map((p) => relative(cwd, p))
+  if (inTree.some((r) => r === '' || r.startsWith('..') || isGitDir(r.split(sep)[0]))) return true
+  try {
+    const out = await git(cwd, ['check-ignore', '-z', '--stdin'], { input: inTree.join('\0'), okCodes: [1] })
+    const ignored = new Set(out.split('\0'))
+    return inTree.some((r) => !ignored.has(r))
+  } catch {
+    return true
+  }
+}
+
 /**
- * Calls `cb` once per burst of changes (300 ms) in the worktree, a commit included.
- * Ignores node_modules and the inside of `.git` except HEAD and refs. `onError`: live refresh may have stopped.
+ * Calls `cb` once per burst of changes (300 ms) in the worktree, a commit included. Ignores node_modules, `.worktrees`,
+ * what git ignores, and the inside of `.git` except HEAD, refs and the list of worktrees.
+ * `onError`: live refresh may have stopped. `onReady`: everything is watched, linked git paths included.
  * Returns the stop function.
  */
 export function watchWorktree(cwd: string, cb: () => void, onReady?: () => void, onError?: (e: Error) => void): () => void {
   let stopped = false
   let timer: NodeJS.Timeout | undefined
-  const fire = (): void => {
-    clearTimeout(timer)
-    timer = setTimeout(() => { if (!stopped) cb() }, DEBOUNCE_MS)
+  let watcher: FSWatcher | undefined
+  let ignored = new Set<string>()
+  const burst = new Set<string>()
+
+  const flush = async (): Promise<void> => {
+    const paths = [...burst]
+    burst.clear()
+    if (await burstMatters(cwd, paths)) {
+      if (!stopped) cb()
+    } else {
+      // A folder that appeared since the start: nothing under it needs watching.
+      ignored = await ignoredPaths(cwd)
+    }
   }
-  const watcher = chokidar.watch(cwd, {
-    ignoreInitial: true,
-    ignored: (p) => {
-      const parts = relative(cwd, p).split(sep)
-      if (parts.includes('node_modules')) return true
-      return parts[0] === '.git' && !gitPathKept(parts)
-    }
-  })
-  watcher.on('all', fire).on('error', (e) => { if (!stopped) onError?.(e instanceof Error ? e : new Error(String(e))) })
-  watcher.on('ready', () => { if (!stopped) onReady?.() })
-  // In a linked worktree `.git` is a file: its HEAD and the shared refs live elsewhere.
+  const fire = (_event: string, path: string): void => {
+    burst.add(path)
+    clearTimeout(timer)
+    timer = setTimeout(() => { if (!stopped) void flush() }, DEBOUNCE_MS)
+  }
+
   void (async () => {
-    try {
-      const [gitDir, common] = (await git(cwd, ['rev-parse', '--absolute-git-dir', '--git-common-dir'])).trim().split('\n')
-      const commonDir = resolve(cwd, common)
-      if (!stopped && !isInside(cwd, gitDir)) watcher.add([join(gitDir, 'HEAD'), join(commonDir, 'refs')])
-    } catch {
-      // Not a git worktree any more: the files themselves are still watched.
-    }
+    const [known, linked] = await Promise.all([ignoredPaths(cwd), linkedGitPaths(cwd)])
+    if (stopped) return
+    ignored = known
+    watcher = chokidar.watch([cwd, ...linked], {
+      ignoreInitial: true,
+      ignored: (p) => {
+        const rel = relative(cwd, p)
+        const parts = rel.split(sep)
+        if (parts.includes('node_modules') || parts[0] === '.worktrees' || ignored.has(rel)) return true
+        return parts[0] === '.git' && !gitPathKept(parts)
+      }
+    })
+    watcher.on('all', fire).on('error', (e) => { if (!stopped) onError?.(e instanceof Error ? e : new Error(String(e))) })
+    watcher.on('ready', () => { if (!stopped) onReady?.() })
   })()
+
   return () => {
     stopped = true
     clearTimeout(timer)
-    void watcher.close()
+    void watcher?.close()
   }
 }

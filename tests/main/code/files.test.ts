@@ -209,6 +209,61 @@ describe('watchWorktree', () => {
     expect(calls).toBeGreaterThan(0)
   })
 
+  it('ignores the worktrees nested in .worktrees', async () => {
+    await mkdir(join(repo.path, '.worktrees', 'feat'), { recursive: true })
+    let calls = 0
+    await ready(repo.path, () => { calls++ })
+    await writeFile(join(repo.path, '.worktrees', 'feat', 'x.ts'), 'x')
+    await wait(900)
+    expect(calls).toBe(0)
+  })
+
+  it('does not even descend into a gitignored folder', async () => {
+    await repo.commit('.gitignore', 'dist/\n')
+    await mkdir(join(repo.path, 'dist'))
+    let calls = 0
+    await ready(repo.path, () => { calls++ })
+    await writeFile(join(repo.path, 'dist', 'bundle.js'), 'x')
+    await wait(900)
+    expect(calls).toBe(0)
+  })
+
+  it('stays quiet for a gitignored folder created after it started', async () => {
+    await repo.commit('.gitignore', 'dist/\n*.log\n')
+    let calls = 0
+    await ready(repo.path, () => { calls++ })
+    await mkdir(join(repo.path, 'dist'))
+    await writeFile(join(repo.path, 'dist', 'bundle.js'), 'x')
+    await writeFile(join(repo.path, 'debug.log'), 'x')
+    await wait(900)
+    expect(calls).toBe(0)
+    await writeFile(join(repo.path, 'real.ts'), 'x')
+    await wait(900)
+    expect(calls).toBe(1)
+  })
+
+  it('still reports a tracked file under an ignored pattern', async () => {
+    await repo.commit('.gitignore', 'dist/\n')
+    await mkdir(join(repo.path, 'dist'))
+    await writeFile(join(repo.path, 'dist', 'keep.js'), 'x')
+    await run('git', ['add', '-f', 'dist/keep.js'], { cwd: repo.path })
+    let calls = 0
+    await ready(repo.path, () => { calls++ })
+    await writeFile(join(repo.path, 'dist', 'keep.js'), 'y')
+    await wait(900)
+    expect(calls).toBe(1)
+  })
+
+  it('reports a worktree added from outside, for a list that polls slowly', async () => {
+    // An existing branch: no ref moves, only the list of worktrees.
+    await run('git', ['branch', 'feat'], { cwd: repo.path })
+    let calls = 0
+    await ready(repo.path, () => { calls++ })
+    await run('git', ['worktree', 'add', '-q', join(repo.path, '..', 'outside'), 'feat'], { cwd: repo.path })
+    await wait(900)
+    expect(calls).toBeGreaterThan(0)
+  })
+
   it('reports a commit made in a linked worktree', async () => {
     const linked = join(repo.path, '..', 'linked')
     await run('git', ['worktree', 'add', '-q', '-b', 'feat', linked], { cwd: repo.path })
