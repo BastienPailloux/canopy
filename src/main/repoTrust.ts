@@ -6,7 +6,7 @@ import { RepoNotTrustedError } from '../shared/errors'
 import type { AppStore } from './appStore'
 import { git, GitError } from './git/exec'
 import { listWorktrees, mainWorktreeRoot } from './git/worktrees'
-import { CONFIG_FILE, parseConfig } from './terminal/config'
+import { CONFIG_FILE, DEFAULT_PORT_ENV, parseConfig } from './terminal/config'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -67,7 +67,10 @@ async function canopyCommands(dir: string): Promise<{ setup: string[]; services:
   if (raw === undefined) return { setup: [], services: [] }
   try {
     const config = parseConfig(raw)
-    return { setup: config.setup, services: config.services.map((s) => `${s.name}: ${s.command}`) }
+    return {
+      setup: config.setup,
+      services: config.services.map((s) => `${s.name}: ${s.command}${s.portEnv === DEFAULT_PORT_ENV ? '' : ` (port dans ${s.portEnv})`}`)
+    }
   } catch {
     return null
   }

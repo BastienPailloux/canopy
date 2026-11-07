@@ -16,8 +16,9 @@ export const CONFIG_FILE = join('.canopy', 'config.json')
 const FIRST_PORT = 4100
 /** A service name ends up in `PORT_<NAME>`. */
 const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
-const DEFAULT_PORT_ENV = 'PORT'
+/** The repo is untrusted: a free name would let it set PATH or ZDOTDIR for a shell, so only port variables are accepted. */
+const PORT_ENV = /^[A-Z][A-Z0-9_]*PORT$/
+export const DEFAULT_PORT_ENV = 'PORT'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -46,8 +47,11 @@ export function parseConfig(raw: string): CanopyConfig {
     if (!SERVICE_NAME.test(s.name)) throw invalid(`nom de service "${s.name}" : lettres, chiffres, - et _ seulement`)
     if (seen.has(s.name)) throw invalid(`le service "${s.name}" est déclaré deux fois`)
     seen.add(s.name)
-    const { portEnv = DEFAULT_PORT_ENV } = s
-    if (typeof portEnv !== 'string' || !ENV_NAME.test(portEnv)) throw invalid(`"portEnv" du service "${s.name}" : un nom de variable est attendu`)
+    const { portEnv } = s
+    if (portEnv === undefined) return { name: s.name, command: s.command, portEnv: DEFAULT_PORT_ENV }
+    if (typeof portEnv !== 'string' || !PORT_ENV.test(portEnv)) {
+      throw invalid(`"portEnv" du service "${s.name}" : une variable en majuscules finissant par PORT est attendue, comme VITE_PORT`)
+    }
     return { name: s.name, command: s.command, portEnv }
   })
   return { setup: [...setup] as string[], services: parsed }

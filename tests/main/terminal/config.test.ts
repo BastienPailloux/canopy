@@ -39,6 +39,10 @@ test.each([
   ['a service without a command', { services: [{ name: 'web' }] }],
   ['a service name that cannot be an env variable', { services: [{ name: 'my web', command: 'x' }] }],
   ['a portEnv that is not a variable name', { services: [{ name: 'web', command: 'x', portEnv: 'A B' }] }],
+  ['a portEnv that would redirect the shell config', { services: [{ name: 'web', command: 'x', portEnv: 'ZDOTDIR' }] }],
+  ['a portEnv that would replace the PATH', { services: [{ name: 'web', command: 'x', portEnv: 'PATH' }] }],
+  ['a portEnv in lower case', { services: [{ name: 'web', command: 'x', portEnv: 'vite_port' }] }],
+  ['a portEnv with PORT only as a prefix', { services: [{ name: 'web', command: 'x', portEnv: 'PORT_PATH' }] }],
   ['a portEnv that is not a string', { services: [{ name: 'web', command: 'x', portEnv: 3000 }] }],
   ['two services with the same name', { services: [{ name: 'web', command: 'a' }, { name: 'web', command: 'b' }] }]
 ])('rejects %s with a readable error', async (_label, content) => {
@@ -96,4 +100,14 @@ test.each(['127.0.0.1', '0.0.0.0', '::', '::1'])('a port listened on at %s is no
 test('a service names the variable that receives its port', async () => {
   await writeConfig({ services: [{ name: 'web', command: 'x', portEnv: 'VITE_PORT' }] })
   expect((await readConfig(dir)).services).toEqual([{ name: 'web', command: 'x', portEnv: 'VITE_PORT' }])
+})
+
+test('without portEnv a service gets PORT, which the declared form does not need to spell', async () => {
+  await writeConfig({ services: [{ name: 'web', command: 'x' }, { name: 'api', command: 'y', portEnv: 'API_PORT' }] })
+  expect((await readConfig(dir)).services.map((s) => s.portEnv)).toEqual(['PORT', 'API_PORT'])
+})
+
+test('a refused portEnv says what is expected', async () => {
+  await writeConfig({ services: [{ name: 'web', command: 'x', portEnv: 'ZDOTDIR' }] })
+  await expect(readConfig(dir)).rejects.toThrow(/portEnv.*web.*PORT/)
 })

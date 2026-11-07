@@ -258,3 +258,15 @@ test('a tracked settings.local.json counts in the hash, an untracked one does no
   await writeFile(local, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'evil' }] }] } }))
   expect(await configHash(repo.path)).not.toBe(tracked)
 })
+
+test('the trust list shows a non-default portEnv, and only that', async () => {
+  await write('.canopy/config.json', { services: [{ name: 'web', command: 'npm run dev', portEnv: 'VITE_PORT' }, { name: 'api', command: 'node api' }] })
+  expect((await readRepoConfig(dir)).services).toEqual(['web: npm run dev (port dans VITE_PORT)', 'api: node api'])
+})
+
+test('a config with a forbidden portEnv is listed as unreadable, and runs nothing', async () => {
+  await write('.canopy/config.json', { services: [{ name: 'web', command: 'x', portEnv: 'ZDOTDIR' }] })
+  const config = await readRepoConfig(dir)
+  expect(config.unknownFiles).toContain('.canopy/config.json')
+  expect(config.services).toEqual([])
+})
