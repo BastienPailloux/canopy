@@ -63,3 +63,12 @@ export type SymbolLocation = Location & { name: string }
 
 /** Hits `searchText` returns at most, unless asked otherwise. */
 export const DEFAULT_SEARCH_LIMIT = 2000
+
+export interface WorkspaceEntry {
+  repo: string
+  repoName: string
+  worktree: Worktree
+  group: 'space' | 'main' | 'feature' | 'other'
+  feature?: string
+}
+export interface Workspace { root: string; entries: WorkspaceEntry[]; truncated: boolean }
