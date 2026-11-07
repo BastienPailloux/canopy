@@ -144,8 +144,8 @@ describe('filters a repo sets for itself', () => {
     expect([await ran('external-ran'), await ran('command-ran'), await ran('textconv-ran')]).toEqual([false, false, false])
   })
 
-  test('the filters of a repo are read once, not at every command', async () => {
-    repo = await createRepo()
+  /** Logs every git command run from now on; returns the lines logged so far. */
+  async function logGit(): Promise<() => Promise<string[]>> {
     const log = marker('git.log')
     const shim = marker('shim')
     await mkdir(shim)
@@ -153,11 +153,71 @@ describe('filters a repo sets for itself', () => {
     await writeFile(join(shim, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\nexec '${real}' "$@"\n`)
     await chmod(join(shim, 'git'), 0o755)
     vi.stubEnv('PATH', `${shim}:${process.env.PATH ?? ''}`)
+    return async () => (await readFile(log, 'utf8').catch(() => '')).trim().split('\n')
+  }
+  const configReads = (lines: string[]): number => lines.filter((l) => / config .*--show-scope/.test(l)).length
+
+  test('the filters of a repo are read once, not at every command', async () => {
+    repo = await createRepo()
+    const logged = await logGit()
     await git(repo.path, ['rev-parse', 'HEAD'])
     await git(repo.path, ['rev-parse', 'HEAD'])
-    const lines = (await readFile(log, 'utf8')).trim().split('\n')
-    expect(lines.filter((l) => l.includes('--get-regexp'))).toHaveLength(1)
+    const lines = await logged()
+    expect(configReads(lines)).toBe(1)
     expect(lines.filter((l) => l.endsWith('rev-parse HEAD'))).toHaveLength(2)
+  })
+
+  test('a filter added to a file already included is blanked by the very next command', async () => {
+    await filtered('inc')
+    const included = marker('already.cfg')
+    await writeFile(included, '[core]\n  quotepath = true\n')
+    config('include.path', included)
+    await worktreeStats(repo!.path, 'HEAD')
+    await appendFile(included, `[filter "inc"]\n  clean = touch '${marker('inc-ran')}'; cat\n`)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('inc-ran')).toBe(false)
+  })
+
+  test('a filter in a file a new include.path brings is blanked by the very next command', async () => {
+    await filtered('newinc')
+    const included = marker('new.cfg')
+    await writeFile(included, `[filter "newinc"]\n  clean = touch '${marker('newinc-ran')}'; cat\n`)
+    await worktreeStats(repo!.path, 'HEAD')
+    config('include.path', included)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('newinc-ran')).toBe(false)
+  })
+
+  test('a filter in an included file that appears after a read is blanked by the very next command', async () => {
+    await filtered('late')
+    const included = marker('later.cfg')
+    config('include.path', included)
+    await worktreeStats(repo!.path, 'HEAD')
+    await writeFile(included, `[filter "late"]\n  clean = touch '${marker('later-ran')}'; cat\n`)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('later-ran')).toBe(false)
+  })
+
+  test('a filter in a file included by an included file, by a relative path, is blanked by the very next command', async () => {
+    await filtered('nested')
+    await mkdir(marker('cfg'))
+    await writeFile(marker('cfg/outer.cfg'), '[include]\n  path = inner.cfg\n')
+    config('include.path', marker('cfg/outer.cfg'))
+    await worktreeStats(repo!.path, 'HEAD')
+    await writeFile(marker('cfg/inner.cfg'), `[filter "nested"]\n  clean = touch '${marker('nested-ran')}'; cat\n`)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('nested-ran')).toBe(false)
+  })
+
+  test('a file of the config that cannot be stated makes every command read the filters again', async () => {
+    repo = await createRepo()
+    await writeFile(marker('plainfile'), '')
+    config('include.path', join(marker('plainfile'), 'x.cfg'))
+    const logged = await logGit()
+    await git(repo.path, ['rev-parse', 'HEAD'])
+    const first = configReads(await logged())
+    await git(repo.path, ['rev-parse', 'HEAD'])
+    expect(configReads(await logged())).toBeGreaterThan(first)
   })
 
   test('a filter added after a read is blanked by the very next command', async () => {
