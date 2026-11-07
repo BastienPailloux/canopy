@@ -458,3 +458,18 @@ test('a remembered base that vanished says so, like a picked one', async () => {
   await expect(page.getByLabel('Branche de comparaison')).toHaveValue('main')
   await expect(page.getByTestId('base-notice')).toHaveText('La branche « disparue » est introuvable : retour à la branche par défaut.')
 })
+
+test('unticking the remembered base goes back to the default one', async () => {
+  await launchWorkspace()
+  await page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: 'Code' }).click()
+  const picker = page.getByLabel('Branche de comparaison')
+  const remember = page.getByLabel('Mémoriser pour ce repo')
+  await picker.selectOption('develop')
+  await remember.check()
+  await expect.poll(() => page.evaluate((r) => window.canopy.repoBase(r), alpha)).toBe('develop')
+
+  await remember.uncheck()
+  await expect.poll(() => page.evaluate((r) => window.canopy.repoBase(r), alpha)).toBeNull()
+  await expect(picker).toHaveValue('main')
+  await expect(page.getByTestId('code-totals')).toContainText('+0')
+})

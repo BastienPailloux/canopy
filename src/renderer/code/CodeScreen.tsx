@@ -45,6 +45,8 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   const isRemembered = remembered !== null && remembered === compared
   /** Stored for the whole repo, for the worktrees that have not picked a branch of their own. Null forgets it. */
   const remember = (branch: string | null): void => {
+    // Forgotten, it must not stay on as this worktree's own pick.
+    if (branch === null && pickedBase === remembered) setPickedBase(undefined)
     setRemembered(branch)
     window.canopy.setRepoBase(cwd, branch).then(() => {
       data.refresh()
