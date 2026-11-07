@@ -122,6 +122,18 @@ export function closeTab(id: string): void {
   ensureTab(tab.cwd)
 }
 
+const hasDraft = (t: SessionTab): boolean => t.draft.text.trim() !== '' || t.draft.images.length > 0
+
+/** ⌘W: closes the selected tab unless that would stop a turn or lose a draft. Then nothing happens. */
+export function closeActiveTabIfSafe(cwd: string): void {
+  const tab = tabOf(useSessions.getState().active[cwd])
+  if (!tab || tab.state === 'running' || tab.state === 'waiting' || hasDraft(tab)) return
+  closeTab(tab.id)
+}
+
+/** Tabs holding a message not sent yet. */
+export const composerDraftCount = (): number => Object.values(useSessions.getState().tabs).filter(hasDraft).length
+
 /** The worktree is gone: its tabs have nothing left to show, and their drafts nowhere to go. */
 export function forgetWorktree(cwd: string): void {
   useSessions.setState((s) => ({

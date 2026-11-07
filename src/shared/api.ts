@@ -127,6 +127,8 @@ export interface CanopyApi {
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
   /** Worktrees of `repo` that vanished from outside with sessions or terminals still alive. */
   orphanedWorktrees(repo: string): Promise<OrphanedWorktree[]>
+  /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts. */
+  reportUnsaved(counts: { buffers: number; drafts: number }): Promise<void>
   /** Opens a web or mail link in the default browser. Rejects for any other scheme. */
   openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */

@@ -11,6 +11,7 @@ import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer } from './g
 import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, removalRisks, removeWorktree } from './git/worktrees'
+import { parseUnsaved, type UnsavedCounts } from './quit'
 import { PrCache, repoNeedsAttention, worktreeStatus } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
@@ -120,9 +121,13 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
   })
 }
 
-export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager): void {
+export function registerIpc(
+  store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void
+): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
+  ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
+
   const prs = new PrCache()
   const orphans = new OrphanTracker()
   const live: LiveProcesses = {

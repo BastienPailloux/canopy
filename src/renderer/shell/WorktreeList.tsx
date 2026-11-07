@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { OrphanedWorktree } from '../../shared/api'
 import type { Worktree, WorktreeStats } from '../../shared/types'
+import { dropDrafts } from '../code/drafts'
 import { forgetWorktree } from '../sessions/sessionStore'
 import { useApp, worktreeLabel } from '../store'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
@@ -8,6 +9,12 @@ import { createOrdering, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polli
 import { RemoveWorktreeDialog } from './RemoveWorktreeDialog'
 import { STATUS_LABEL, useStatuses } from './useStatuses'
 import type { WorktreeStatus } from '../../shared/types'
+
+/** What the page still holds for a worktree that is gone. */
+function forget(path: string): void {
+  forgetWorktree(path)
+  dropDrafts(path)
+}
 
 interface StatsEntry { stats?: WorktreeStats; error?: string }
 
@@ -63,7 +70,7 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
       const ended = useApp.getState().orphans.filter((o) => !gone.some((g) => g.path === o.path) && !list.some((w) => w.path === o.path))
       setOrphans(gone)
       setWorktrees(list)
-      ended.forEach((o) => forgetWorktree(o.path))
+      ended.forEach((o) => forget(o.path))
       // The main process watches exactly these, and drops the ones that left the list.
       const key = `${forRepo}\0${list.map((w) => w.path).join('\0')}`
       if (watched.current !== key) {
@@ -231,7 +238,7 @@ export function WorktreeList({ repo }: { repo: string }): React.JSX.Element {
       )}
       {removing && (
         <RemoveWorktreeDialog repo={repo} worktree={removing} onClose={() => setRemoving(null)}
-          onRemoved={() => { forgetWorktree(removing.path); setRemoving(null); void refresh() }} />
+          onRemoved={() => { forget(removing.path); setRemoving(null); void refresh() }} />
       )}
     </>
   )

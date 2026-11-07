@@ -417,3 +417,46 @@ test('a worktree deleted outside Canopy keeps its live session reachable, with a
   await expect(page.getByTestId('worktree-orphan')).toHaveCount(0, { timeout: 10_000 })
   await expect(page.getByTestId('active-worktree')).toHaveText('main')
 })
+
+const closeTabFromMenu = (): Promise<void> => app.evaluate(({ Menu }) => { Menu.getApplicationMenu()?.getMenuItemById('close-tab')?.click() })
+
+test('⌘W closes a finished tab, never a running one, and does not quit', async () => {
+  await launch(true)
+  await worktree('feat/a').click()
+  await send('lent')
+  await expect(page.getByTestId('session-state').first()).toHaveText('en cours')
+  await closeTabFromMenu()
+  await page.waitForTimeout(300)
+  await expect(page.getByRole('tab', { name: /lent/ })).toHaveCount(1)
+  await expect(page.getByTestId('session-state').first()).toHaveText('prête', { timeout: 15_000 })
+
+  await closeTabFromMenu()
+  await expect(page.getByRole('tab', { name: /lent/ })).toHaveCount(0)
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+})
+
+test('the quit question counts composer drafts, and cancelling keeps them', async () => {
+  await launch(true)
+  await composer().fill('à ne pas perdre')
+  const detail = await app.evaluate(async ({ app: electronApp, dialog }) => new Promise<string>((resolve) => {
+    dialog.showMessageBox = (async (...args: unknown[]) => {
+      resolve((args.at(-1) as { detail: string }).detail)
+      return { response: 1, checkboxChecked: false }
+    }) as unknown as typeof dialog.showMessageBox
+    setTimeout(() => electronApp.quit(), 300)
+  }))
+  expect(detail).toContain('1 brouillon de message')
+  await expect(composer()).toHaveValue('à ne pas perdre')
+})
+
+test('a crashed renderer comes back, and finds its session', async () => {
+  await launch(true)
+  await worktree('feat/a').click()
+  await send('bonjour')
+  await expect(assistantMessages().first()).toContainText('bonjour')
+  await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer() })
+  // Playwright's page died with the renderer: the reloaded one is read through the main process.
+  const inPage = (script: string): Promise<unknown> => app.evaluate(({ BrowserWindow }, js) => BrowserWindow.getAllWindows()[0].webContents.executeJavaScript(js), script).catch(() => null)
+  await expect.poll(() => inPage(`document.querySelectorAll('[data-testid="worktree"]').length`), { timeout: 20_000 }).toBe(2)
+  expect(await inPage(`window.canopy.listSessions(${JSON.stringify(featPath)}).then((l) => l.filter((s) => s.live).length)`)).toBe(1)
+})

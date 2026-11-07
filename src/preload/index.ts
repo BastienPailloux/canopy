@@ -18,6 +18,7 @@ const api: CanopyApi = {
   removalRisks: (repo, path) => ipcRenderer.invoke('worktree:risks', repo, path),
   removeWorktree: (repo, path, force) => ipcRenderer.invoke('worktree:remove', repo, path, force),
   orphanedWorktrees: (repo) => ipcRenderer.invoke('worktree:orphans', repo),
+  reportUnsaved: (counts) => ipcRenderer.invoke('app:unsaved', counts),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   listTree: (cwd) => ipcRenderer.invoke('code:listTree', cwd),
   searchText: (cwd, q, o) => ipcRenderer.invoke('code:search', cwd, q, o),

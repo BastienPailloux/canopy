@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, Menu, safeStorage } from 'electron'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
 import { join, sep } from 'node:path'
@@ -6,9 +6,11 @@ import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-ag
 import { AppStore } from './appStore'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
+import { createCrashReload } from './crashReload'
 import { currentEnv, startEnv } from './env'
-import { registerIpc } from './ipc'
-import { createQuitFlow, quitDetail } from './quit'
+import { broadcast, registerIpc } from './ipc'
+import { menuTemplate } from './menu'
+import { createQuitFlow, quitDetail, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
 import { TerminalManager } from './terminal/TerminalManager'
@@ -26,7 +28,7 @@ function claudeExecutablePath(): string | undefined {
 let quitting = (): boolean => false
 
 /** `onClose` runs for every close that is not part of a quit already under way. */
-function createWindow(onClose: () => void): void {
+function createWindow(onClose: () => void, onRendererGone: () => void): void {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -48,6 +50,13 @@ function createWindow(onClose: () => void): void {
   // Nothing a session prints may replace the app's page or open a window of its own.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.on('will-navigate', (e) => { e.preventDefault() })
+
+  // Sessions and terminals live here: a reload gives them their window back.
+  const shouldReload = createCrashReload()
+  win.webContents.on('render-process-gone', (_e, details) => {
+    onRendererGone()
+    if (!quitting() && shouldReload(details.reason)) win.webContents.reload()
+  })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -71,9 +80,10 @@ void app.whenReady().then(async () => {
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
+  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0 }
   // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const quit = createQuitFlow({
-    counts: () => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount() }),
+    counts: () => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved }),
     confirm: async (counts) => {
       const options: Electron.MessageBoxOptions = {
         type: 'warning', buttons: ['Quitter', 'Annuler'], defaultId: 1, cancelId: 1,
@@ -93,8 +103,10 @@ void app.whenReady().then(async () => {
     e.preventDefault()
     void quit.request()
   })
-  registerIpc(store, sessions, lsp, terminals)
-  const open = (): void => createWindow(() => void quit.request())
+  registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts })
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({ isPackaged: app.isPackaged, onCloseTab: () => broadcast('menu:closeTab') })))
+  // What the page held died with it.
+  const open = (): void => createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0 } })
   open()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) open()

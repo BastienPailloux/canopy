@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
-import { connectSessions } from './sessions/sessionStore'
+import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
 import { SidePanel } from './sessions/SidePanel'
 import { TrustDialog } from './sessions/TrustDialog'
 import { connectTerminals } from './terminal/terminalStore'
@@ -10,6 +10,7 @@ import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
 import { openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
+import { connectUnsaved } from './unsaved'
 
 function Empty(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +55,12 @@ export function App(): React.JSX.Element {
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
+  useEffect(() => connectUnsaved(), [])
+  useEffect(() => window.canopy.on('menu:closeTab', () => {
+    const { view, worktree } = useApp.getState()
+    // A dialog is the thing in front: ⌘W must not act behind it.
+    if (view === 'sessions' && worktree && !document.querySelector('[aria-modal="true"]')) closeActiveTabIfSafe(worktree)
+  }), [])
 
   // Re-open the most recent repo that still exists.
   useEffect(() => {

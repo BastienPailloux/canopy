@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { closeApp } from '../helpers/closeApp'
 import { createRepo, type TestRepo } from '../helpers/repo'
 
 const SHOT = join(__dirname, '..', '..', '.superpowers', 'sdd', '2026-11-07-canopy-v1', 'task-9-code.png')
@@ -56,7 +57,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await app.close()
+  await closeApp(app)
   await repo.cleanup()
   await rm(userData, { recursive: true, force: true })
 })

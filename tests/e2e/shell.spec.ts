@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { closeApp } from '../helpers/closeApp'
 import { createRepo, type TestRepo } from '../helpers/repo'
 
 let repo: TestRepo
@@ -37,7 +38,7 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await app.close()
+  await closeApp(app)
   await repo.cleanup()
   await rm(userData, { recursive: true, force: true })
 })

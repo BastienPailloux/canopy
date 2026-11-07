@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, closeTab, ensureTab, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -274,5 +274,45 @@ describe('askClaude', () => {
     await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
     expect(tabs()).toHaveLength(2)
     expect(useSessions.getState().tabs[typing].draft.text).toBe('en cours')
+  })
+})
+
+describe('closeActiveTabIfSafe', () => {
+  const open = (fields: Partial<SessionTab>): string => {
+    ensureTab(CWD)
+    const id = activeTab().id
+    useSessions.setState((s) => ({ tabs: { ...s.tabs, [id]: { ...s.tabs[id], ...fields } } }))
+    return id
+  }
+
+  it('closes a finished tab', () => {
+    const id = open({ state: 'idle', localId: 'local-1' })
+    closeActiveTabIfSafe(CWD)
+    expect(useSessions.getState().tabs[id]).toBeUndefined()
+    expect(api.stopSession).toHaveBeenCalledWith('local-1')
+  })
+
+  it.each(['running', 'waiting'] as const)('leaves a %s session alone', (state) => {
+    const id = open({ state, localId: 'local-1' })
+    closeActiveTabIfSafe(CWD)
+    expect(useSessions.getState().tabs[id]).toBeDefined()
+    expect(api.stopSession).not.toHaveBeenCalled()
+  })
+
+  it('leaves a tab with a draft alone', () => {
+    const id = open({ state: 'idle', draft: { text: 'à finir', images: [] } })
+    closeActiveTabIfSafe(CWD)
+    expect(useSessions.getState().tabs[id]).toBeDefined()
+  })
+})
+
+describe('composerDraftCount', () => {
+  it('counts the tabs holding text or an image', () => {
+    ensureTab(CWD)
+    expect(composerDraftCount()).toBe(0)
+    setDraftText(activeTab().id, 'x')
+    expect(composerDraftCount()).toBe(1)
+    setDraftText(activeTab().id, '   ')
+    expect(composerDraftCount()).toBe(0)
   })
 })
