@@ -53,6 +53,7 @@ function run(cwd: string, args: string[], opts: GitOptions, extraEnv: NodeJS.Pro
 
 const FILTERS_TTL_MS = 5_000
 const OWN_SCOPES = new Set(['local', 'worktree'])
+const FILTER_PREFIX = 'filter.'
 
 /**
  * The repo's own config may name commands to run on any diff, through its `.gitattributes`. Each filter it declares
@@ -63,8 +64,13 @@ async function readBlankFilters(cwd: string): Promise<NodeJS.ProcessEnv> {
   const fields = out.split('\0')
   const names = new Set<string>()
   for (let i = 0; i + 1 < fields.length; i += 2) {
-    const name = /^filter\.(.*)\.[^.]+$/.exec(fields[i + 1])?.[1]
-    if (name !== undefined && OWN_SCOPES.has(fields[i])) names.add(name)
+    const key = fields[i + 1]
+    const end = key.lastIndexOf('.')
+    if (!OWN_SCOPES.has(fields[i]) || !key.startsWith(FILTER_PREFIX) || end < FILTER_PREFIX.length) continue
+    const name = key.slice(FILTER_PREFIX.length, end)
+    // Its bytes are lost in decoding: it could not be blanked, and would run.
+    if (name.includes('\uFFFD')) throw new GitError('A filter of this repo has an unreadable name', '')
+    names.add(name)
   }
   const blank = [...names].flatMap((name) => [
     [`filter.${name}.clean`, ''], [`filter.${name}.smudge`, ''], [`filter.${name}.process`, ''],

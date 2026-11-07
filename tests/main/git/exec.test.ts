@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { changedFiles, worktreeStats } from '../../../src/main/git/diff'
@@ -72,6 +72,24 @@ describe('filters a repo sets for itself', () => {
     config('filter..clean', `touch '${marker('empty-name-ran')}'; cat`)
     await git(repo!.path, ['diff', '--numstat', 'HEAD'])
     await expect(stat(marker('empty-name-ran'))).rejects.toThrow()
+  })
+
+  test('a filter whose name has a line separator does not run', async () => {
+    await filtered('a\u2028b')
+    config('filter.a\u2028b.clean', `touch '${marker('separator-ran')}'; cat`)
+    await git(repo!.path, ['diff', '--numstat', 'HEAD'])
+    expect(await ran('separator-ran')).toBe(false)
+  })
+
+  test('a filter whose name is not UTF-8 stops the read rather than run', async () => {
+    await filtered('plain')
+    const name = Buffer.from([0x62, 0xff, 0x63])
+    await appendFile(join(repo!.path, '.git', 'config'), Buffer.concat([
+      Buffer.from('[filter "'), name, Buffer.from(`"]\n\tclean = touch '${marker('bytes-ran')}'; cat\n`)
+    ]))
+    await writeFile(join(repo!.path, '.gitattributes'), Buffer.concat([Buffer.from('* filter='), name, Buffer.from('\n')]))
+    await expect(git(repo!.path, ['diff', '--numstat', 'HEAD'])).rejects.toThrow(/filter/i)
+    expect(await ran('bytes-ran')).toBe(false)
   })
 
   test('a process filter does not run either', async () => {
