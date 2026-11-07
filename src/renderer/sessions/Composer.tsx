@@ -1,17 +1,9 @@
 import type { ModelInfo, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { IMAGE_TYPES, SESSION_MODES } from '../../shared/sessionOptions'
 import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
 import { interrupt, setDraftImages, setDraftText, setMode, setModel, submit, warmUp, type SessionTab } from './sessionStore'
 import type { UserImage } from './transcript'
-
-/** `bypassPermissions` is left out on purpose: the main process rejects it. */
-const MODES: { value: PermissionMode; label: string }[] = [
-  { value: 'default', label: 'Mode : demander' },
-  { value: 'acceptEdits', label: 'Mode : accepter les edits' },
-  { value: 'plan', label: 'Mode : plan' },
-  { value: 'dontAsk', label: 'Mode : refuser sans demander' },
-  { value: 'auto', label: 'Mode : auto' }
-]
 
 /** Until a session can list its own models. */
 const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
@@ -19,8 +11,6 @@ const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
   { value: 'sonnet', displayName: 'Sonnet' },
   { value: 'haiku', displayName: 'Haiku' }
 ]
-
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
 interface Suggestion { value: string; label: string; detail?: string }
 
@@ -117,7 +107,8 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const onPaste = (e: React.ClipboardEvent): void => {
     const pasted = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
     if (pasted.length === 0) return
-    e.preventDefault()
+    // Text copied along with an image still goes in the box, by the browser's own paste.
+    if (e.clipboardData.getData('text/plain') === '') e.preventDefault()
     const usable = pasted.filter((f) => IMAGE_TYPES.includes(f.type))
     setImageError(usable.length < pasted.length ? 'Seules les images PNG, JPEG, GIF et WebP sont acceptées.' : null)
     void Promise.all(usable.map(readImage)).then(
@@ -161,7 +152,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
           onKeyDown={onKeyDown} onPaste={onPaste} />
         <div className="composer-bar">
           <select aria-label="Mode" value={tab.mode} onChange={(e) => setMode(tab.id, e.target.value as PermissionMode)}>
-            {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            {SESSION_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
           <select aria-label="Modèle" value={tab.model ?? ''} onChange={(e) => { if (e.target.value) setModel(tab.id, e.target.value) }}>
             {!tab.model && <option value="">Modèle par défaut</option>}

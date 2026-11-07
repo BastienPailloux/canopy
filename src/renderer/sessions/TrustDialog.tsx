@@ -1,5 +1,5 @@
+import { useEffect, useRef } from 'react'
 import type { RepoConfig } from '../../shared/api'
-import { basename } from '../store'
 import { useSessions } from './sessionStore'
 
 const SECTIONS: { key: keyof RepoConfig; label: string }[] = [
@@ -15,12 +15,21 @@ const SECTIONS: { key: keyof RepoConfig; label: string }[] = [
 /** Shown before the first session in a repo: a session loads what the repo declares. */
 export function TrustDialog(): React.JSX.Element | null {
   const prompt = useSessions((s) => s.trustPrompt)
+  const dialog = useRef<HTMLDivElement>(null)
+
+  // Focus sits on the dialog, not a button, so that the Enter of a send answers nothing.
+  useEffect(() => {
+    if (!prompt) return
+    dialog.current?.focus()
+    return () => document.getElementById('composer')?.focus()
+  }, [prompt])
+
   if (!prompt) return null
   const { trust, answer } = prompt
   const declared = SECTIONS.filter((s) => trust[s.key].length > 0)
   return (
     <div className="overlay">
-      <div className="dialog trust" role="alertdialog" aria-modal="true" aria-label="Faire confiance à ce dépôt ?"
+      <div className="dialog trust" ref={dialog} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label="Faire confiance à ce dépôt ?"
         onKeyDown={(e) => { if (e.key === 'Escape') answer(false) }}>
         <h2>Faire confiance à ce dépôt ?</h2>
         <p className="risk">
@@ -46,7 +55,7 @@ export function TrustDialog(): React.JSX.Element | null {
         </p>
         <p className="plain">Si tu refuses, aucune session ne démarre. Le code et le terminal restent utilisables.</p>
         <div className="actions">
-          <button type="button" className="secondary" autoFocus onClick={() => answer(false)}>Refuser</button>
+          <button type="button" className="secondary" onClick={() => answer(false)}>Refuser</button>
           <button type="button" className="primary" onClick={() => answer(true)}>Faire confiance</button>
         </div>
       </div>
