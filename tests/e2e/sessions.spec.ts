@@ -232,6 +232,15 @@ test('a question is answered with the observed shape', async () => {
   await expect(page.getByTestId('tool-card')).toContainText('{"Quelle couleur ?":"Bleu","Quelles tailles ?":"S, XL"}')
 })
 
+test('a large question fits without scrolling inside its card', async () => {
+  await launch(true)
+  await send('questions')
+  const card = page.getByTestId('question-card')
+  await expect(card.getByLabel('Choix 2.4')).toBeVisible()
+  const scrolls = await page.locator('.pending').evaluate((el) => el.scrollHeight > el.clientHeight)
+  expect(scrolls).toBe(false)
+})
+
 test('a reload finds the running session and its unanswered request again', async () => {
   await launch(true)
   await send('outil')

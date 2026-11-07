@@ -97,6 +97,14 @@ const QUESTIONS = {
   ]
 }
 
+/** Two questions of four described options: taller than the old 45% cap at the default window size. */
+const BIG_QUESTIONS = {
+  questions: Array.from({ length: 2 }, (_, q) => ({
+    question: `Question ${q + 1} ?`, header: `Q${q + 1}`, multiSelect: q % 2 === 1,
+    options: Array.from({ length: 4 }, (_, o) => ({ label: `Choix ${q + 1}.${o + 1}`, description: `Ce que le choix ${o + 1} implique` }))
+  }))
+}
+
 async function* turn(t: Turn, text: string): AsyncGenerator<SDKMessage> {
   yield initMessage(t)
   const scenario = text.split(/\s/)[0]
@@ -114,6 +122,8 @@ async function* turn(t: Turn, text: string): AsyncGenerator<SDKMessage> {
     yield* useTool(t, 'Edit', { file_path: 'src/alpha.ts', old_string: 'a = 1', new_string: 'a = 2' }, [], 'ok')
   } else if (scenario === 'question') {
     yield* useTool(t, 'AskUserQuestion', QUESTIONS, [], '')
+  } else if (scenario === 'questions') {
+    yield* useTool(t, 'AskUserQuestion', BIG_QUESTIONS, [], '')
   } else if (scenario === 'plan') {
     yield* useTool(t, 'ExitPlanMode', { plan: '# Mon plan\n\n- une étape\n- une autre' }, [], 'ok')
     // As the real CLI does once a plan is approved.
