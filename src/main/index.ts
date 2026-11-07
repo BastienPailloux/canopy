@@ -181,6 +181,7 @@ void app.whenReady().then(async () => {
         return response === 0
       },
       finish: (then) => { quit.finish(then) },
+      relaunch: () => { app.relaunch(); app.exit(0) },
       stashFile,
       stashTimeoutMs: 5000
     })

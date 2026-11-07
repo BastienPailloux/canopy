@@ -40,6 +40,7 @@ function setup(counts: Partial<RunningCounts> = {}) {
   const broadcast = vi.fn((e: string) => { log.push(e) })
   const confirm = vi.fn(() => Promise.resolve(false))
   const finish = vi.fn((then: () => void) => { log.push('finish'); then() })
+  const relaunch = vi.fn(() => { log.push('relaunch') })
   const deps: UpdaterDeps = {
     updater: fake as unknown as UpdaterDeps['updater'],
     now: () => Date.now(),
@@ -48,12 +49,13 @@ function setup(counts: Partial<RunningCounts> = {}) {
     counts: () => ({ sessions: 0, terminals: 0, buffers: 0, drafts: 0, ...counts }),
     confirm,
     finish,
+    relaunch,
     stashFile: file,
     stashTimeoutMs: 5000
   }
   const u = createUpdater(deps)
   u.start()
-  return { u, fake, broadcast, confirm, finish, log }
+  return { u, fake, broadcast, confirm, finish, relaunch, log }
 }
 
 describe('updater', () => {
@@ -117,5 +119,46 @@ describe('updater', () => {
     expect(broadcast.mock.calls.filter(([e]) => e === 'update:collectStash')).toHaveLength(1)
     expect(finish).toHaveBeenCalledTimes(1)
     expect(fake.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('a forced restart while the question is open finishes once, whatever the answer', async () => {
+    const { u, fake, confirm, finish } = setup({ sessions: 1 })
+    let answer: (v: boolean) => void = () => {}
+    confirm.mockImplementation(() => new Promise<boolean>((r) => { answer = r }))
+    fake.emit('update-downloaded', { version: '1.2.0' })
+    void u.restart(true)
+    await vi.advanceTimersByTimeAsync(FORCE_AFTER_MS)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(finish).toHaveBeenCalledTimes(1)
+    answer(true)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(fake.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('quitAndInstall that throws falls back to a relaunch', async () => {
+    const { u, fake, relaunch } = setup()
+    fake.quitAndInstall.mockImplementation(() => { throw new Error('no installer') })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    fake.emit('update-downloaded', { version: '1.2.0' })
+    void u.restart(false)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(relaunch).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(relaunch).toHaveBeenCalledTimes(1)
+    error.mockRestore()
+  })
+
+  it('an app still running 30 s after quitAndInstall relaunches', async () => {
+    const { u, fake, relaunch } = setup()
+    fake.emit('update-downloaded', { version: '1.2.0' })
+    void u.restart(false)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fake.quitAndInstall).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(relaunch).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(relaunch).toHaveBeenCalledTimes(1)
   })
 })

@@ -6,6 +6,8 @@ import { parseStash, writeStash } from './stash'
 
 const CHECK_EVERY_MS = 4 * 3600_000
 const TICK_EVERY_MS = 30_000
+/** How long quitAndInstall gets to quit the app before Canopy relaunches itself instead. */
+export const QUIT_GRACE_MS = 30_000
 
 export interface UpdaterDeps {
   updater: Pick<AppUpdater, 'checkForUpdates' | 'quitAndInstall' | 'on' | 'autoDownload' | 'autoInstallOnAppQuit'>
@@ -17,6 +19,11 @@ export interface UpdaterDeps {
   confirm: (detail: string) => Promise<boolean>
   /** Stops everything without asking, then runs `then` instead of quitting. */
   finish: (then: () => void) => void
+  /**
+   * Starts the app again when the installer did not quit it: everything is already stopped, the relaunch
+   * restores the stash, and the update installs on the next normal quit.
+   */
+  relaunch: () => void
   stashFile: string
   /** How long the page gets to hand over its unsaved work before the restart goes on without it. */
   stashTimeoutMs: number
@@ -55,7 +62,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
       last = json
       deps.broadcast('update:state', s)
     }
-    if (s.phase === 'warning' && s.restartAt <= now) void restart(false)
+    if (s.phase === 'warning' && s.restartAt <= now) restart(false).catch(logError)
   }
 
   const collectStash = (): Promise<Stash | null> => new Promise((resolve) => {
@@ -85,7 +92,20 @@ export function createUpdater(deps: UpdaterDeps): Updater {
     if (stash) {
       try { writeStash(deps.stashFile, stash) } catch (e) { logError(e) }
     }
-    deps.finish(() => { deps.updater.quitAndInstall(false, true) })
+    try { deps.finish(install) } catch (e) { logError(e); relaunchOnce() }
+  }
+
+  // By then everything is stopped: an app left standing would show 0:00 forever.
+  let relaunched = false
+  function relaunchOnce(): void {
+    if (relaunched) return
+    relaunched = true
+    try { deps.relaunch() } catch (e) { logError(e) }
+  }
+
+  function install(): void {
+    setTimeout(relaunchOnce, QUIT_GRACE_MS)
+    try { deps.updater.quitAndInstall(false, true) } catch (e) { logError(e); relaunchOnce() }
   }
 
   return {
