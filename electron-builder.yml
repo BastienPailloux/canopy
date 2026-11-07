@@ -1,4 +1,4 @@
-appId: dev.canopy.app
+appId: io.github.bastienpailloux.canopy
 productName: Canopy
 directories:
   output: dist
@@ -22,8 +22,13 @@ mac:
   target:
     - target: dmg
       arch: arm64
+    - target: zip
+      arch: arm64
   icon: build/icon.icns
-  identity: null
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
   category: public.app-category.developer-tools
   # Lets `open -a Canopy <folder>` hand a folder over. Rank None: Canopy never becomes the default app for folders.
   extendInfo:
@@ -35,3 +40,8 @@ mac:
           - public.folder
 dmg:
   title: Canopy
+publish:
+  provider: github
+  owner: BastienPailloux
+  repo: canopy
+  releaseType: release
