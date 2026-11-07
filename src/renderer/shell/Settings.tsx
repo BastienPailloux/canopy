@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ACCOUNT_CHANGED } from './AccountFooter'
 
 interface KeyStatus { set: boolean; encryptionAvailable: boolean }
 
@@ -38,6 +39,7 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
     try {
       await window.canopy.saveApiKey(value)
       setKey('')
+      window.dispatchEvent(new Event(ACCOUNT_CHANGED))
       setStatus(await window.canopy.apiKeyStatus())
       setNotice(value === null ? 'Clé supprimée.' : 'Clé enregistrée dans le trousseau.')
     } catch (e) {

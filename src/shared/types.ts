@@ -90,3 +90,11 @@ export const MAX_WORKSPACE_REPOS = 200
 
 /** Whether `path` is one of `folders` or lies under one. */
 export const isUnder = (folders: string[], path: string): boolean => folders.some((f) => path === f || path.startsWith(`${f}/`))
+
+/** Who the sessions bill: the Claude login, a saved API key, or nobody yet. */
+export interface ClaudeAccount {
+  method: 'login' | 'apiKey' | 'none' | 'unknown'
+  email?: string
+  organization?: string
+  subscription?: string
+}

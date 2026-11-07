@@ -1,7 +1,7 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { Activity, BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
+import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 
 export interface RemovalRisks {
   dirty: number
@@ -130,6 +130,8 @@ export interface CanopyApi {
   apiKeyStatus(): Promise<{ set: boolean; encryptionAvailable: boolean }>
   /** Saves the key in the keychain, or removes it with null. Rejects, storing nothing, if the keychain is unavailable. */
   saveApiKey(key: string | null): Promise<void>
+  /** The account sessions use. Cached 5 minutes by the main process; a saved or removed API key refreshes it. Never rejects: a failed read is `unknown`. */
+  claudeAccount(): Promise<ClaudeAccount>
   /** Rejects on unreadable files or a corrupt repo: callers must tolerate it. */
   worktreeStats(cwd: string): Promise<WorktreeStats>
   createWorktree(repo: string, o: NewWorktree): Promise<Worktree>

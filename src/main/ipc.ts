@@ -2,7 +2,8 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { access } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { NewWorktree } from '../shared/api'
-import type { Worktree, WorktreeStats } from '../shared/types'
+import type { ClaudeAccount, Worktree, WorktreeStats } from '../shared/types'
+import { readClaudeAccount, type AccountRunner } from './account'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
 import type { LspPool } from './code/lsp'
@@ -23,6 +24,8 @@ import { assertContent, assertId, assertMode, parseDecision, parseStartOptions }
 
 /** The repo picker asks about each recent folder on every session change: a walk of the disk cannot follow that pace. */
 const FOLDER_REPOS_TTL_MS = 5 * 60_000
+
+const ACCOUNT_TTL_MS = 5 * 60_000
 
 /** Push an event to every renderer (received through `CanopyApi.on`). */
 export function broadcast(event: string, payload?: unknown): void {
@@ -119,7 +122,7 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
 
 export function registerIpc(
   store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void,
-  takeOpenFolder: () => string | null
+  takeOpenFolder: () => string | null, runAccount: AccountRunner
 ): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
@@ -171,13 +174,24 @@ export function registerIpc(
     store.revokeRepo(root)
   })
 
+  const account = new TtlCache<ClaudeAccount>(ACCOUNT_TTL_MS)
+
   // The key goes in, never out: the renderer only learns whether one is set.
   ipcMain.handle('settings:apiKeyStatus', () => ({ set: store.hasApiKey(), encryptionAvailable: store.encryptionAvailable }))
 
   ipcMain.handle('settings:saveApiKey', (_e, key: unknown) => {
     if (key !== null && (typeof key !== 'string' || key.length > 512 || /\s/.test(key))) throw new Error('Clé API invalide')
     store.saveApiKey(key)
+    account.clear()
   })
+
+  // Asked at launch and on each focus: `claude auth status` runs at most once per 5 minutes.
+  ipcMain.handle('account:claude', () => account.get('claude', async () => {
+    const read = await readClaudeAccount({ run: runAccount, hasApiKey: store.hasApiKey() })
+    // A failed read (no PATH yet, a hiccup) must not stick for five minutes.
+    if (read.method === 'unknown') account.clear()
+    return read
+  }))
 
   setBaseOverride(async (cwd) => store.repoBases[await mainWorktreeRoot(cwd)])
 

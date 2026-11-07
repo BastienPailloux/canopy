@@ -5,6 +5,7 @@ import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
 import { SidePanel } from './sessions/SidePanel'
 import { TrustDialog } from './sessions/TrustDialog'
 import { connectTerminals } from './terminal/terminalStore'
+import { AccountFooter } from './shell/AccountFooter'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
@@ -99,6 +100,7 @@ export function App(): React.JSX.Element {
           <>
             <aside className="sidebar" aria-label="Worktrees">
               <WorktreeList key={workspace.root} repo={repo} workspace={workspace} />
+              <AccountFooter />
             </aside>
             <main className="main"><Main /></main>
           </>

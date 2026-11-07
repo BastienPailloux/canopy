@@ -21,6 +21,7 @@ const api: CanopyApi = {
   revokeRepo: (root) => ipcRenderer.invoke('settings:revokeRepo', root),
   apiKeyStatus: () => ipcRenderer.invoke('settings:apiKeyStatus'),
   saveApiKey: (key) => ipcRenderer.invoke('settings:saveApiKey', key),
+  claudeAccount: () => ipcRenderer.invoke('account:claude'),
   createWorktree: (repo, o) => ipcRenderer.invoke('worktree:create', repo, o),
   defaultBase: (cwd) => ipcRenderer.invoke('worktree:defaultBase', cwd),
   removalRisks: (repo, path) => ipcRenderer.invoke('worktree:risks', repo, path),

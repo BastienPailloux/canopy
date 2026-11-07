@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
+import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
@@ -147,7 +148,8 @@ void app.whenReady().then(async () => {
     e.preventDefault()
     void quit.request()
   })
-  registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take())
+  registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
+    selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }))
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     isPackaged: app.isPackaged,
     onCloseTab: () => broadcast('menu:closeTab'),
