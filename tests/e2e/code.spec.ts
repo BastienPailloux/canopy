@@ -215,6 +215,24 @@ test('a file that is not UTF-8 opens read-only, with the reason', async () => {
   await expect(page.getByRole('button', { name: 'Modifier' })).toHaveCount(0)
 })
 
+test('fast typing on a busy machine loses nothing and stays in order', async () => {
+  await launch()
+  await openCode()
+  await treeFile('src/beta.ts').click()
+  await page.getByRole('button', { name: 'Modifier' }).click()
+  await page.getByTestId('code-editor').click()
+  await page.keyboard.press('Meta+End')
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 30 })
+  const typed = '// abcdefghijklmnopqrstuvwxyz 0123456789 abcdefghijklmnopqrstuvwxyz'
+  await page.keyboard.type(typed)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
+  await expect(page.getByText('non enregistré')).toBeVisible()
+  await page.keyboard.press('Meta+s')
+  await expect(page.getByText('non enregistré')).toHaveCount(0, { timeout: 15_000 })
+  expect(await readFile(join(featPath, 'src', 'beta.ts'), 'utf8')).toBe(`export const beta = true\n${typed}`)
+})
+
 test('a plain save writes the file', async () => {
   await launch()
   await openCode()

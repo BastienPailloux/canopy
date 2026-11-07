@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { DIFF_SLOW_MS, DIFF_TIMEOUT_MS, DIFF_WATCHDOG_MS, diffAbandoned, type DiffResult, type DiffStatus } from './diffOutcome'
+import { createEchoFilter } from './editorEcho'
 import { monaco, THEME } from './monaco'
 
 export interface Selection { text: string; startLine: number; endLine: number }
@@ -73,6 +74,8 @@ export function CodeEditor(props: {
   const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null)
   const latest = useRef(props)
   latest.current = props
+  const echo = useRef(createEchoFilter())
+  const applying = useRef(false)
 
   useEffect(() => {
     if (!host.current) return
@@ -81,7 +84,12 @@ export function CodeEditor(props: {
     decorations.current = editor.createDecorationsCollection()
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => latest.current.onSave())
     bindNavigation(editor, () => latest.current.onNavigate)
-    editor.onDidChangeModelContent(() => latest.current.onChange(editor.getValue()))
+    editor.onDidChangeModelContent(() => {
+      if (applying.current) return
+      const text = editor.getValue()
+      echo.current.sent(text)
+      latest.current.onChange(text)
+    })
     latest.current.handle.current = { selection: () => selectionOf(editor) }
     return () => {
       const model = editor.getModel()
@@ -102,7 +110,10 @@ export function CodeEditor(props: {
 
   useEffect(() => {
     const model = editorRef.current?.getModel()
-    if (model && model.getValue() !== props.value) model.setValue(props.value)
+    if (!model || echo.current.isEcho(props.value) || model.getValue() === props.value) return
+    applying.current = true
+    model.setValue(props.value)
+    applying.current = false
   }, [props.value, props.path])
 
   // After the model and its content, so that the line exists.
