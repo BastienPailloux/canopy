@@ -52,9 +52,28 @@ async function ensureExcluded(repo: string): Promise<void> {
   await appendFile(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${EXCLUDE_ENTRY}\n`)
 }
 
+const hasRef = (repo: string, ref: string): Promise<boolean> =>
+  git(repo, ['rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false)
+
+/** `git worktree add` arguments checking out a branch that exists: local, or a teammate's on a remote, as `origin/x`. */
+async function existingBranchArgs(repo: string, branch: string, path: string): Promise<string[]> {
+  if (await hasRef(repo, `refs/heads/${branch}`)) return ['--', path, branch]
+  if (!(await hasRef(repo, `refs/remotes/${branch}`))) throw new Error(`Branche "${branch}" introuvable`)
+  const local = branch.slice(branch.indexOf('/') + 1)
+  return (await hasRef(repo, `refs/heads/${local}`)) ? ['--', path, local] : ['--track', '-b', local, '--', path, branch]
+}
+
+/** A new branch from `base`, tracking nothing: it is not a copy of `origin/main`. */
+async function newBranchArgs(repo: string, branch: string, base: string | undefined, path: string): Promise<string[]> {
+  if (base === undefined) throw new Error('Base du worktree manquante')
+  if (await hasRef(repo, `refs/heads/${branch}`)) throw new Error(`La branche "${branch}" existe déjà`)
+  return ['--no-track', '-b', branch, '--', path, base]
+}
+
+/** `branch` is new, from `base`, unless `existing`: then it is checked out as it is. */
 export async function createWorktree(
   repo: string,
-  o: { name: string; branch: string; base: string; parentDir?: string }
+  o: { name: string; branch: string; base?: string; parentDir?: string; existing?: boolean }
 ): Promise<Worktree> {
   if (o.name === '' || o.name === '.' || o.name === '..' || /[/\\]/.test(o.name)) {
     throw new Error(`Nom de worktree invalide : "${o.name}"`)
@@ -82,11 +101,10 @@ export async function createWorktree(
 
   const path = join(parent, o.name)
   if (existsSync(path)) throw new Error(`Le dossier du worktree "${o.name}" existe déjà : ${path}`)
-  const branchTaken = await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${o.branch}`]).then(() => true, () => false)
-  if (branchTaken) throw new Error(`La branche "${o.branch}" existe déjà`)
+  const args = o.existing ? await existingBranchArgs(repo, o.branch, path) : await newBranchArgs(repo, o.branch, o.base, path)
 
   if (o.parentDir === undefined) await ensureExcluded(repo)
-  await git(repo, ['worktree', 'add', '-b', o.branch, '--', path, o.base])
+  await git(repo, ['worktree', 'add', ...args])
   let created: Worktree | undefined
   for (const w of await listWorktrees(repo)) {
     if ((await realpath(w.path).catch(() => w.path)) === path) created = w

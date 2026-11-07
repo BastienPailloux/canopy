@@ -64,6 +64,28 @@ test('creating a worktree adds it to the list and selects it', async () => {
   await expect(page.getByTestId('active-worktree')).toHaveText('feat/b')
 })
 
+test('a new worktree takes a chosen base and location', async () => {
+  await expect(rows()).toHaveCount(2, { timeout: 20_000 })
+  const dir = join(userData, 'ailleurs')
+  await page.getByRole('button', { name: 'Nouveau worktree' }).click()
+  await page.getByLabel('Nom de la branche').fill('feat/c')
+  await page.getByLabel('Base').selectOption('feat/a')
+  await page.getByLabel('Emplacement').fill(dir)
+  await page.getByRole('button', { name: 'Créer', exact: true }).click()
+  await expect(page.getByTestId('active-worktree')).toHaveText('feat/c')
+  await expect(rows().filter({ hasText: 'feat/c' })).toHaveAttribute('data-path', new RegExp(`ailleurs/feat-c$`))
+})
+
+test('a worktree can open an existing branch', async () => {
+  execFileSync('git', ['branch', 'pr/teammate', 'main'], { cwd: repo.path, env: GIT_ENV })
+  await expect(rows()).toHaveCount(2, { timeout: 20_000 })
+  await page.getByRole('button', { name: 'Nouveau worktree' }).click()
+  await page.getByLabel('Utiliser une branche existante').check()
+  await page.getByLabel('Branche', { exact: true }).selectOption('pr/teammate')
+  await page.getByRole('button', { name: 'Créer', exact: true }).click()
+  await expect(page.getByTestId('active-worktree')).toHaveText('pr/teammate')
+})
+
 test('removing a dirty worktree asks for confirmation and shows the risk', async () => {
   await expect(rows()).toHaveCount(2, { timeout: 20_000 })
   await rows().filter({ hasText: 'feat/a' }).hover()

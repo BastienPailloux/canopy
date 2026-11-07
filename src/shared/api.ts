@@ -5,6 +5,19 @@ import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequ
 
 export interface RemovalRisks { dirty: number; unpushed: number }
 
+export interface NewWorktree {
+  /** Folder name. */
+  name: string
+  /** With `existing`: a local branch, or a remote one as `origin/x`. Else the branch to create. */
+  branch: string
+  /** What a new branch starts from. Default: the repo's base branch. */
+  base?: string
+  /** Absolute folder to create it in. Default: `<repo>/.worktrees`. */
+  parentDir?: string
+  /** Checks out `branch` instead of creating it. */
+  existing?: boolean
+}
+
 /** A file of the worktree as the editor shows it. `version` identifies the bytes read, to give back to `writeFile`. */
 export type FileContent =
   | { kind: 'text'; content: string; version: string }
@@ -94,8 +107,9 @@ export interface CanopyApi {
   saveApiKey(key: string | null): Promise<void>
   /** Rejects on unreadable files or a corrupt repo: callers must tolerate it. */
   worktreeStats(cwd: string): Promise<WorktreeStats>
-  /** `base` defaults to the repo's resolved base ref. */
-  createWorktree(repo: string, o: { name: string; branch: string; base?: string }): Promise<Worktree>
+  createWorktree(repo: string, o: NewWorktree): Promise<Worktree>
+  /** The branch worktrees start from and compare to by default. Null if none resolves. */
+  defaultBase(cwd: string): Promise<BaseRef | null>
   /** Resolves the base ref, then counts uncommitted files and unpushed commits at `path`. */
   removalRisks(repo: string, path: string): Promise<RemovalRisks>
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>

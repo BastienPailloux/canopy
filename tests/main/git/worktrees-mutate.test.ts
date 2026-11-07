@@ -157,3 +157,48 @@ test('mainWorktreeRoot gives the same root from the repo and from a linked workt
 test('mainWorktreeRoot rejects outside a git repo', async () => {
   await expect(mainWorktreeRoot(tmpdir())).rejects.toThrow()
 })
+
+const config = (cwd: string, key: string): string => {
+  try {
+    return execFileSync('git', ['config', '--get', key], { cwd, encoding: 'utf8' }).trim()
+  } catch {
+    return ''
+  }
+}
+
+test('a new worktree from origin/main does not track it', async () => {
+  repo = await createRepo({ remote: true })
+  const wt = await createWorktree(repo.path, { name: 'feat-t', branch: 'feat/t', base: 'origin/main' })
+  expect(wt.branch).toBe('feat/t')
+  expect(config(repo.path, 'branch.feat/t.remote')).toBe('')
+})
+
+test('an existing local branch is checked out as it is', async () => {
+  repo = await createRepo()
+  execFileSync('git', ['branch', 'feat/old'], { cwd: repo.path })
+  const wt = await createWorktree(repo.path, { name: 'feat-old', branch: 'feat/old', existing: true })
+  expect(wt.branch).toBe('feat/old')
+})
+
+test('a teammate\'s remote branch gets a local branch that tracks it', async () => {
+  repo = await createRepo({ remote: true })
+  execFileSync('git', ['branch', 'pr/x'], { cwd: repo.path })
+  execFileSync('git', ['push', '-q', 'origin', 'pr/x'], { cwd: repo.path })
+  execFileSync('git', ['branch', '-D', 'pr/x'], { cwd: repo.path })
+  const wt = await createWorktree(repo.path, { name: 'pr-x', branch: 'origin/pr/x', existing: true })
+  expect(wt.branch).toBe('pr/x')
+  expect(config(repo.path, 'branch.pr/x.remote')).toBe('origin')
+})
+
+test('a remote branch with a local one of the same name uses the local one', async () => {
+  repo = await createRepo({ remote: true })
+  execFileSync('git', ['branch', 'pr/y'], { cwd: repo.path })
+  execFileSync('git', ['push', '-q', 'origin', 'pr/y'], { cwd: repo.path })
+  const wt = await createWorktree(repo.path, { name: 'pr-y', branch: 'origin/pr/y', existing: true })
+  expect(wt.branch).toBe('pr/y')
+})
+
+test('an existing branch that does not exist is refused', async () => {
+  repo = await createRepo()
+  await expect(createWorktree(repo.path, { name: 'nope', branch: 'nope', existing: true })).rejects.toThrow(/introuvable/)
+})

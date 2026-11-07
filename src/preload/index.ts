@@ -14,6 +14,7 @@ const api: CanopyApi = {
   apiKeyStatus: () => ipcRenderer.invoke('settings:apiKeyStatus'),
   saveApiKey: (key) => ipcRenderer.invoke('settings:saveApiKey', key),
   createWorktree: (repo, o) => ipcRenderer.invoke('worktree:create', repo, o),
+  defaultBase: (cwd) => ipcRenderer.invoke('worktree:defaultBase', cwd),
   removalRisks: (repo, path) => ipcRenderer.invoke('worktree:risks', repo, path),
   removeWorktree: (repo, path, force) => ipcRenderer.invoke('worktree:remove', repo, path, force),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),

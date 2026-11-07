@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
+import type { NewWorktree } from '../shared/api'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
 import type { LspPool } from './code/lsp'
@@ -31,6 +32,15 @@ async function repoRoot(dir: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+function parseNewWorktree(raw: unknown): NewWorktree {
+  const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  const { name, branch, base, parentDir, existing } = o
+  if (typeof name !== 'string' || typeof branch !== 'string' || name === '' || branch === '') throw new Error('Nom ou branche invalide')
+  if (base !== undefined && (typeof base !== 'string' || base === '' || base.startsWith('-'))) throw new Error('Base invalide')
+  if (parentDir !== undefined) assertPath(parentDir)
+  return { name, branch, ...(base !== undefined ? { base } : {}), ...(parentDir !== undefined ? { parentDir } : {}), existing: existing === true }
 }
 
 function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
@@ -180,13 +190,16 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
     return worktreeStats(cwd, (await resolveBaseRef(cwd)).ref)
   })
 
-  ipcMain.handle('worktree:create', async (_e, repo: unknown, o: { name: string; branch: string; base?: string }) => {
+  ipcMain.handle('worktree:defaultBase', (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return resolveBaseRef(cwd).catch(() => null)
+  })
+
+  ipcMain.handle('worktree:create', async (_e, repo: unknown, raw: unknown) => {
     assertPath(repo)
-    if (typeof o?.name !== 'string' || typeof o.branch !== 'string' || o.name === '' || o.branch === '') {
-      throw new Error('Nom ou branche invalide')
-    }
-    const base = o.base ?? (await resolveBaseRef(repo)).ref
-    return createWorktree(repo, { name: o.name, branch: o.branch, base })
+    const o = parseNewWorktree(raw)
+    const base = o.existing ? undefined : o.base ?? (await resolveBaseRef(repo)).ref
+    return createWorktree(repo, { ...o, base })
   })
 
   ipcMain.handle('worktree:risks', async (_e, repo: unknown, path: unknown) => {
