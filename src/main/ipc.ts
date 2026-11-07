@@ -18,7 +18,7 @@ import { parseUnsaved, type UnsavedCounts } from './quit'
 import { parseStash, takeStash } from './update/stash'
 import type { Updater } from './update/updater'
 import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
-import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
+import { approveConfig, isConfigTrusted, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
 import type { SessionManager } from './sessions/SessionManager'
 import { notesToShow } from './update/whatsNew'
@@ -325,7 +325,7 @@ export function registerIpc(
     assertPath(repo)
     const o = parseNewWorktree(raw)
     const base = o.existing ? undefined : o.base ?? (await cachedBaseRef(repo)).ref
-    const created = await createWorktree(repo, { ...o, base })
+    const created = await createWorktree(repo, { ...o, base, trusted: await isConfigTrusted(store, repo) })
     clearSharedReads()
     return created
   })
@@ -354,7 +354,7 @@ export function registerIpc(
     assertPath(path)
     if (typeof branch !== 'string' || branch === '') throw new Error('Branche manquante')
     try {
-      return await switchBranch(path, branch)
+      return await switchBranch(path, branch, { trusted: await isConfigTrusted(store, path) })
     } finally {
       clearSharedReads()
     }

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -152,4 +152,39 @@ test('a stash of the user is never touched, even named like a branch', async () 
   await switchBranch(repo.path, 'main')
   expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('# test\n')
   expect(stashes(repo.path)).toContain('main')
+})
+
+describe('the repo\'s own filters and hooks', () => {
+  /** On `other`, a.txt goes through a smudge filter; a post-checkout hook. Each leaves a marker next to the repo. */
+  async function armed(r: TestRepo): Promise<{ smudged: string; hooked: string }> {
+    const smudged = join(r.path, '..', 'smudge-ran')
+    const hooked = join(r.path, '..', 'hook-ran')
+    await r.commit('.gitattributes', '*.txt filter=upper\n')
+    g(r.path, 'switch', '-c', 'other')
+    await r.commit('a.txt', 'a\n')
+    g(r.path, 'switch', 'main')
+    g(r.path, 'config', 'filter.upper.smudge', `touch '${smudged}'; tr a-z A-Z`)
+    await writeFile(join(r.path, '.git', 'hooks', 'post-checkout'), `#!/bin/sh\ntouch '${hooked}'\n`, { mode: 0o755 })
+    return { smudged, hooked }
+  }
+
+  test('do not run on a switch in an untrusted repo, changes set aside or not', async () => {
+    repo = await createRepo()
+    const { smudged, hooked } = await armed(repo)
+    await writeFile(join(repo.path, 'b.txt'), 'dirty\n')
+    await switchBranch(repo.path, 'other')
+    expect(current(repo.path)).toBe('other')
+    expect(await readFile(join(repo.path, 'a.txt'), 'utf8')).toBe('a\n')
+    await switchBranch(repo.path, 'main')
+    expect(await readFile(join(repo.path, 'b.txt'), 'utf8')).toBe('dirty\n')
+    expect([existsSync(smudged), existsSync(hooked)]).toEqual([false, false])
+  })
+
+  test('run on a switch in a trusted repo', async () => {
+    repo = await createRepo()
+    const { smudged, hooked } = await armed(repo)
+    await switchBranch(repo.path, 'other', { trusted: true })
+    expect(await readFile(join(repo.path, 'a.txt'), 'utf8')).toBe('A\n')
+    expect([existsSync(smudged), existsSync(hooked)]).toEqual([true, true])
+  })
 })

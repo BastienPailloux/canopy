@@ -79,10 +79,13 @@ async function newBranchArgs(repo: string, branch: string, base: string | undefi
   return ['--no-track', '-b', branch, '--', path, base]
 }
 
-/** `branch` is new, from `base`, unless `existing`: then it is checked out as it is. */
+/**
+ * `branch` is new, from `base`, unless `existing`: then it is checked out as it is.
+ * The repo's filters and hooks run only if `trusted`: its config was approved.
+ */
 export async function createWorktree(
   repo: string,
-  o: { name: string; branch: string; base?: string; parentDir?: string; existing?: boolean }
+  o: { name: string; branch: string; base?: string; parentDir?: string; existing?: boolean; trusted?: boolean }
 ): Promise<Worktree> {
   if (o.name === '' || o.name === '.' || o.name === '..' || /[/\\]/.test(o.name)) {
     throw new Error(`Nom de worktree invalide : "${o.name}"`)
@@ -113,7 +116,7 @@ export async function createWorktree(
   const args = o.existing ? await existingBranchArgs(repo, o.branch, path) : await newBranchArgs(repo, o.branch, o.base, path)
 
   if (o.parentDir === undefined) await ensureExcluded(repo)
-  await git(repo, ['worktree', 'add', ...args], { keepFilters: true })
+  await git(repo, ['worktree', 'add', ...args], { trusted: o.trusted === true })
   let created: Worktree | undefined
   for (const w of await listWorktrees(repo)) {
     if ((await realpath(w.path).catch(() => w.path)) === path) created = w

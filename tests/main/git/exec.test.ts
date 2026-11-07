@@ -157,6 +157,37 @@ describe('filters a repo sets for itself', () => {
     await git(repo.path, ['rev-parse', 'HEAD'])
     const lines = (await readFile(log, 'utf8')).trim().split('\n')
     expect(lines.filter((l) => l.includes('--get-regexp'))).toHaveLength(1)
-    expect(lines.filter((l) => l.includes('rev-parse'))).toHaveLength(2)
+    expect(lines.filter((l) => l.endsWith('rev-parse HEAD'))).toHaveLength(2)
+  })
+
+  test('a filter added after a read is blanked by the very next command', async () => {
+    await filtered('late')
+    await worktreeStats(repo!.path, 'HEAD')
+    config('filter.late.clean', `touch '${marker('late-ran')}'; cat`)
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('late-ran')).toBe(false)
+  })
+
+  test('a filter a branch brings through includeIf is blanked by the very next command', async () => {
+    await filtered('branchy')
+    const included = marker('onbranch.cfg')
+    await writeFile(included, `[filter "branchy"]\n  clean = touch '${marker('onbranch-ran')}'; cat\n`)
+    config('includeIf.onbranch:other.path', included)
+    await worktreeStats(repo!.path, 'HEAD')
+    execFileSync('git', ['switch', '-q', '-c', 'other'], { cwd: repo!.path })
+    await worktreeStats(repo!.path, 'HEAD')
+    expect(await ran('onbranch-ran')).toBe(false)
+  })
+
+  test('a filter added in a linked worktree\'s own config is blanked by the very next command', async () => {
+    await filtered('wt')
+    const wt = marker('linked')
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'linked', wt], { cwd: repo!.path })
+    await writeFile(join(wt, 'a.txt'), 'a\nb\n')
+    execFileSync('git', ['config', 'extensions.worktreeConfig', 'true'], { cwd: repo!.path })
+    await worktreeStats(wt, 'HEAD')
+    execFileSync('git', ['config', '--worktree', 'filter.wt.clean', `touch '${marker('wt-ran')}'; cat`], { cwd: wt })
+    await worktreeStats(wt, 'HEAD')
+    expect(await ran('wt-ran')).toBe(false)
   })
 })

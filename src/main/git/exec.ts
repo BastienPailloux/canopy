@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
+import { stat } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { currentEnv } from '../env'
-import { TtlCache } from './ttlCache'
 
 export class GitError extends Error {
   constructor(
@@ -20,15 +21,21 @@ interface GitOptions {
   maxBuffer?: number
   okCodes?: number[]
   input?: string
-  /** For a checkout the user asked for: without the repo's filters its files would be wrong. Its hooks run anyway. */
-  keepFilters?: boolean
+  /**
+   * The user approved this repo's config: its filters and hooks may run, as a checkout needs them to write the right files.
+   * Otherwise both are suppressed.
+   */
+  trusted?: boolean
 }
 
-function run(cwd: string, args: string[], opts: GitOptions, extraEnv: NodeJS.ProcessEnv = {}): Promise<string> {
+/** No hook can be found under it: git looks for `/dev/null/<hook>` and finds nothing. */
+const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null']
+
+function run(cwd: string, args: string[], opts: GitOptions, extraEnv: NodeJS.ProcessEnv = {}, config: string[] = []): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
-      [...SAFE_CONFIG, ...args],
+      [...SAFE_CONFIG, ...config, ...args],
       { cwd, env: { ...currentEnv(), GIT_OPTIONAL_LOCKS: '0', ...extraEnv }, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
@@ -51,7 +58,6 @@ function run(cwd: string, args: string[], opts: GitOptions, extraEnv: NodeJS.Pro
   })
 }
 
-const FILTERS_TTL_MS = 5_000
 const OWN_SCOPES = new Set(['local', 'worktree'])
 const FILTER_PREFIX = 'filter.'
 
@@ -84,8 +90,65 @@ async function readBlankFilters(cwd: string): Promise<NodeJS.ProcessEnv> {
   ])
 }
 
-const blankFilters = new TtlCache<NodeJS.ProcessEnv>(FILTERS_TTL_MS)
+interface GitPaths { common: string; own: string }
+interface Blanked { stamp: string; env: Promise<NodeJS.ProcessEnv> }
+
+const paths = new Map<string, Promise<GitPaths | null>>()
+const blanked = new Map<string, Blanked>()
+
+/** Where `cwd`'s config lives. Null outside a repo: there is no repo config to blank. Not kept if it fails. */
+function gitPaths(cwd: string): Promise<GitPaths | null> {
+  let found = paths.get(cwd)
+  if (!found) {
+    found = run(cwd, ['rev-parse', '--git-dir', '--git-common-dir'], {}).then((out) => {
+      const [own, common] = out.split('\n')
+      return { own: resolve(cwd, own), common: resolve(cwd, common) }
+    }, () => null)
+    paths.set(cwd, found)
+    void found.then((p) => { if (p === null && paths.get(cwd) === found) paths.delete(cwd) })
+  }
+  return found
+}
+
+const fileStamp = (file: string): Promise<string> =>
+  stat(file, { bigint: true }).then((s) => `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`, () => 'none')
+
+/**
+ * What the effective filters depend on: the repo's config, the worktree's own, and its HEAD for an `includeIf onbranch`.
+ * Files they include are not watched.
+ */
+async function configStamp(p: GitPaths): Promise<string> {
+  return (await Promise.all([join(p.common, 'config'), join(p.own, 'config.worktree'), join(p.own, 'HEAD')].map(fileStamp))).join('|')
+}
+
+/** The blanking env, read again whenever a file it depends on changed. A failure is not kept. */
+async function blankFilters(cwd: string): Promise<NodeJS.ProcessEnv> {
+  let p = await gitPaths(cwd)
+  if (p === null) return {}
+  let stamp = await configStamp(p)
+  // No HEAD where it was: the worktree moved, or was made again elsewhere.
+  if (stamp.endsWith('|none')) {
+    paths.delete(cwd)
+    p = await gitPaths(cwd)
+    if (p === null) return {}
+    stamp = await configStamp(p)
+  }
+  const entry = blanked.get(cwd)
+  if (entry && entry.stamp === stamp) return entry.env
+  // Stamped before the read: a change during it makes the next call read again.
+  const fresh = { stamp, env: readBlankFilters(cwd) }
+  blanked.set(cwd, fresh)
+  fresh.env.catch(() => { if (blanked.get(cwd) === fresh) blanked.delete(cwd) })
+  return fresh.env
+}
+
+/** Forgets where repos keep their config, and what it declared. */
+export function clearGitConfigCache(): void {
+  paths.clear()
+  blanked.clear()
+}
 
 export async function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string> {
-  return run(cwd, args, opts, opts.keepFilters ? {} : await blankFilters.get(cwd, () => readBlankFilters(cwd)))
+  if (opts.trusted) return run(cwd, args, opts)
+  return run(cwd, args, opts, await blankFilters(cwd), NO_HOOKS)
 }

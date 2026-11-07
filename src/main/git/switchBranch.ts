@@ -16,10 +16,10 @@ async function setAsideIndex(cwd: string, branch: string): Promise<number> {
 }
 
 /** Takes back what was set aside for `branch`. On failure the stash stays, and git leaves the conflict in the files. */
-async function restore(cwd: string, branch: string): Promise<{ conflict: boolean }> {
+async function restore(cwd: string, branch: string, trusted: boolean): Promise<{ conflict: boolean }> {
   const index = await setAsideIndex(cwd, branch)
   if (index < 0) return { conflict: false }
-  return git(cwd, ['stash', 'pop', `stash@{${index}}`], { keepFilters: true }).then(() => ({ conflict: false }), () => ({ conflict: true }))
+  return git(cwd, ['stash', 'pop', `stash@{${index}}`], { trusted }).then(() => ({ conflict: false }), () => ({ conflict: true }))
 }
 
 /** Files a switch would set aside. */
@@ -57,20 +57,21 @@ async function switchArgs(cwd: string, target: string): Promise<{ args: string[]
 /**
  * Moves `cwd` to `target`. Its changes are set aside for the branch it leaves, and those of `target` come back.
  * `conflict`: the branch changed, but what was set aside for it could not be applied.
+ * The repo's filters and hooks run only if `trusted`: its config was approved.
  */
-export async function switchBranch(cwd: string, target: string): Promise<{ conflict: boolean }> {
+export async function switchBranch(cwd: string, target: string, { trusted = false }: { trusted?: boolean } = {}): Promise<{ conflict: boolean }> {
   const { args, branch } = await switchArgs(cwd, target)
   const source = await currentBranch(cwd)
   const dirty = (await dirtyCount(cwd)) > 0
   if (dirty && source === null) throw new Error('HEAD détaché : validez ou annulez les modifications avant de changer de branche')
-  if (dirty) await git(cwd, ['stash', 'push', '--include-untracked', '-m', `${TAG}${source}`], { keepFilters: true })
+  if (dirty) await git(cwd, ['stash', 'push', '--include-untracked', '-m', `${TAG}${source}`], { trusted })
   try {
-    await git(cwd, ['switch', ...args], { keepFilters: true })
+    await git(cwd, ['switch', ...args], { trusted })
   } catch (e) {
-    if (dirty && source !== null && (await restore(cwd, source)).conflict) {
+    if (dirty && source !== null && (await restore(cwd, source, trusted)).conflict) {
       throw new Error(`${e instanceof Error ? e.message : String(e)} — vos modifications sont restées dans le stash ${TAG}${source}`)
     }
     throw e
   }
-  return restore(cwd, branch)
+  return restore(cwd, branch, trusted)
 }

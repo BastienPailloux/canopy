@@ -171,9 +171,17 @@ export async function approveConfig(store: AppStore, cwd: string, hash: string):
   store.approveConfig(await mainWorktreeRoot(cwd), hash)
 }
 
+const approvedAt = async (store: AppStore, root: string, cwd: string): Promise<boolean> =>
+  store.isConfigApproved(root, await configHash(cwd)) && await isWorktreeOf(root, cwd)
+
+/** Whether the config at `cwd` was approved for its repo: the approval sessions rely on. Unsure is no. */
+export async function isConfigTrusted(store: AppStore, cwd: string): Promise<boolean> {
+  return mainWorktreeRoot(cwd).then((root) => approvedAt(store, root, cwd)).catch(() => false)
+}
+
 /** The main worktree root of `cwd`. Throws `RepoNotTrustedError` unless the config at `cwd` was approved for that repo. */
 export async function requireTrustedRoot(store: AppStore, cwd: string): Promise<string> {
   const root = await mainWorktreeRoot(cwd)
-  if (!store.isConfigApproved(root, await configHash(cwd)) || !(await isWorktreeOf(root, cwd))) throw new RepoNotTrustedError()
+  if (!(await approvedAt(store, root, cwd))) throw new RepoNotTrustedError()
   return root
 }

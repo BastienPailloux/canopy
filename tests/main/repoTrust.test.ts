@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { AppStore } from '../../src/main/appStore'
 import { createWorktree } from '../../src/main/git/worktrees'
-import { approveConfig, configHash, readRepoConfig, repoTrust, requireTrustedRoot } from '../../src/main/repoTrust'
+import { approveConfig, configHash, isConfigTrusted, readRepoConfig, repoTrust, requireTrustedRoot } from '../../src/main/repoTrust'
 import { SessionManager } from '../../src/main/sessions/SessionManager'
 import { isRepoNotTrusted } from '../../src/shared/errors'
 import { createRepo, type TestRepo } from '../helpers/repo'
@@ -358,4 +358,15 @@ test('a folder reached through a symlink answers for the parents of its real loc
   await writeFile(join(dir, 'physical', '.mcp.json'), JSON.stringify({ mcpServers: { evil: { command: 'evil-mcp' } } }))
   expect(await configHash(link)).not.toBe(before)
   expect((await readRepoConfig(link)).mcpServers.join()).toContain('evil: evil-mcp')
+})
+
+test('isConfigTrusted follows the approval sessions rely on, and says no outside a repo', async () => {
+  repo = await createRepo()
+  const store = new AppStore(join(dir, 'state.json'))
+  expect(await isConfigTrusted(store, repo.path)).toBe(false)
+  await approveConfig(store, repo.path, (await repoTrust(store, repo.path)).configHash)
+  expect(await isConfigTrusted(store, repo.path)).toBe(true)
+  await writeFile(join(repo.path, '.mcp.json'), '{}')
+  expect(await isConfigTrusted(store, repo.path)).toBe(false)
+  expect(await isConfigTrusted(store, dir)).toBe(false)
 })

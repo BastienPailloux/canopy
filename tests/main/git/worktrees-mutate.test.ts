@@ -203,11 +203,29 @@ test('an existing branch that does not exist is refused', async () => {
   await expect(createWorktree(repo.path, { name: 'nope', branch: 'nope', existing: true })).rejects.toThrow(/introuvable/)
 })
 
-test('a new worktree still goes through the repo\'s smudge filter: its checkout would be wrong without', async () => {
+/** A repo whose smudge filter and post-checkout hook each leave a marker next to it. */
+async function armed(r: TestRepo): Promise<{ smudged: string; hooked: string }> {
+  const smudged = join(r.path, '..', 'smudge-ran')
+  const hooked = join(r.path, '..', 'hook-ran')
+  await r.commit('.gitattributes', '*.txt filter=upper\n')
+  await r.commit('a.txt', 'a\n')
+  execFileSync('git', ['config', 'filter.upper.smudge', `touch '${smudged}'; tr a-z A-Z`], { cwd: r.path })
+  await writeFile(join(r.path, '.git', 'hooks', 'post-checkout'), `#!/bin/sh\ntouch '${hooked}'\n`, { mode: 0o755 })
+  return { smudged, hooked }
+}
+
+test('a new worktree of an untrusted repo runs neither its smudge filter nor its hooks', async () => {
   repo = await createRepo()
-  await repo.commit('.gitattributes', '*.txt filter=upper\n')
-  await repo.commit('a.txt', 'a\n')
-  execFileSync('git', ['config', 'filter.upper.smudge', 'tr a-z A-Z'], { cwd: repo.path })
-  const wt = await createWorktree(repo.path, { name: 'smudged', branch: 'feat/smudged', base: 'main' })
+  const { smudged, hooked } = await armed(repo)
+  const wt = await createWorktree(repo.path, { name: 'plain', branch: 'feat/plain', base: 'main' })
+  expect(await readFile(join(wt.path, 'a.txt'), 'utf8')).toBe('a\n')
+  expect([existsSync(smudged), existsSync(hooked)]).toEqual([false, false])
+})
+
+test('a new worktree of a trusted repo goes through its smudge filter and hooks: its checkout would be wrong without', async () => {
+  repo = await createRepo()
+  const { smudged, hooked } = await armed(repo)
+  const wt = await createWorktree(repo.path, { name: 'smudged', branch: 'feat/smudged', base: 'main', trusted: true })
   expect(await readFile(join(wt.path, 'a.txt'), 'utf8')).toBe('A\n')
+  expect([existsSync(smudged), existsSync(hooked)]).toEqual([true, true])
 })
