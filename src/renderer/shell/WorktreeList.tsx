@@ -127,7 +127,7 @@ function Row(props: { w: Worktree; entry?: StatsEntry; status: WorktreeStatus; a
         <span className="dot" data-status={props.status} aria-hidden="true" />
         <span className="col">
           <span className="name" title={worktreeLabel(w)}>{worktreeLabel(w)}</span>
-          <span className="status" data-status={props.status} data-testid="worktree-status">{STATUS_LABEL[props.status]}</span>
+          <span className="status" data-status={props.status} data-testid="worktree-status">{w.isMain && props.status === 'idle' ? 'Principal' : STATUS_LABEL[props.status]}</span>
           <span className="numbers">
             {stats && stats.added > 0 && <span className="add">+{stats.added}</span>}
             {stats && stats.deleted > 0 && <span className="del">−{stats.deleted}</span>}

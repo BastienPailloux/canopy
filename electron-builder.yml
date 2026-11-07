@@ -1,0 +1,25 @@
+appId: dev.canopy.app
+productName: Canopy
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asar: true
+# Binaries that are spawned or loaded natively cannot run from inside the asar.
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**
+  - node_modules/node-pty/**
+  - node_modules/@vscode/ripgrep*/**
+  - node_modules/typescript-language-server/**
+  - node_modules/tsserver-runtime/**
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  icon: build/icon.icns
+  identity: null
+  category: public.app-category.developer-tools
+dmg:
+  title: Canopy
