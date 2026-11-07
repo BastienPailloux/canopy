@@ -68,6 +68,31 @@ input:focus-visible {
   flex-direction: column;
 }
 
+/* Update banner: not dismissible, dark text on the accent or attention background */
+.update-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 6px 14px 6px 84px; /* clear of the native traffic lights */
+  background: var(--accent);
+  color: #0d0e10;
+  font-size: 13px;
+  -webkit-app-region: drag;
+}
+.update-banner[data-phase='warning'] { background: var(--warn); }
+.update-banner button {
+  -webkit-app-region: no-drag;
+  background: #0d0e10;
+  color: var(--fg);
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.update-banner button:disabled { opacity: 0.6; cursor: default; }
+
 /* Header */
 .header {
   flex: 0 0 auto;

@@ -18,6 +18,7 @@ import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from
 import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
+import { UpdateBanner } from './update/UpdateBanner'
 
 /** What the terminal asked for at launch, read once per page load. */
 let launchFolder: Promise<string | null> | undefined
@@ -148,6 +149,7 @@ export function App(): React.JSX.Element {
     <div className="app">
       <TrustDialog />
       <CommandBar />
+      <UpdateBanner />
       <Header />
       <div className="body">
         {repo && workspace ? (
