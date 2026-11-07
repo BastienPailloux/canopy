@@ -21,6 +21,11 @@ describe('versioning', () => {
     const n = notesFor('1.3.0', '2026-11-08', [c('feat(shell): show the account'), c('fix: parse names'), c('chore: x')], false)
     expect(n).toEqual({ version: '1.3.0', date: '2026-11-08', features: ['Show the account'], fixes: ['Parse names'] })
   })
+  test('a breaking change of another type still shows, under features', () => {
+    const n = notesFor('2.0.0', 'd', [c('refactor!: drop the old config'), { subject: 'chore: x', body: 'BREAKING CHANGE: y' }, c('docs: z')], false)
+    expect(n.features).toEqual(['Drop the old config', 'X'])
+    expect(n.fixes).toEqual([])
+  })
   test('first release notes', () => {
     expect(notesFor('1.0.0', '2026-11-08', [c('feat: a')], true)).toEqual({ version: '1.0.0', date: '2026-11-08', features: ['Première version'], fixes: [] })
   })

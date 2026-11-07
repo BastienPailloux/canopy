@@ -49,8 +49,9 @@ export function notesFor(version: string, date: string, commits: Commit[], first
   for (const c of commits) {
     const p = parseCommit(c)
     if (!p) continue
-    if (p.type === 'feat') features.push(capitalize(p.description))
-    else if (p.type === 'fix' || p.type === 'perf') fixes.push(capitalize(p.description))
+    if (p.type === 'fix' || p.type === 'perf') fixes.push(capitalize(p.description))
+    // A breaking change makes the release, whatever its type: it must be in the notes.
+    else if (p.type === 'feat' || p.breaking) features.push(capitalize(p.description))
   }
   return { version, date, features, fixes }
 }
