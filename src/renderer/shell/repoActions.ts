@@ -4,9 +4,8 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message.replac
 
 let opening = 0
 
-/** Scans `folder` and shows it, on its last entry with `restore`. The last folder asked for wins, however long each scan takes. */
-async function enter(folder: string, restore = false): Promise<void> {
-  const id = ++opening
+/** Scans `folder` and shows it, on its last entry with `restore`. `id` was taken when the flow began: the last folder asked for wins, however long each step takes. */
+async function enter(id: number, folder: string, restore = false): Promise<void> {
   const [workspace, last] = await Promise.all([
     window.canopy.scanWorkspace(folder),
     restore ? window.canopy.lastEntry(folder).catch(() => null) : null
@@ -20,22 +19,24 @@ async function enter(folder: string, restore = false): Promise<void> {
 
 /** Native picker, then show the chosen folder. A failure goes to `openError`, in French. */
 export async function openRepoFlow(): Promise<void> {
+  const id = ++opening
   try {
     const folder = await window.canopy.openRepo()
-    if (folder) await enter(folder)
+    if (folder) await enter(id, folder)
   } catch (e) {
-    useApp.getState().setOpenError(errorText(e))
+    if (id === opening) useApp.getState().setOpenError(errorText(e))
   }
 }
 
 /** Re-open a known folder, `restore` for its last entry. False if it is gone; one that holds no repo anymore is reported through `openError`. */
 export async function selectRepoFlow(path: string, restore = false): Promise<boolean> {
+  const id = ++opening
   try {
     const folder = await window.canopy.selectRepo(path)
     if (!folder) return false
-    await enter(folder, restore)
+    await enter(id, folder, restore)
   } catch (e) {
-    useApp.getState().setOpenError(`${path} : ${errorText(e)}`)
+    if (id === opening) useApp.getState().setOpenError(`${path} : ${errorText(e)}`)
   }
   return true
 }

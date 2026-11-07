@@ -65,3 +65,22 @@ test('a folder opened from the terminal returns to its last entry', async () => 
   expect(await openFromTerminal('/ws')).toBe(true)
   expect(useApp.getState().worktree).toBe('/ws/wt')
 })
+
+test('the last folder asked for stays when an earlier one resolves after it', async () => {
+  const release: Record<string, () => void> = {}
+  vi.stubGlobal('window', {
+    canopy: {
+      selectRepo: (p: string) => new Promise<string>((r) => { release[p] = () => r(p) }),
+      scanWorkspace: async (f: string) => ({ ...scan(entry(f)), root: f }),
+      lastEntry: async () => null,
+      setLastEntry: async () => undefined
+    }
+  })
+  const first = selectRepoFlow('/a')
+  const second = selectRepoFlow('/b')
+  release['/b']()
+  await second
+  release['/a']()
+  await first
+  expect(useApp.getState().workspace?.root).toBe('/b')
+})
