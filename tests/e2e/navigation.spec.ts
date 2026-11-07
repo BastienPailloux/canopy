@@ -122,3 +122,15 @@ test('⌘K finds a symbol and opens it', async () => {
   await expect(page.locator('.file-path')).toContainText('alpha.ts')
   await expect(page.locator('.active-line-number')).toHaveText('1')
 })
+
+test('definition and references wait for a save, with a hint', async () => {
+  await open('beta.ts')
+  await page.getByRole('button', { name: 'Modifier' }).click()
+  await page.getByTestId('code-editor').click()
+  await page.keyboard.press('Meta+End')
+  await page.keyboard.type('// edit\n')
+  await expect(page.getByText('non enregistré')).toBeVisible()
+  await page.keyboard.press('Shift+F12')
+  await expect(page.getByTestId('nav-dirty')).toContainText('Enregistre')
+  await expect(page.getByTestId('results-panel')).toHaveCount(0)
+})

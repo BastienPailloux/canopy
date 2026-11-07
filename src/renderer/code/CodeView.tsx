@@ -92,12 +92,19 @@ export function CodeView(props: {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [asking, setAsking] = useState<Selection | null | false>(false)
   const [diffStatus, setDiffStatus] = useState<DiffStatus>('complete')
+  const [navBlocked, setNavBlocked] = useState(false)
   const handle = useRef<EditorHandle | null>(null)
   const state = useRef({ loaded, text })
   state.current = { loaded, text }
 
   const saved = loaded?.work.kind === 'text' ? loaded.work : null
   const dirty = saved !== null && text !== saved.content
+  // The language server reads the file on disk: positions in a changed buffer would point at the wrong symbol.
+  const navigate: Navigate = (kind, line, column) => {
+    if (dirty) setNavBlocked(true)
+    else props.onNavigate(kind, line, column)
+  }
+  useEffect(() => { if (!dirty) setNavBlocked(false) }, [dirty])
   // Kept outside the view: it is gone when the user switches to Sessions or another worktree.
   useEffect(() => {
     if (!saved) return
@@ -188,11 +195,11 @@ export function CodeView(props: {
     else if (b === undefined) body = <Message>Version de {base.name} illisible.</Message>
     else if (b !== null && b.kind === 'tooLarge') body = <Message>La version de {base.name} est trop volumineuse ({megabytes(b.size)}) : pas de diff.</Message>
     else if (b !== null && b.kind === 'notBlob') body = <Message>Sur {base.name}, ce chemin est un dossier ou un sous-module : pas de diff.</Message>
-    else body = <DiffPane path={path} original={b?.kind === 'text' ? b.content : ''} modified={work.kind === 'text' ? text : ''} onNavigate={props.onNavigate} onStatus={setDiffStatus} handle={handle} />
+    else body = <DiffPane path={path} original={b?.kind === 'text' ? b.content : ''} modified={work.kind === 'text' ? text : ''} onNavigate={navigate} onStatus={setDiffStatus} handle={handle} />
   } else if (work.kind === 'missing') body = <Message>Ce fichier est supprimé depuis {base.name}. Le diff montre ce qui disparaît.</Message>
   else if (work.kind === 'binary') body = <Message>Fichier binaire : pas d'aperçu.</Message>
   else if (work.kind === 'tooLarge') body = <Message>Fichier trop volumineux ({megabytes(work.size)}) : pas d'aperçu.</Message>
-  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} reveal={props.reveal} onNavigate={props.onNavigate} handle={handle} />
+  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} reveal={props.reveal} onNavigate={navigate} handle={handle} />
 
   return (
     <section className="code-view" aria-label="Contenu du fichier">
@@ -225,6 +232,7 @@ export function CodeView(props: {
         </div>
       )}
       {saveError && <div className="code-warning" role="alert">{saveError}</div>}
+      {navBlocked && <div className="code-warning" role="status" data-testid="nav-dirty">Enregistre le fichier pour aller à la définition ou lister les appels.</div>}
       {saved?.notUtf8 && <div className="code-warning" role="status" data-testid="not-utf8">Ce fichier n'est pas en UTF-8 : il s'affiche en lecture seule, car l'enregistrer le corromprait.</div>}
       {diffStatus === 'computing' && <div className="code-warning" role="status" data-testid="diff-computing">Calcul du diff en cours : ce qui s'affiche n'est pas encore le résultat.</div>}
       {diffStatus === 'abandoned' && (
