@@ -23,3 +23,16 @@ test('live sessions and terminals are stopped', () => {
   expect(removalWarnings({ ...NONE, sessions: 2 }, 'feat/a')).toEqual(['2 sessions Claude seront arrêtées.'])
   expect(removalWarnings({ ...NONE, terminals: 1 }, 'feat/a')).toEqual(['1 terminal actif sera arrêté.'])
 })
+
+test('unsaved buffers and unsent messages are lost', () => {
+  expect(removalWarnings(NONE, 'feat/a', { buffers: 2, messages: 1 })).toEqual(['2 fichiers non enregistrés et 1 brouillon de message seront perdus.'])
+  expect(removalWarnings(NONE, 'feat/a', { buffers: 1, messages: 0 })).toEqual(['1 fichier non enregistré sera perdu.'])
+  expect(removalWarnings(NONE, 'feat/a', { buffers: 0, messages: 2 })).toEqual(['2 brouillons de message seront perdus.'])
+})
+
+test('on a detached HEAD, commits on no branch are lost, with a way out', () => {
+  const [text] = removalWarnings({ ...NONE, unpushed: 2 }, null)
+  expect(text).toBe("2 commits ne sont sur aucune branche et seront perdus. Crée d'abord une branche pour les garder.")
+  expect(removalWarnings({ ...NONE, unpushed: 1 }, null)[0]).toContain("1 commit n'est sur aucune branche")
+  expect(removalWarnings(NONE, null)).toEqual([])
+})

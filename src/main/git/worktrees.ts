@@ -125,10 +125,15 @@ export async function createWorktree(
   return created
 }
 
-/** Uncommitted files and commits that would be lost: unpushed vs upstream, else vs `ref`. */
+/** Uncommitted files and commits that would be lost: unpushed vs upstream, else vs `ref`. A detached HEAD has no branch to keep its commits: those are the ones no branch, remote or tag reaches. */
 export async function removalRisks(path: string, ref: string): Promise<{ dirty: number; unpushed: number }> {
   const status = await git(path, ['status', '--porcelain', '-z'])
   const dirty = status.split('\0').filter((e) => e !== '').length
+  const detached = await git(path, ['symbolic-ref', '--quiet', 'HEAD']).then(() => false, () => true)
+  if (detached) {
+    const orphaned = Number((await git(path, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'])).trim())
+    return { dirty, unpushed: orphaned }
+  }
   const hasUpstream = await git(path, ['rev-parse', '--verify', '--quiet', '@{upstream}']).then(() => true, () => false)
   const range = hasUpstream ? '@{upstream}..HEAD' : `${ref}..HEAD`
   const unpushed = Number((await git(path, ['rev-list', '--count', range])).trim())

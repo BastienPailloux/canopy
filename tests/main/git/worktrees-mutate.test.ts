@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 import { createWorktree, listWorktrees, mainWorktreeRoot, removalRisks, removeWorktree } from '../../../src/main/git/worktrees'
 
@@ -69,6 +69,19 @@ test('removalRisks counts unpushed commits against ref when there is no upstream
   g(wt.path, 'add', 'f.txt')
   g(wt.path, 'commit', '-m', 'wip')
   expect(await removalRisks(wt.path, 'main')).toEqual({ dirty: 0, unpushed: 1 })
+})
+
+test('removalRisks on a detached HEAD counts the commits no branch reaches', async () => {
+  repo = await createRepo()
+  const path = join(dirname(repo.path), 'detached')
+  g(repo.path, 'worktree', 'add', '--detach', path)
+  expect((await removalRisks(path, 'main')).unpushed).toBe(0)
+  await writeFile(join(path, 'f.txt'), 'x')
+  g(path, 'add', 'f.txt')
+  g(path, 'commit', '-m', 'wip')
+  expect((await removalRisks(path, 'main')).unpushed).toBe(1)
+  g(path, 'branch', 'keep')
+  expect((await removalRisks(path, 'main')).unpushed).toBe(0)
 })
 
 test('removalRisks counts unpushed commits against upstream when set', async () => {

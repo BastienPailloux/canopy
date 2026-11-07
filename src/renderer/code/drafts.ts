@@ -16,6 +16,12 @@ export function dropDrafts(cwd: string): void {
   for (const k of [...drafts.keys()]) if (k.startsWith(`${cwd}\0`)) drafts.delete(k)
   changed()
 }
+/** Unsaved buffers typed in one worktree. */
+export function draftCountIn(cwd: string): number {
+  let n = 0
+  for (const k of drafts.keys()) if (k.startsWith(`${cwd}\0`)) n++
+  return n
+}
 export const draftCount = (): number => drafts.size
 export function onDraftsChange(cb: () => void): () => void {
   listeners.add(cb)

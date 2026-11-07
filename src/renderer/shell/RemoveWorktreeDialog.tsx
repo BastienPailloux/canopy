@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { RemovalRisks } from '../../shared/api'
 import type { Worktree } from '../../shared/types'
+import { draftCountIn } from '../code/drafts'
+import { worktreeDraftCount } from '../sessions/sessionStore'
 import { worktreeLabel } from '../store'
 import { removalWarnings } from './removalText'
 
@@ -25,7 +27,7 @@ export function RemoveWorktreeDialog(props: {
     return () => { live = false }
   }, [repo, worktree.path])
 
-  const warnings = risks ? removalWarnings(risks, worktreeLabel(worktree)) : []
+  const warnings = risks ? removalWarnings(risks, worktree.branch, { buffers: draftCountIn(worktree.path), messages: worktreeDraftCount(worktree.path) }) : []
 
   const confirm = async (): Promise<void> => {
     if (!risks || busy) return
