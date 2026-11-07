@@ -406,13 +406,19 @@ export async function syncWorktree(cwd: string): Promise<void> {
   }
 }
 
+/** The mode a message reports, if the selector can show it. Approving a plan changes it through a status, with no init. */
+export function modeFrom(msg: SessionEvents['message']['msg']): PermissionMode | undefined {
+  if (msg.type !== 'system' || (msg.subtype !== 'init' && msg.subtype !== 'status')) return undefined
+  return msg.permissionMode === 'bypassPermissions' ? undefined : msg.permissionMode
+}
+
 function onMessage({ localId, msg }: SessionEvents['message']): void {
   const tab = tabOfProcess(localId)
   if (!tab) return
-  const mode = msg.type === 'system' && msg.subtype === 'init' ? msg.permissionMode : undefined
+  const mode = modeFrom(msg)
   patchTab(tab.id, (t) => ({
     transcript: reduceTranscript(t.transcript, msg),
-    ...(mode && mode !== 'bypassPermissions' ? { mode } : {})
+    ...(mode ? { mode } : {})
   }))
 }
 

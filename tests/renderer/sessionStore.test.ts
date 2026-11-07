@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -314,5 +314,20 @@ describe('composerDraftCount', () => {
     expect(composerDraftCount()).toBe(1)
     setDraftText(activeTab().id, '   ')
     expect(composerDraftCount()).toBe(0)
+  })
+})
+
+describe('modeFrom', () => {
+  const message = (m: Record<string, unknown>): Parameters<typeof modeFrom>[0] => m as unknown as Parameters<typeof modeFrom>[0]
+
+  it('reads the mode of init and status messages', () => {
+    expect(modeFrom(message({ type: 'system', subtype: 'init', permissionMode: 'plan' }))).toBe('plan')
+    expect(modeFrom(message({ type: 'system', subtype: 'status', status: null, permissionMode: 'default' }))).toBe('default')
+  })
+
+  it('ignores a status without a mode, other messages, and a mode the selector cannot show', () => {
+    expect(modeFrom(message({ type: 'system', subtype: 'status', status: 'requesting' }))).toBeUndefined()
+    expect(modeFrom(message({ type: 'assistant', permissionMode: 'plan' }))).toBeUndefined()
+    expect(modeFrom(message({ type: 'system', subtype: 'init', permissionMode: 'bypassPermissions' }))).toBeUndefined()
   })
 })

@@ -835,3 +835,13 @@ test('a worktree folder that vanished still lists its live sessions', async () =
   h.listSessions.mockRejectedValueOnce(new Error('ENOENT'))
   expect(await h.m.list('/gone')).toMatchObject([{ localId, live: true }])
 })
+
+test('a mode the CLI changes by itself, as when a plan is approved, is followed', async () => {
+  const h = setup({ disk: [{ sessionId: 'x', summary: 's', lastModified: 1 }] })
+  const localId = h.m.start('/wt', { content: content('a'), mode: 'plan' })
+  await tick()
+  h.queries[0].emit({ type: 'system', subtype: 'status', status: null, permissionMode: 'default', uuid: 'u', session_id: 's' })
+  await tick()
+  await tick()
+  expect((await h.m.list('/wt')).find((s) => s.localId === localId)?.mode).toBe('default')
+})

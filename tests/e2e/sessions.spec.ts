@@ -473,6 +473,14 @@ test('a plan shows as Markdown, and a refusal carries the feedback', async () =>
   await expect(page.getByTestId('tool-card')).toContainText('Ajoute des tests')
 })
 
+test('the mode selector leaves plan once a plan is over', async () => {
+  await launch(true)
+  await page.getByLabel('Mode').selectOption('plan')
+  await send('plan')
+  await page.getByTestId('permission-card').getByRole('button', { name: 'Autoriser' }).click()
+  await expect(page.getByLabel('Mode')).toHaveValue('default')
+})
+
 test('revoking a repo in the settings asks for trust again', async () => {
   await launch(true)
   await page.getByRole('button', { name: 'Réglages' }).click()

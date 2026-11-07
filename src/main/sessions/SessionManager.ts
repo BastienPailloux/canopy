@@ -289,10 +289,9 @@ export class SessionManager extends EventEmitter<EventMap> {
 
   private onMessage(s: Session, msg: SDKMessage): void {
     if (s.closed) return
-    if (msg.type === 'system' && msg.subtype === 'init') {
-      if (msg.terminal_slash_commands) s.terminalCommands = new Set(msg.terminal_slash_commands)
-      if (msg.permissionMode) s.mode = msg.permissionMode
-    }
+    if (msg.type === 'system' && msg.subtype === 'init' && msg.terminal_slash_commands) s.terminalCommands = new Set(msg.terminal_slash_commands)
+    // A status carries it too: approving a plan leaves plan mode without any init.
+    if (msg.type === 'system' && (msg.subtype === 'init' || msg.subtype === 'status') && msg.permissionMode) s.mode = msg.permissionMode
     this.notify('message', { localId: s.localId, msg })
     if (msg.type === 'system' && msg.subtype === 'init' && !s.initialized) {
       s.initialized = true

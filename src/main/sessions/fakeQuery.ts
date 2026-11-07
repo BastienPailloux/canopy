@@ -116,6 +116,8 @@ async function* turn(t: Turn, text: string): AsyncGenerator<SDKMessage> {
     yield* useTool(t, 'AskUserQuestion', QUESTIONS, [], '')
   } else if (scenario === 'plan') {
     yield* useTool(t, 'ExitPlanMode', { plan: '# Mon plan\n\n- une étape\n- une autre' }, [], 'ok')
+    // As the real CLI does once a plan is approved.
+    yield as({ ...base(t.sessionId), type: 'system', subtype: 'status', status: null, permissionMode: 'default' })
   } else if (scenario === 'markdown') {
     yield* streamText(t, [MARKDOWN], 0)
   } else if (scenario === 'erreur') {
