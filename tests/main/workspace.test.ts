@@ -35,6 +35,69 @@ async function mkRepo(rel: string, commit = false): Promise<string> {
   return p
 }
 
+/** Adds `sub`, a repo of its own, as a submodule of `repo` at `at`. */
+async function addSubmodule(repo: string, sub: string, at: string): Promise<string> {
+  await git(repo, ['-c', 'protocol.file.allow=always', 'submodule', '--quiet', 'add', sub, at])
+  await git(repo, ['commit', '-q', '-m', 'add submodule'])
+  return join(repo, at)
+}
+
+/** A linked worktree of `repo` at `path`, with its submodules initialized. */
+async function linkedWithSubmodules(repo: string, path: string): Promise<void> {
+  await git(repo, ['worktree', 'add', '-q', '-b', 'linked', path])
+  await git(path, ['-c', 'protocol.file.allow=always', 'submodule', '--quiet', 'update', '--init'])
+}
+
+describe('submodules', () => {
+  it('are not repos of the folder, nested repos beside them still are', async () => {
+    const lib = await mkRepo('elsewhere/lib', true)
+    const top = await mkRepo('ws/top', true)
+    await addSubmodule(top, lib, 'mod')
+    const nested = await mkRepo('ws/top/nested', true)
+    expect((await findRepos(top)).repos).toEqual([nested, top].sort())
+  })
+
+  it('a repo with an initialized submodule opens as a plain repo, on one row at its own root', async () => {
+    const lib = await mkRepo('elsewhere/lib', true)
+    const top = await mkRepo('top', true)
+    await addSubmodule(top, lib, 'mod')
+    expect(await resolveOpenedFolder(top)).toBe(top)
+    const scan = await scanWorkspace(top)
+    expect(scan.failed).toEqual([])
+    expect(scan.entries.map((e) => [e.repo, e.worktree.path, e.group])).toEqual([[top, top, 'main']])
+  })
+
+  it('a linked worktree opened directly stays that worktree, its submodule left out', async () => {
+    const lib = await mkRepo('elsewhere/lib', true)
+    const top = await mkRepo('top', true)
+    await addSubmodule(top, lib, 'mod')
+    const linked = join(root, 'linked')
+    await linkedWithSubmodules(top, linked)
+    expect(await resolveOpenedFolder(linked)).toBe(linked)
+    const scan = await scanWorkspace(linked)
+    expect(scan.entries.map((e) => e.repo)).toEqual([top, top])
+    expect(scan.entries.map((e) => e.worktree.path).sort()).toEqual([linked, top].sort())
+  })
+
+  it('a submodule opened on its own is a repo at its own folder, not at its git dir', async () => {
+    const lib = await mkRepo('elsewhere/lib', true)
+    const top = await mkRepo('top', true)
+    const mod = await addSubmodule(top, lib, 'mod')
+    expect(await resolveOpenedFolder(mod)).toBe(mod)
+    expect((await scanWorkspace(mod)).entries.map((e) => [e.repo, e.worktree.path])).toEqual([[mod, mod]])
+  })
+
+  it('the submodule of a linked worktree opened on its own is at its own folder too', async () => {
+    const lib = await mkRepo('elsewhere/lib', true)
+    const top = await mkRepo('top', true)
+    await addSubmodule(top, lib, 'mod')
+    const linked = join(root, 'linked')
+    await linkedWithSubmodules(top, linked)
+    const mod = join(linked, 'mod')
+    expect((await scanWorkspace(mod)).entries.map((e) => e.worktree.path)).toEqual([mod])
+  })
+})
+
 describe('findRepos', () => {
   it('finds repos up to depth 6', async () => {
     const a = await mkRepo('a')

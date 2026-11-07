@@ -2,7 +2,7 @@ import { MAX_WORKSPACE_REPOS, type Workspace, type WorkspaceEntry, type Worktree
 import { access, readdir, readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { git } from './git/exec'
-import { listWorktrees, mainWorktreeRoot } from './git/worktrees'
+import { isSubmoduleGitDir, listWorktrees, mainWorktreeRoot } from './git/worktrees'
 
 const MAX_DEPTH = 6
 const CONCURRENCY = 16
@@ -24,12 +24,13 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 /** Main worktree root and dedup key of the repo holding `dir`, or undefined if git cannot tell. */
-async function repoIdentity(dir: string): Promise<{ key: string; main: string } | undefined> {
+async function repoIdentity(dir: string): Promise<{ key: string; main: string; submodule: boolean } | undefined> {
   try {
-    const [common, top] = (await git(dir, ['rev-parse', '--git-common-dir', '--show-toplevel'])).split('\n')
+    const out = await git(dir, ['rev-parse', '--git-common-dir', '--show-toplevel', '--show-superproject-working-tree'])
+    const [common, top, superproject] = out.split('\n')
     const key = await realpath(resolve(dir, common))
     const main = basename(key) === '.git' ? dirname(key) : await realpath(top)
-    return { key, main }
+    return { key, main, submodule: superproject !== '' || isSubmoduleGitDir(key) }
   } catch {
     return undefined
   }
@@ -67,7 +68,8 @@ export async function findRepos(root: string): Promise<{ repos: string[]; trunca
       // Past the cap nothing more is kept: do not spawn git for the rest of a wide level.
       const id = isRepo && !truncated ? await repoIdentity(dir) : undefined
       if (isRepo && !truncated && !id && !(await isDeadLink(dir))) failed.push(dir)
-      if (id && !found.has(id.key)) {
+      // A submodule belongs to its parent's checkout. Opened on its own, it is a plain repo.
+      if (id && !found.has(id.key) && (!id.submodule || dir === root)) {
         if (found.size >= MAX_WORKSPACE_REPOS) truncated = true
         else found.set(id.key, id.main)
       }

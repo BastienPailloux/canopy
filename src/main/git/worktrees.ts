@@ -4,6 +4,9 @@ import { appendFile, lstat, mkdir, readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import { git } from './exec'
 
+/** Whether `gitDir` is the git dir of a submodule, of the main worktree or of a linked one. */
+export const isSubmoduleGitDir = (gitDir: string): boolean => /\/\.git\/(worktrees\/[^/]+\/)?modules\//.test(gitDir)
+
 export async function listWorktrees(repo: string): Promise<Worktree[]> {
   const out = await git(repo, ['worktree', 'list', '--porcelain', '-z'])
   const result: Worktree[] = []
@@ -29,6 +32,12 @@ export async function listWorktrees(repo: string): Promise<Worktree[]> {
     else if (field === 'prunable' || field.startsWith('prunable ')) cur.prunable = true
   }
   flush()
+  // Git names a submodule's git dir as its main worktree: the files are where its config says.
+  const main = result[0]
+  if (main && isSubmoduleGitDir(main.path)) {
+    const files = (await git(main.path, ['config', 'core.worktree'], { okCodes: [1] })).trim()
+    if (files !== '') main.path = resolve(main.path, files)
+  }
   return result
 }
 
