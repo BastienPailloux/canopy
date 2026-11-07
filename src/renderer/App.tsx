@@ -8,7 +8,7 @@ import { connectTerminals } from './terminal/terminalStore'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
-import { connectLastEntry, openRepoFlow, selectRepoFlow } from './shell/repoActions'
+import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
 
@@ -69,7 +69,7 @@ export function App(): React.JSX.Element {
 
   // A folder asked for from the terminal while the app runs. Listens before the launch effect takes what waited.
   useEffect(() => window.canopy.on('app:openFolder', (path) => {
-    if (typeof path === 'string') void selectRepoFlow(path)
+    if (typeof path === 'string') void openFromTerminal(path)
   }), [])
 
   // A folder asked for from the terminal wins; else re-open the most recent folder that still exists, on the entry left selected.
@@ -79,7 +79,7 @@ export function App(): React.JSX.Element {
       launchFolder ??= window.canopy.takeOpenFolder().catch(() => null)
       const asked = await launchFolder
       // The page is told once: a second run of this effect (StrictMode) finds the same answer.
-      if (asked && (await selectRepoFlow(asked))) return
+      if (asked && (await openFromTerminal(asked))) return
       const recents = await window.canopy.recentRepos().catch(() => [])
       for (const r of recents) {
         if (!live || useApp.getState().repo) return

@@ -40,6 +40,9 @@ export async function selectRepoFlow(path: string, restore = false): Promise<boo
   return true
 }
 
+/** A folder asked for by `canopy .` or `open -a Canopy`: shown on the entry it was left on. */
+export const openFromTerminal = (path: string): Promise<boolean> => selectRepoFlow(path, true)
+
 /** Saves each selected entry for the next launch. An orphan is not one: it will not be there. Returns the stop function. */
 export function connectLastEntry(): () => void {
   return useApp.subscribe((s, prev) => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Workspace, WorkspaceEntry } from '../../src/shared/types'
-import { connectLastEntry, selectRepoFlow } from '../../src/renderer/shell/repoActions'
+import { connectLastEntry, openFromTerminal, selectRepoFlow } from '../../src/renderer/shell/repoActions'
 import { useApp } from '../../src/renderer/store'
 
 const entry = (path: string, isMain = true): WorkspaceEntry =>
@@ -58,4 +58,10 @@ test('the selected entry is saved for its folder, an orphan is not', () => {
   useApp.getState().selectOrphan({ ...entries[0].worktree, path: '/ws/orphan', repo: '/ws', sessions: 1, terminals: 0 })
   stop()
   expect(saved).toEqual([['/ws', '/ws/wt']])
+})
+
+test('a folder opened from the terminal returns to its last entry', async () => {
+  stubCanopy(scan(entry('/ws'), entry('/ws/wt', false)), '/ws/wt')
+  expect(await openFromTerminal('/ws')).toBe(true)
+  expect(useApp.getState().worktree).toBe('/ws/wt')
 })
