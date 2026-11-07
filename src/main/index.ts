@@ -1,5 +1,9 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
+import { AppStore } from './appStore'
+import { loginShellEnv } from './env'
+import { setGitEnv } from './git/exec'
+import { registerIpc } from './ipc'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -21,7 +25,10 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
+  // Before any git call: git must see the user's login shell env (PATH, config).
+  setGitEnv({ ...(await loginShellEnv()), GIT_OPTIONAL_LOCKS: '0' })
+  registerIpc(new AppStore(join(app.getPath('userData'), 'state.json')))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
