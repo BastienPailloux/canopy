@@ -111,6 +111,20 @@ describe('readFileSafe', () => {
     expect(await readFile(join(repo.path, '.git', 'hooks', 'pre-commit'), 'utf8')).toBe('echo hi\n')
   })
 
+  it('refuses .git whatever its case, as macOS would open the same folder', async () => {
+    await expect(readFileSafe(repo.path, '.GIT/config')).rejects.toThrow('Chemin invalide')
+    await expect(writeFileSafe(repo.path, '.Git/hooks/pre-commit', 'x')).rejects.toThrow('Chemin invalide')
+    // Not on disk yet, so resolving the path does not bring the real case back.
+    await expect(writeFileSafe(repo.path, 'sub/.GIT/config', 'x')).rejects.toThrow('Chemin invalide')
+  })
+
+  it('flags text that is not UTF-8, which saving would corrupt', async () => {
+    await writeFile(join(repo.path, 'latin.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]))
+    expect(await readFileSafe(repo.path, 'latin.txt')).toMatchObject({ kind: 'text', notUtf8: true })
+    await writeFile(join(repo.path, 'utf8.txt'), 'café\n')
+    expect(await readFileSafe(repo.path, 'utf8.txt')).not.toHaveProperty('notUtf8')
+  })
+
   it('follows a symlink that stays inside the worktree', async () => {
     await symlink('README.md', join(repo.path, 'inside'))
     expect(await readFileSafe(repo.path, 'inside')).toMatchObject({ kind: 'text', content: '# test\n' })
@@ -145,6 +159,13 @@ describe('writeFileSafe', () => {
     await expect(writeFileSafe(repo.path, 'README.md', 'mine\n', { expectedVersion: opened.version })).rejects.toThrow(FILE_CHANGED)
     await writeFileSafe(repo.path, 'README.md', 'mine\n')
     expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('mine\n')
+  })
+
+  it('refuses to rewrite a file that is not UTF-8, even forced', async () => {
+    const bytes = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])
+    await writeFile(join(repo.path, 'latin.txt'), bytes)
+    await expect(writeFileSafe(repo.path, 'latin.txt', 'x')).rejects.toThrow('UTF-8')
+    expect(await readFile(join(repo.path, 'latin.txt'))).toEqual(bytes)
   })
 
   it('accepts the write when only the timestamp changed', async () => {

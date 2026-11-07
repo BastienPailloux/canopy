@@ -20,7 +20,8 @@ export interface NewWorktree {
 
 /** A file of the worktree as the editor shows it. `version` identifies the bytes read, to give back to `writeFile`. */
 export type FileContent =
-  | { kind: 'text'; content: string; version: string }
+  /** `notUtf8`: `content` is a lossy decoding, shown read-only since saving it would corrupt the file. */
+  | { kind: 'text'; content: string; version: string; notUtf8?: boolean }
   | { kind: 'binary' }
   | { kind: 'tooLarge'; size: number }
 

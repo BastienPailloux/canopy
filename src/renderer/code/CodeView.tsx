@@ -200,7 +200,7 @@ export function CodeView(props: {
         <span className="file-path mono"><span className="dir">{lastSlash >= 0 ? path.slice(0, lastSlash + 1) : ''}</span>{path.slice(lastSlash + 1)}</span>
         {loaded && <Badge change={change} base={base} />}
         {dirty && <span className="badge changed">non enregistré</span>}
-        {vendored && <span className="badge same" data-testid="read-only">lecture seule</span>}
+        {(vendored || saved?.notUtf8) && <span className="badge same" data-testid="read-only">lecture seule</span>}
         <div className="file-actions">
           <div role="group" aria-label="Mode d'affichage" className="seg">
             <button type="button" aria-pressed={mode === 'code'} onClick={() => props.onMode('code')}>Code</button>
@@ -209,7 +209,7 @@ export function CodeView(props: {
           </div>
           <button type="button" disabled={!loaded || work?.kind === 'error'}
             onClick={() => setAsking(asking === false ? handle.current?.selection() ?? null : false)}>Demander à Claude</button>
-          {mode === 'code' && work?.kind === 'text' && !vendored && (editing ? (
+          {mode === 'code' && work?.kind === 'text' && !vendored && !work.notUtf8 && (editing ? (
             <>
               <button type="button" className="primary" disabled={!dirty} onClick={() => void save(false)}>Enregistrer <span className="kbd">⌘S</span></button>
               <button type="button" onClick={() => { setText(work.content); setEditing(false); setDiskChanged(false) }}>Annuler</button>
@@ -225,6 +225,7 @@ export function CodeView(props: {
         </div>
       )}
       {saveError && <div className="code-warning" role="alert">{saveError}</div>}
+      {saved?.notUtf8 && <div className="code-warning" role="status" data-testid="not-utf8">Ce fichier n'est pas en UTF-8 : il s'affiche en lecture seule, car l'enregistrer le corromprait.</div>}
       {diffStatus === 'computing' && <div className="code-warning" role="status" data-testid="diff-computing">Calcul du diff en cours : ce qui s'affiche n'est pas encore le résultat.</div>}
       {diffStatus === 'abandoned' && (
         <div className="code-warning" role="alert" data-testid="diff-abandoned">

@@ -203,6 +203,17 @@ test('saving refuses to overwrite what Claude changed meanwhile', async () => {
   expect(await readFile(join(featPath, 'src', 'beta.ts'), 'utf8')).toContain('// mine')
 })
 
+test('a file that is not UTF-8 opens read-only, with the reason', async () => {
+  await writeFile(join(featPath, 'latin.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]))
+  await launch()
+  await openCode()
+  await page.getByTestId('scope-changed').click()
+  await treeFile('latin.txt').click()
+  await expect(page.getByTestId('not-utf8')).toContainText('UTF-8')
+  await expect(page.getByTestId('read-only')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Modifier' })).toHaveCount(0)
+})
+
 test('a plain save writes the file', async () => {
   await launch()
   await openCode()

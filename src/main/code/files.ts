@@ -1,4 +1,5 @@
 import chokidar from 'chokidar'
+import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -18,6 +19,8 @@ export const MAX_TEXT_BYTES = 5 * 1024 * 1024
 
 const isInside = (root: string, p: string): boolean => p === root || p.startsWith(root + sep)
 const versionOf = (bytes: Buffer): string => createHash('sha1').update(bytes).digest('hex')
+/** macOS opens `.GIT` as `.git`: a comparison of the name as typed would let it through. */
+const isGitDir = (part: string): boolean => part.toLowerCase() === '.git'
 
 /**
  * Where `rel` really is on disk, if that is under the worktree after resolving every symlink.
@@ -26,7 +29,7 @@ const versionOf = (bytes: Buffer): string => createHash('sha1').update(bytes).di
 async function resolveInside(cwd: string, rel: unknown): Promise<string> {
   if (typeof rel !== 'string' || rel === '' || rel.includes('\0') || isAbsolute(rel)) throw new Error('Chemin invalide')
   const parts = rel.split(/[\\/]/).filter((p) => p !== '' && p !== '.')
-  if (parts.length === 0 || parts.includes('..') || parts.includes('.git')) throw new Error('Chemin invalide')
+  if (parts.length === 0 || parts.includes('..') || parts.some(isGitDir)) throw new Error('Chemin invalide')
   const root = await realpath(cwd)
   const full = join(root, ...parts)
   // The nearest existing ancestor stands for a file that does not exist yet.
@@ -52,7 +55,7 @@ async function resolveInside(cwd: string, rel: unknown): Promise<string> {
   if (!isInside(root, real)) throw new Error('Chemin hors du worktree')
   const resolved = join(real, ...missing)
   // A link may lead into git's own directory, where a hook would run code.
-  if (relative(root, resolved).split(sep).includes('.git')) throw new Error('Chemin invalide')
+  if (relative(root, resolved).split(sep).some(isGitDir)) throw new Error('Chemin invalide')
   return resolved
 }
 
@@ -64,7 +67,7 @@ export async function readFileSafe(cwd: string, path: string): Promise<FileConte
   if (st.size > MAX_TEXT_BYTES) return { kind: 'tooLarge', size: st.size }
   const bytes = await readFile(real)
   if (bytes.subarray(0, 8192).includes(0)) return { kind: 'binary' }
-  return { kind: 'text', content: bytes.toString('utf8'), version: versionOf(bytes) }
+  return { kind: 'text', content: bytes.toString('utf8'), version: versionOf(bytes), ...(isUtf8(bytes) ? {} : { notUtf8: true }) }
 }
 
 /**
@@ -75,15 +78,15 @@ export async function writeFileSafe(
   cwd: string, path: string, content: string, opts: { expectedVersion?: string } = {}
 ): Promise<string> {
   const real = await resolveInside(cwd, path)
-  if (opts.expectedVersion !== undefined) {
-    let current: string | null = null
-    try {
-      current = versionOf(await readFile(real))
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-    }
-    if (current !== opts.expectedVersion) throw new Error(FILE_CHANGED)
+  let current: Buffer | null = null
+  try {
+    current = await readFile(real)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
   }
+  // What was shown is a lossy decoding: writing it back would replace every byte it could not read.
+  if (current && !current.subarray(0, 8192).includes(0) && !isUtf8(current)) throw new Error('Fichier non UTF-8 : modification refusée')
+  if (opts.expectedVersion !== undefined && (current ? versionOf(current) : null) !== opts.expectedVersion) throw new Error(FILE_CHANGED)
   await mkdir(dirname(real), { recursive: true })
   const bytes = Buffer.from(content, 'utf8')
   await writeFile(real, bytes)
