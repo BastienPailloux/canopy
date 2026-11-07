@@ -63,11 +63,14 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
           <input autoFocus type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
             placeholder={status?.set ? '•••••••• (enregistrée)' : 'sk-ant-…'} spellCheck={false} disabled={!canStore} />
         </label>
-        <span data-testid="key-status" style={{ color: 'var(--fg-3)', fontSize: 12, lineHeight: 1.5 }}>
-          {status?.set
-            ? 'Une clé est enregistrée : les nouvelles sessions l’utilisent à la place de ton login Claude.'
-            : 'Aucune clé : les sessions utilisent ton login Claude personnel.'}
-        </span>
+        {/* A key that can no longer be read is not used: only the alert below speaks of it. */}
+        {!(status?.set && !status.readable) && (
+          <span data-testid="key-status" style={{ color: 'var(--fg-3)', fontSize: 12, lineHeight: 1.5 }}>
+            {status?.set
+              ? 'Une clé est enregistrée : les nouvelles sessions l’utilisent à la place de ton login Claude.'
+              : 'Aucune clé : les sessions utilisent ton login Claude personnel.'}
+          </span>
+        )}
         {!canStore && (
           <p className="risk" role="alert">
             Le trousseau macOS n’est pas disponible : Canopy ne stocke jamais une clé en clair, elle ne peut pas être enregistrée.
