@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeApp } from '../helpers/closeApp'
@@ -421,4 +421,18 @@ test('a folder past the repo limit says the list is cut', async () => {
     app = undefined
     await rm(wide, { recursive: true, force: true })
   }
+})
+
+test('launch reads the stats of each worktree once', async () => {
+  const trace = join(userData, 'git-trace.log')
+  await writeFile(join(userData, 'state.json'), JSON.stringify({ recentRepos: [alpha], ports: {}, prefs: {} }))
+  const env = { ...process.env, CANOPY_FAKE_QUERY: '1', SHELL: '/bin/bash', GIT_TRACE: trace } as Record<string, string>
+  delete env.ELECTRON_RUN_AS_NODE
+  app = await electron.launch({ args: ['.', `--user-data-dir=${userData}`], env })
+  page = await app.firstWindow()
+  await expect(rows()).toHaveCount(2, { timeout: 20_000 })
+  await page.waitForTimeout(1500)
+  const reads = (await readFile(trace, 'utf8')).split('\n').filter((l) => l.includes('rev-list --count'))
+  // alpha holds two worktrees.
+  expect(reads).toHaveLength(2)
 })

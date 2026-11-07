@@ -56,6 +56,9 @@ export function entryPaths(w: Workspace | null, list: Worktree[]): string[] {
   return [...new Set([...list.map((l) => l.path), ...(w?.entries ?? []).map((e) => e.worktree.path)])]
 }
 
+/** The paths that reading the live list leaves to read. */
+export const outsideList = (paths: string[], list: Worktree[]): string[] => paths.filter((p) => !list.some((l) => l.path === p))
+
 /** The live list of `repo` shows what the last scan does not: a worktree came, left, or changed branch. */
 export function listDiffers(w: Workspace | null, repo: string, list: Worktree[]): boolean {
   const shape = (l: Worktree[]): string => l.map((x) => `${x.path}\0${worktreeLabel(x)}`).sort().join('\0\0')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultEntry, entryLabel, entryPaths, groupEntries, isSingleRepo, listDiffers, mergeScan, repoWorktrees, workspaceRepos } from '../../src/renderer/shell/workspaceList'
+import { defaultEntry, entryLabel, entryPaths, groupEntries, isSingleRepo, listDiffers, mergeScan, outsideList, repoWorktrees, workspaceRepos } from '../../src/renderer/shell/workspaceList'
 import type { Workspace, WorkspaceEntry } from '../../src/shared/types'
 
 function entry(repoName: string, group: WorkspaceEntry['group'], branch: string | null = 'main', feature?: string): WorkspaceEntry {
@@ -128,6 +128,10 @@ describe('helpers', () => {
     const extra = { path: '/new', branch: 'n', head: 'h', isMain: false }
     expect(entryPaths(ws(a, b), [a.worktree, extra])).toEqual(['/ws/a', '/new', '/ws/b'])
     expect(entryPaths(null, [extra])).toEqual(['/new'])
+  })
+
+  it('outsideList leaves out what reading the live list covers', () => {
+    expect(outsideList(['/ws/a', '/ws/b', '/new'], [a.worktree])).toEqual(['/ws/b', '/new'])
   })
 
   it('listDiffers sees a worktree that came, left or changed branch, not a new commit', () => {

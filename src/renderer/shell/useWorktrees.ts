@@ -5,7 +5,7 @@ import { dropDrafts } from '../code/drafts'
 import { forgetWorktree } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { createOrdering, eachLimit, latestOnly, minInterval, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polling'
-import { entryPaths, listDiffers } from './workspaceList'
+import { entryPaths, listDiffers, outsideList } from './workspaceList'
 
 /** Each stats read runs several gits. */
 const STATS_CONCURRENCY = 8
@@ -111,9 +111,8 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
       watched.current = key
       window.canopy.watchWorktrees(forRepo).catch(() => { watched.current = '' })
     }
-    list.forEach((w) => readPorts(w.path))
-    await Promise.all(list.map((w) => readStats(w.path)))
-  }, [repo, setWorktrees, readOrphans, settle, readStats, readPorts, rescan])
+    await readAll(list.map((w) => w.path))
+  }, [repo, setWorktrees, readOrphans, settle, readAll, rescan])
   // The repo may change during a run: what runs next is for the active one.
   const latest = useRef(readList)
   latest.current = readList
@@ -129,8 +128,7 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
     await rescan()
     settle(await readOrphans())
     const { workspace, worktrees } = useApp.getState()
-    const live = new Set(worktrees.map((w) => w.path))
-    await readAll(entryPaths(workspace, worktrees).filter((p) => !live.has(p)))
+    await readAll(outsideList(entryPaths(workspace, worktrees), worktrees))
   }, () => undefined), [refresh, rescan, readOrphans, settle, readAll])
 
   // Files or commits changed in a worktree: its numbers are stale, and the list too if one came or went.
@@ -182,7 +180,8 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
     seen.current = now
     setEntries((prev) => pick(prev, now))
     setPorts((prev) => pick(prev, now))
-    void readAll(fresh)
+    // The active repo's are read with its list.
+    void readAll(outsideList(fresh, useApp.getState().worktrees))
   }, [paths, readAll])
 
   useEffect(() => {
