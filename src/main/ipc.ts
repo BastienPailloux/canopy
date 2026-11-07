@@ -5,8 +5,8 @@ import { listTree } from './code/files'
 import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
 import { worktreeStats } from './git/diff'
-import { createWorktree, listWorktrees, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
-import { repoTrust, requireTrustedRoot } from './repoTrust'
+import { createWorktree, listWorktrees, removalRisks, removeWorktree } from './git/worktrees'
+import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
 import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
 
@@ -127,14 +127,15 @@ export function registerIpc(store: AppStore, sessions: SessionManager): void {
 
   ipcMain.handle('repo:recent', () => store.recentRepos)
 
-  ipcMain.handle('repo:trust', (_e, repo: unknown) => {
-    assertPath(repo)
-    return repoTrust(store, repo)
+  ipcMain.handle('repo:trust', (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return repoTrust(store, cwd)
   })
 
-  ipcMain.handle('repo:trustRepo', async (_e, repo: unknown) => {
-    assertPath(repo)
-    store.trustRepo(await mainWorktreeRoot(repo))
+  ipcMain.handle('repo:trustRepo', (_e, cwd: unknown, configHash: unknown) => {
+    assertPath(cwd)
+    assertId(configHash)
+    return approveConfig(store, cwd, configHash)
   })
 
   ipcMain.handle('code:listTree', (_e, cwd: unknown) => {

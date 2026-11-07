@@ -5,8 +5,8 @@ const MAX_RECENT = 10
 
 interface State {
   recentRepos: string[]
-  /** Main worktree roots whose project config sessions may load. */
-  trustedRepos: string[]
+  /** Hashes of the project configs sessions may load, by main worktree root. */
+  approvedConfigs: Record<string, string[]>
   ports: Record<string, Record<string, number>>
   prefs: Record<string, unknown>
 }
@@ -16,13 +16,15 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], trustedRepos: [], ports: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
   }
-  if (Array.isArray(raw.trustedRepos)) {
-    state.trustedRepos = [...new Set(raw.trustedRepos.filter((r): r is string => typeof r === 'string'))]
+  if (isRecord(raw.approvedConfigs)) {
+    for (const [root, hashes] of Object.entries(raw.approvedConfigs)) {
+      if (Array.isArray(hashes)) state.approvedConfigs[root] = [...new Set(hashes.filter((h): h is string => typeof h === 'string'))]
+    }
   }
   if (isRecord(raw.ports)) {
     for (const [wt, services] of Object.entries(raw.ports)) {
@@ -59,13 +61,18 @@ export class AppStore {
     this.save()
   }
 
+  /** Whether any config of this repo was approved. Says nothing of the config a session would load. */
   isRepoTrusted(root: string): boolean {
-    return this.state.trustedRepos.includes(root)
+    return (this.state.approvedConfigs[root] ?? []).length > 0
   }
 
-  trustRepo(root: string): void {
-    if (this.isRepoTrusted(root)) return
-    this.state.trustedRepos.push(root)
+  isConfigApproved(root: string, hash: string): boolean {
+    return this.state.approvedConfigs[root]?.includes(hash) ?? false
+  }
+
+  approveConfig(root: string, hash: string): void {
+    if (this.isConfigApproved(root, hash)) return
+    this.state.approvedConfigs[root] = [...(this.state.approvedConfigs[root] ?? []), hash]
     this.save()
   }
 

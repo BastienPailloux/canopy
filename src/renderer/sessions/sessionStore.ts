@@ -148,7 +148,7 @@ async function confirmTrust(cwd: string): Promise<boolean> {
   if (trust.trusted) return true
   const accepted = await new Promise<boolean>((answer) => { useSessions.setState({ trustPrompt: { trust, answer } }) })
   useSessions.setState({ trustPrompt: null })
-  if (accepted) await window.canopy.trustRepo(cwd)
+  if (accepted) await window.canopy.trustRepo(cwd, trust.configHash)
   return accepted
 }
 

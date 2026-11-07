@@ -27,8 +27,16 @@ export interface RepoConfig {
   statusLine: string[]
   /** Variable names only: values may be secrets. */
   env: string[]
+  /** Every top-level key of the settings files, including those not detailed above. */
+  settingsKeys: string[]
+  /** Config files that exist but could not be read or parsed: anything may be in them. */
+  unknownFiles: string[]
 }
-export interface RepoTrust extends RepoConfig { trusted: boolean }
+export interface RepoTrust extends RepoConfig {
+  trusted: boolean
+  /** Identifies the config listed here, to approve with `trustRepo`. */
+  configHash: string
+}
 
 export interface CanopyApi {
   /** Native folder picker. Resolves the chosen git repo root, or null if cancelled. Rejects if not a git repo. */
@@ -46,12 +54,13 @@ export interface CanopyApi {
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */
   listTree(cwd: string): Promise<string[]>
-  /** Trust and the listed config both come from the main worktree of `repo`, shared by all its worktrees. */
-  repoTrust(repo: string): Promise<RepoTrust>
-  trustRepo(repo: string): Promise<void>
+  /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
+  repoTrust(cwd: string): Promise<RepoTrust>
+  /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */
+  trustRepo(cwd: string, configHash: string): Promise<void>
   /**
    * Resolves the session's localId. Resuming a session already live resolves its existing localId.
-   * Rejects with `REPO_NOT_TRUSTED` (see `isRepoNotTrusted`) until `trustRepo` was called.
+   * Rejects with `REPO_NOT_TRUSTED` (see `isRepoNotTrusted`) unless the config at `cwd` was approved with `trustRepo`.
    */
   startSession(cwd: string, o: StartSessionOptions): Promise<string>
   /** Rejects if the session has ended: resume it with `startSession`. */

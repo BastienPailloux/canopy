@@ -64,24 +64,35 @@ describe('AppStore', () => {
     expect(await readdir(join(dir, 'sub'))).toEqual(['state.json'])
   })
 
-  it('trusts a repo durably, and nothing else', () => {
+  it('approves a config hash per repo, durably, and nothing else', () => {
     const a = new AppStore(file)
     expect(a.isRepoTrusted('/r/one')).toBe(false)
-    a.trustRepo('/r/one')
-    a.trustRepo('/r/one')
+    a.approveConfig('/r/one', 'h1')
+    a.approveConfig('/r/one', 'h1')
+    a.approveConfig('/r/one', 'h2')
     const b = new AppStore(file)
     expect(b.isRepoTrusted('/r/one')).toBe(true)
-    expect(b.isRepoTrusted('/r/two')).toBe(false)
-    expect(JSON.parse(readFileSync(file, 'utf8')).trustedRepos).toEqual(['/r/one'])
+    expect(b.isConfigApproved('/r/one', 'h1')).toBe(true)
+    expect(b.isConfigApproved('/r/one', 'h2')).toBe(true)
+    expect(b.isConfigApproved('/r/one', 'h3')).toBe(false)
+    expect(b.isConfigApproved('/r/two', 'h1')).toBe(false)
+    expect(JSON.parse(readFileSync(file, 'utf8')).approvedConfigs).toEqual({ '/r/one': ['h1', 'h2'] })
   })
 
-  it('sanitizes trustedRepos on its own', async () => {
-    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], trustedRepos: ['/r/ok', 1, null, '/r/ok'] }))
+  it('takes an old trustedRepos entry, which has no hash, as untrusted', async () => {
+    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], trustedRepos: ['/r/one'] }))
     const s = new AppStore(file)
-    expect(s.isRepoTrusted('/r/ok')).toBe(true)
-    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], trustedRepos: 'all' }))
-    const t = new AppStore(file)
-    expect(t.isRepoTrusted('all')).toBe(false)
-    expect(t.recentRepos).toEqual(['/r/one'])
+    expect(s.isRepoTrusted('/r/one')).toBe(false)
+    expect(s.recentRepos).toEqual(['/r/one'])
+  })
+
+  it('sanitizes approvedConfigs on its own', async () => {
+    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], approvedConfigs: { '/r/ok': ['h', 1, null, 'h'], '/r/bad': 'h' } }))
+    const s = new AppStore(file)
+    expect(s.recentRepos).toEqual(['/r/one'])
+    expect(s.isConfigApproved('/r/ok', 'h')).toBe(true)
+    expect(s.isRepoTrusted('/r/bad')).toBe(false)
+    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], approvedConfigs: 'all' }))
+    expect(new AppStore(file).isRepoTrusted('all')).toBe(false)
   })
 })

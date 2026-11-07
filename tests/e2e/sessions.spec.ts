@@ -20,14 +20,15 @@ const GIT_ENV = {
 }
 
 async function launch(trusted: boolean): Promise<void> {
-  await writeFile(join(userData, 'state.json'), JSON.stringify({
-    recentRepos: [repo.path], trustedRepos: trusted ? [repo.path] : [], ports: {}, prefs: {}
-  }))
+  await writeFile(join(userData, 'state.json'), JSON.stringify({ recentRepos: [repo.path], ports: {}, prefs: {} }))
   const env = { ...process.env, CANOPY_FAKE_QUERY: '1' } as Record<string, string>
   delete env.ELECTRON_RUN_AS_NODE
   app = await electron.launch({ args: ['.', `--user-data-dir=${userData}`], env })
   page = await app.firstWindow()
   await expect(page.getByTestId('worktree')).toHaveCount(2, { timeout: 20_000 })
+  if (trusted) {
+    await page.evaluate(async (r) => window.canopy.trustRepo(r, (await window.canopy.repoTrust(r)).configHash), repo.path)
+  }
 }
 
 test.beforeEach(async () => {
@@ -71,11 +72,12 @@ test('asks for trust before the first session, shows what the repo declares, and
   await expect(dialog).toContainText('exécuter du code sur ta machine')
   await expect(dialog).toContainText('charge le contenu de ce dépôt')
   await expect(dialog.getByTestId('trust-hooks')).toContainText('SessionStart: run-me.sh')
-  await expect(dialog.getByTestId('trust-mcpServers')).toContainText('db')
+  await expect(dialog.getByTestId('trust-mcpServers')).toContainText('db: db-mcp')
   await expect(dialog.getByTestId('trust-allowRules')).toContainText('Bash(rm *)')
   await expect(dialog.getByTestId('trust-apiKeyHelper')).toContainText('key.sh')
   await expect(dialog.getByTestId('trust-statusLine')).toContainText('status.sh')
   await expect(dialog.getByTestId('trust-env')).toContainText('SECRET_TOKEN')
+  await expect(dialog.getByTestId('trust-settingsKeys')).toContainText('apiKeyHelper')
   await expect(dialog).not.toContainText('never-shown')
 
   await dialog.getByRole('button', { name: 'Refuser' }).click()
@@ -90,13 +92,33 @@ test('asks for trust before the first session, shows what the repo declares, and
   await expect(assistantMessages()).toHaveText(['Réponse à : bonjour'])
   await expect(page.getByTestId('user-message')).toHaveText(['bonjour'])
   expect((await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).trusted).toBe(true)
-  expect((await page.evaluate((r) => window.canopy.repoTrust(r), featPath)).trusted).toBe(true)
 
   // A later session in the same repo asks nothing.
   await page.getByRole('button', { name: '+ Nouvelle session' }).click()
   await send('encore')
   await expect(assistantMessages()).toHaveText(['Réponse à : encore'])
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
+})
+
+test('a config changed after approval asks again before the next session', async () => {
+  await launch(true)
+  await send('bonjour')
+  await expect(assistantMessages()).toHaveText(['Réponse à : bonjour'])
+
+  await writeFile(join(repo.path, '.mcp.json'), JSON.stringify({ mcpServers: { evil: { command: 'evil', args: ['--all'] } } }))
+  await page.getByRole('button', { name: '+ Nouvelle session' }).click()
+  await send('encore')
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog.getByTestId('trust-mcpServers')).toContainText('evil: evil --all')
+  await dialog.getByRole('button', { name: 'Refuser' }).click()
+  await expect(composer()).toHaveValue('encore')
+
+  // A file that cannot be parsed is flagged, not taken as empty.
+  await writeFile(join(repo.path, '.mcp.json'), '{ nope')
+  await composer().press('Meta+Enter')
+  await expect(dialog.getByTestId('trust-unknown')).toContainText('.mcp.json')
+  await dialog.getByRole('button', { name: 'Faire confiance' }).click()
+  await expect(assistantMessages()).toHaveText(['Réponse à : encore'])
 })
 
 test('a message gets its reply, and the stream goes on across a worktree switch', async () => {

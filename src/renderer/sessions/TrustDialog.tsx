@@ -8,7 +8,8 @@ const SECTIONS: { key: keyof RepoConfig; label: string }[] = [
   { key: 'allowRules', label: "Règles d'autorisation" },
   { key: 'apiKeyHelper', label: 'apiKeyHelper' },
   { key: 'statusLine', label: 'statusLine' },
-  { key: 'env', label: "Variables d'environnement" }
+  { key: 'env', label: "Variables d'environnement" },
+  { key: 'settingsKeys', label: 'Clés des fichiers de réglages' }
 ]
 
 /** Shown before the first session in a repo: a session loads what the repo declares. */
@@ -26,8 +27,13 @@ export function TrustDialog(): React.JSX.Element | null {
           Une session Claude charge le contenu de ce dépôt. Ce qu'il déclare peut exécuter du code sur ta machine,
           avec tes droits. N'accepte que si tu fais confiance à sa provenance.
         </p>
-        {declared.length === 0
-          ? <p className="plain">Ce dépôt ne déclare ni hook, ni serveur MCP, ni règle d'autorisation.</p>
+        {trust.unknownFiles.length > 0 && (
+          <p className="risk" data-testid="trust-unknown">
+            Contenu inconnu, ces fichiers n'ont pas pu être lus : <span className="mono">{trust.unknownFiles.join(', ')}</span>
+          </p>
+        )}
+        {declared.length === 0 && trust.unknownFiles.length === 0
+          ? <p className="plain">Ce worktree ne déclare ni hook, ni serveur MCP, ni réglage.</p>
           : declared.map((s) => (
             <section key={s.key} data-testid={`trust-${s.key}`}>
               <h3>{s.label}</h3>
@@ -35,8 +41,8 @@ export function TrustDialog(): React.JSX.Element | null {
             </section>
           ))}
         <p className="plain">
-          Ses commandes, skills, agents et plugins seront aussi chargés. Cette liste vient du worktree principal :
-          une autre branche peut déclarer autre chose.
+          Ses commandes, skills, agents et plugins seront aussi chargés. Cette liste vient de ce worktree :
+          si sa configuration change, ou si une autre branche en déclare une autre, Canopy te demandera à nouveau.
         </p>
         <p className="plain">Si tu refuses, aucune session ne démarre. Le code et le terminal restent utilisables.</p>
         <div className="actions">
