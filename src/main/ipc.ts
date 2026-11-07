@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { access } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { NewWorktree } from '../shared/api'
@@ -21,6 +21,9 @@ import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
 import type { SessionManager } from './sessions/SessionManager'
+import { notesToShow } from './update/whatsNew'
+import releases from '../shared/releases.json'
+import type { ReleaseNotes } from '../shared/update'
 import { registerTerminalIpc } from './terminal/terminalIpc'
 import type { TerminalManager } from './terminal/TerminalManager'
 import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
@@ -145,6 +148,14 @@ export function registerIpc(
     if (folder !== null) assertPath(folder)
     return folder
   })
+  ipcMain.handle('update:whatsNew', () => {
+    const last = store.prefs.lastSeenVersion
+    const lastSeen = typeof last === 'string' ? last : undefined
+    // A fresh install has nothing to catch up on: it starts from the version it came with.
+    if (lastSeen === undefined) store.setPrefs({ ...store.prefs, lastSeenVersion: app.getVersion() })
+    return notesToShow(releases as ReleaseNotes[], app.getVersion(), lastSeen)
+  })
+  ipcMain.handle('update:whatsNewSeen', () => { store.setPrefs({ ...store.prefs, lastSeenVersion: app.getVersion() }) })
   ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
 
   const prs = new PrCache()

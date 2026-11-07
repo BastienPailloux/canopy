@@ -2,7 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
-import type { Stash, UpdateState } from './update'
+import type { ReleaseNotes, Stash, UpdateState } from './update'
 
 export interface RemovalRisks {
   dirty: number
@@ -167,6 +167,10 @@ export interface CanopyApi {
   submitStash(s: Stash): Promise<void>
   /** The work set aside by the last update restart, once: the file is gone after. */
   takeStash(): Promise<Stash | null>
+  /** Notes of the versions installed since the last time the user saw them, newest first. Empty on a fresh install. */
+  whatsNew(): Promise<ReleaseNotes[]>
+  /** Remembers that the notes of the running version were shown. */
+  markWhatsNewSeen(): Promise<void>
   /** Opens a web or mail link in the default browser. Rejects for any other scheme. */
   openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */

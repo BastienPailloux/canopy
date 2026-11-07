@@ -731,3 +731,31 @@ button:disabled {
 .side-panel .actions { margin-top: auto; display: flex; gap: 8px; }
 .side-panel .actions button { flex: 1; height: 34px; border-radius: 8px; }
 .settings-btn { margin-left: auto; color: var(--fg-2); }
+
+/* What's new after an update */
+.dialog.whats-new { width: 480px; }
+.whats-new-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.whats-new h3 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+.whats-new h3.version { color: #A78BFA; font-size: 13px; }
+.whats-new ul { margin: 0; padding-left: 18px; font-size: 13px; }
+.whats-new ul.restored { list-style: none; padding-left: 0; }
+.whats-new button.link {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: #A78BFA;
+  cursor: pointer;
+  text-align: left;
+}
+.whats-new button.link:hover { text-decoration: underline; }
