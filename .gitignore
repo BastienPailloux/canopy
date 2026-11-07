@@ -4,3 +4,5 @@ dist
 .superpowers
 .worktrees
 .DS_Store
+test-results
+dist-notes

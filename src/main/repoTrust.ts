@@ -1,0 +1,187 @@
+import { createHash } from 'node:crypto'
+import { readFile, realpath } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import type { RepoConfig, RepoTrust } from '../shared/api'
+import { RepoNotTrustedError } from '../shared/errors'
+import type { AppStore } from './appStore'
+import { git, GitError } from './git/exec'
+import { listWorktrees, mainWorktreeRoot } from './git/worktrees'
+import { CONFIG_FILE, DEFAULT_PORT_ENV, parseConfig } from './terminal/config'
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
+
+const SETTINGS = join('.claude', 'settings.json')
+const LOCAL_SETTINGS = join('.claude', 'settings.local.json')
+const MCP = '.mcp.json'
+/**
+ * What a clone can bring. `.canopy/config.json` is included: its setup and services run commands in a terminal.
+ * `settings.local.json` is left out, since « Toujours » writes it, unless a repo tracks it: then a clone brings it too.
+ */
+const HASHED_FILES = [SETTINGS, MCP, CONFIG_FILE]
+
+const isMissing = (err: unknown): boolean => (err as NodeJS.ErrnoException).code === 'ENOENT'
+
+/**
+ * A session also loads and runs the `.mcp.json` of every folder above its own, past repo boundaries, unlike the
+ * parent's settings and skills: see "Config du parent" in the spike results. Nearest first.
+ */
+async function parentMcpFiles(dir: string): Promise<string[]> {
+  const above = (from: string): string[] => {
+    const files: string[] = []
+    for (let at = from; dirname(at) !== at; at = dirname(at)) files.push(join(dirname(at), MCP))
+    return files
+  }
+  // A session runs in the real folder: through a symlink, its parents are not the ones the path shows.
+  const shown = above(dir)
+  const reached = new Set(await Promise.all(shown.map((f) => realpath(dirname(f)).catch(() => dirname(f)))))
+  const real = above(await realpath(dir).catch(() => dir))
+  return [...shown, ...real.filter((f) => !reached.has(dirname(f)))]
+}
+
+/** The parsed object, empty if the file is missing. `unknown` when the file exists but says nothing readable. */
+async function readJson(file: string): Promise<{ data: Record<string, unknown>; unknown: boolean }> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
+    return isRecord(parsed) ? { data: parsed, unknown: false } : { data: {}, unknown: true }
+  } catch (err) {
+    return { data: {}, unknown: !isMissing(err) }
+  }
+}
+
+/** One line per hook: its event, then what it runs. */
+function hookLines(settings: Record<string, unknown>): string[] {
+  if (!isRecord(settings.hooks)) return []
+  return Object.entries(settings.hooks).flatMap(([event, groups]) =>
+    asArray(groups).flatMap((group) => asArray(isRecord(group) ? group.hooks : undefined).flatMap((hook) => {
+      const target = isRecord(hook) ? hook.command ?? hook.url ?? hook.prompt : undefined
+      return typeof target === 'string' ? [`${event}: ${target}`] : []
+    }))
+  )
+}
+
+function allowRules(settings: Record<string, unknown>): string[] {
+  const rules = isRecord(settings.permissions) ? asArray(settings.permissions.allow) : []
+  return rules.filter((r): r is string => typeof r === 'string')
+}
+
+const stringOf = (v: unknown): string[] => (typeof v === 'string' ? [v] : [])
+const unique = (...lists: string[][]): string[] => [...new Set(lists.flat())]
+
+/** A server and what it runs or reaches. */
+function mcpLine(name: string, server: unknown): string {
+  if (!isRecord(server)) return name
+  const args = asArray(server.args).filter((a): a is string => typeof a === 'string')
+  const target = [...stringOf(server.command), ...args, ...stringOf(server.url)].join(' ')
+  return target === '' ? name : `${name}: ${target}`
+}
+
+/** The commands `.canopy/config.json` declares. Null if the file exists but is not valid. */
+async function canopyCommands(dir: string): Promise<{ setup: string[]; services: string[] } | null> {
+  const raw = await readFile(join(dir, CONFIG_FILE), 'utf8').catch(() => undefined)
+  if (raw === undefined) return { setup: [], services: [] }
+  try {
+    const config = parseConfig(raw)
+    return {
+      setup: config.setup,
+      services: config.services.map((s) => `${s.name}: ${s.command}${s.portEnv === DEFAULT_PORT_ENV ? '' : ` (port dans ${s.portEnv})`}`)
+    }
+  } catch {
+    return null
+  }
+}
+
+/** What a session at `dir` would load: its config files, and the servers of the folders above. Missing files count as empty, unreadable ones are flagged. */
+export async function readRepoConfig(dir: string): Promise<RepoConfig> {
+  const files = [SETTINGS, LOCAL_SETTINGS, MCP, CONFIG_FILE]
+  const reads = await Promise.all(files.map((f) => readJson(join(dir, f))))
+  const [shared, local, mcp, canopy] = reads
+  // A config of the wrong shape is listed as unreadable: the terminal refuses it, and anything may be in it.
+  const canopyConfig = canopy.unknown ? undefined : await canopyCommands(dir)
+  if (canopyConfig === null) canopy.unknown = true
+  const fromSettings = (read: (settings: Record<string, unknown>) => string[]): string[] => unique(read(shared.data), read(local.data))
+  const parents = await parentMcpFiles(dir)
+  const parentReads = await Promise.all(parents.map((f) => readJson(f)))
+  const serverLines = (data: Record<string, unknown>): string[] =>
+    isRecord(data.mcpServers) ? Object.entries(data.mcpServers).map(([name, server]) => mcpLine(name, server)) : []
+  return {
+    hooks: fromSettings(hookLines),
+    mcpServers: [...serverLines(mcp.data), ...parentReads.flatMap((r, i) => serverLines(r.data).map((line) => `${line} (depuis ${parents[i]})`))],
+    allowRules: fromSettings(allowRules),
+    apiKeyHelper: fromSettings((s) => stringOf(s.apiKeyHelper)),
+    statusLine: fromSettings((s) => (isRecord(s.statusLine) ? stringOf(s.statusLine.command) : [])),
+    env: fromSettings((s) => (isRecord(s.env) ? Object.keys(s.env) : [])),
+    settingsKeys: fromSettings((s) => Object.keys(s)),
+    setup: canopyConfig?.setup ?? [],
+    services: canopyConfig?.services ?? [],
+    unknownFiles: [...files.filter((_, i) => reads[i].unknown), ...parents.filter((_, i) => parentReads[i].unknown)]
+  }
+}
+
+/** Unsure counts as tracked: the worst outcome is asking for approval again. Outside a repo nothing is. */
+async function isTracked(dir: string, file: string): Promise<boolean> {
+  try {
+    return (await git(dir, ['ls-files', '-z', '--', file])) !== ''
+  } catch (err) {
+    return !(err instanceof GitError && err.stderr.includes('not a git repository'))
+  }
+}
+
+/** Identifies the config a session in `dir` would load. Missing and unreadable files hash differently from any content. */
+export async function configHash(dir: string): Promise<string> {
+  const hash = createHash('sha256')
+  const files = (await isTracked(dir, LOCAL_SETTINGS)) ? [...HASHED_FILES, LOCAL_SETTINGS] : HASHED_FILES
+  for (const file of files) {
+    const content = await readFile(join(dir, file)).catch((err: unknown) => (isMissing(err) ? null : undefined))
+    const state = content === null ? 'missing' : content === undefined ? 'unreadable' : `bytes:${content.length}`
+    hash.update(`${file}\0${state}\0`)
+    if (content) hash.update(content)
+  }
+  // After the rest, and only when there is one: the hash of a config approved before stays.
+  for (const file of await parentMcpFiles(dir)) {
+    const content = await readFile(file).catch((err: unknown) => (isMissing(err) ? null : undefined))
+    if (content === null) continue
+    hash.update(`${file}\0${content === undefined ? 'unreadable' : `bytes:${content.length}`}\0`)
+    if (content) hash.update(content)
+  }
+  return hash.digest('hex')
+}
+
+/**
+ * `cwd`'s own `.git` picks the root it reports, so a directory could claim any repo.
+ * Only the repo's list, read from its root, says what belongs to it.
+ */
+async function isWorktreeOf(root: string, cwd: string): Promise<boolean> {
+  const real = await realpath(cwd)
+  const paths = await Promise.all((await listWorktrees(root)).map((w) => realpath(w.path).catch(() => w.path)))
+  return paths.includes(real)
+}
+
+export async function repoTrust(store: AppStore, cwd: string): Promise<RepoTrust> {
+  const root = await mainWorktreeRoot(cwd)
+  const hash = await configHash(cwd)
+  const trusted = store.isConfigApproved(root, hash) && await isWorktreeOf(root, cwd)
+  return { repo: root, trusted, configHash: hash, ...(await readRepoConfig(cwd)) }
+}
+
+/** Approves the config that was shown, whatever `cwd` holds by now: `start` checks that again. */
+export async function approveConfig(store: AppStore, cwd: string, hash: string): Promise<void> {
+  store.approveConfig(await mainWorktreeRoot(cwd), hash)
+}
+
+const approvedAt = async (store: AppStore, root: string, cwd: string): Promise<boolean> =>
+  store.isConfigApproved(root, await configHash(cwd)) && await isWorktreeOf(root, cwd)
+
+/** Whether the config at `cwd` was approved for its repo: the approval sessions rely on. Unsure is no. */
+export async function isConfigTrusted(store: AppStore, cwd: string): Promise<boolean> {
+  return mainWorktreeRoot(cwd).then((root) => approvedAt(store, root, cwd)).catch(() => false)
+}
+
+/** The main worktree root of `cwd`. Throws `RepoNotTrustedError` unless the config at `cwd` was approved for that repo. */
+export async function requireTrustedRoot(store: AppStore, cwd: string): Promise<string> {
+  const root = await mainWorktreeRoot(cwd)
+  if (!(await approvedAt(store, root, cwd))) throw new RepoNotTrustedError()
+  return root
+}

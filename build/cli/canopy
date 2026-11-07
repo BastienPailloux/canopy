@@ -1,0 +1,40 @@
+#!/bin/sh
+# Opens a folder in Canopy: `canopy`, `canopy .` or `canopy <dossier>`.
+
+usage() {
+  cat <<'USAGE'
+Usage : canopy [dossier]
+
+Ouvre un dossier dans Canopy. Sans argument, ou avec « . », ouvre le dossier courant.
+
+  -h, --help   affiche cette aide
+USAGE
+}
+
+case "${1-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+  echo "canopy : un seul dossier à la fois." >&2
+  usage >&2
+  exit 1
+fi
+
+target=${1-.}
+
+if [ ! -d "$target" ]; then
+  echo "canopy : le dossier « $target » n'existe pas." >&2
+  exit 1
+fi
+
+# `pwd -P` gives the physical path, symlinks resolved.
+abs=$(cd -- "$target" 2>/dev/null && pwd -P) || {
+  echo "canopy : impossible d'accéder au dossier « $target »." >&2
+  exit 1
+}
+
+# An editor's terminal sets it, and the app would then start as plain Node and die on its first option.
+unset ELECTRON_RUN_AS_NODE
+
+exec open -a Canopy "$abs"

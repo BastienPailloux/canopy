@@ -103,7 +103,7 @@ Une session lancée hors de Canopy dans un autre terminal ne donne pas de statut
 - Arbre de tout le repo sur la branche du worktree, avec filtre « Modifiés » et recherche ⌘P.
 - Vue Code avec marquage des lignes ajoutées, et vue Diff.
 - Le diff compare le working tree, modifications non commitées incluses, au merge-base avec `origin/<défaut>` si le remote existe, sinon avec la branche locale par défaut **[Choix conception]**. Les commits de Claude restent donc visibles. La douleur 2 impose ce comportement **[Bastien]**.
-- Branche par défaut lue depuis `origin/HEAD`, avec repli sur `main` puis `master`. Branche de comparaison modifiable via le sélecteur de la maquette.
+- Branche par défaut lue depuis `origin/HEAD`, avec repli sur `origin/main`, `origin/master`, puis `main` et `master` en local. Branche de comparaison modifiable via le sélecteur de la maquette.
 - Rafraîchissement automatique quand les fichiers changent.
 - Recherche de texte dans tout le worktree, avec résultats cliquables **[Bastien : usage quotidien]**.
 - Aller à la définition d'une fonction et lister tous ses appels, au clic dans le code **[Bastien : usage quotidien]**. Passe par un serveur de langage, TypeScript/JavaScript d'abord. Pour les autres langages, repli sur la recherche de texte **[Choix conception]**.
@@ -206,3 +206,15 @@ Le spike est réussi si une session SDK permet : stream, interruption, autorisat
 - Stratégie de surveillance des fichiers et cadence de rafraîchissement git.
 - Format exact des fichiers `.canopy/` et `.tickets/`.
 - Signature et notarisation, à traiter seulement avant distribution.
+
+## 11. Mode espace de travail
+
+Ajout du 2026-11-07, après le premier essai réel sur `foxy-app`. La spec supposait un repo unique. Bastien travaille aussi dans un dossier parent qui contient plusieurs repos indépendants.
+
+- À l'ouverture d'un dossier, Canopy cherche tous les repos git dans ses sous-dossiers **[Bastien]**.
+- Limites du scan **[Choix conception]** : profondeur 6, 200 repos au plus, jamais dans `node_modules`, `.git`, `dist`, `build`, `vendor`, ni dans un dossier déjà identifié comme repo. Liens symboliques non suivis.
+- Liste à gauche : repos principaux, puis une section par feature, puis les autres worktrees **[proposé, accepté]**. Une feature est le dossier `.worktrees/<feature>/` contenant des worktrees de plusieurs repos.
+- Le dépôt parent, s'il est un repo git, apparaît comme une entrée « Espace » : docs, `.claude`, sessions transverses.
+- Sélectionner une entrée rend son repo actif. Sessions, code, diff, terminal et confiance restent par repo, sans changement.
+- Un dossier sans repo imbriqué se comporte exactement comme avant.
+- Branche de base mémorisée par repo dans les préférences de l'application **[Choix conception]**, depuis le sélecteur de comparaison. Elle passe avant `origin/HEAD`, qui pointe sur `master` dans les repos Foxy alors que la branche de travail est `develop`. Rien n'est écrit dans les repos de Bastien.

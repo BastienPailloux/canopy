@@ -1,0 +1,23 @@
+export const REPO_NOT_TRUSTED = 'REPO_NOT_TRUSTED'
+
+/** Only the message crosses IPC, so the code is the message. */
+export class RepoNotTrustedError extends Error {
+  constructor() {
+    super(REPO_NOT_TRUSTED)
+    this.name = 'RepoNotTrustedError'
+  }
+}
+
+/** Also true for the rejection of an IPC call, whose message Electron prefixes. */
+export function isRepoNotTrusted(err: unknown): boolean {
+  return err instanceof Error && err.message.includes(REPO_NOT_TRUSTED)
+}
+
+export const FILE_CHANGED = 'FILE_CHANGED'
+/** As `expectedVersion`: the write only goes through if the file does not exist (saving over a deleted file). */
+export const EXPECT_ABSENT = '\0absent'
+
+/** The file changed on disk since it was read: also true for the rejection of an IPC call. */
+export function isFileChanged(err: unknown): boolean {
+  return err instanceof Error && err.message.includes(FILE_CHANGED)
+}

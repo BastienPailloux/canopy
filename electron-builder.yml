@@ -1,0 +1,47 @@
+appId: io.github.bastienpailloux.canopy
+productName: Canopy
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asar: true
+# Binaries that are spawned or loaded natively cannot run from inside the asar.
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**
+  - node_modules/node-pty/**
+  - node_modules/@vscode/ripgrep*/**
+  - node_modules/typescript-language-server/**
+  - node_modules/tsserver-runtime/**
+# The `canopy` shell command, linked from ~/.local/bin by the app menu.
+extraResources:
+  - from: build/cli/canopy
+    to: canopy
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  icon: build/icon.icns
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  category: public.app-category.developer-tools
+  # Lets `open -a Canopy <folder>` hand a folder over. Rank None: Canopy never becomes the default app for folders.
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: None
+        LSItemContentTypes:
+          - public.folder
+dmg:
+  title: Canopy
+publish:
+  provider: github
+  owner: BastienPailloux
+  repo: canopy
+  releaseType: release
