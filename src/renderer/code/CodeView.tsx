@@ -46,7 +46,7 @@ function Message(props: { children: React.ReactNode }): React.JSX.Element {
 function Badge(props: { change: ChangedFile | undefined; base: BaseRef }): React.JSX.Element {
   const { change } = props
   if (!change) return <span className="badge same">identique à {props.base.name}</span>
-  const stat = change.binary ? 'binaire' : [change.added > 0 && `+${change.added}`, change.deleted > 0 && `−${change.deleted}`].filter(Boolean).join(' ')
+  const stat = change.unreadable ? 'illisible' : change.size !== undefined ? `trop volumineux · ${megabytes(change.size)}` : change.binary ? 'binaire' : [change.added > 0 && `+${change.added}`, change.deleted > 0 && `−${change.deleted}`].filter(Boolean).join(' ')
   const label = { A: 'ajouté', M: 'modifié', D: 'supprimé', R: `renommé de ${change.oldPath ?? ''}` }[change.kind]
   return <span className="badge changed" data-testid="file-badge">{label}{stat && <> · <span className="mono">{stat}</span></>}</span>
 }

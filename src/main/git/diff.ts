@@ -1,4 +1,5 @@
-import { lstat, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { lstat, mkdtemp, open, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChangedFile, WorktreeStats } from '../../shared/types'
@@ -48,26 +49,22 @@ function parseNumstat(out: string): Map<string, NumstatEntry> {
   return res
 }
 
-function countLines(buf: Buffer): number {
-  if (buf.length === 0) return 0
-  let n = 0
-  for (const b of buf) if (b === 10) n++
-  return buf[buf.length - 1] === 10 ? n : n + 1
-}
-
 const MISSING_FILE_CODES = new Set(['ENOENT', 'EISDIR', 'ELOOP', 'ENOTDIR'])
 const READ_CONCURRENCY = 32
 const MAX_BASE_BYTES = 64 * 1024 * 1024
+/** Above this, a working file is reported by its size: neither read nor counted. */
+const MAX_COUNT_BYTES = 64 * 1024 * 1024
+const BINARY_PROBE_BYTES = 8192
 
 type WorkingFile =
   | { type: 'missing' }
-  | { type: 'file'; buf: Buffer }
+  | { type: 'file'; size: number }
   | { type: 'symlink'; target: string }
   | { type: 'other' }
 
 /**
  * Inspect a working-tree path without ever following symlinks or opening special files
- * (the repository is untrusted). Only regular files are read; other errors propagate.
+ * (the repository is untrusted). Reads nothing of a regular file; other errors propagate.
  */
 async function inspectWorkingFile(cwd: string, path: string): Promise<WorkingFile> {
   const full = join(cwd, path)
@@ -75,7 +72,7 @@ async function inspectWorkingFile(cwd: string, path: string): Promise<WorkingFil
     const st = await lstat(full)
     if (st.isSymbolicLink()) return { type: 'symlink', target: await readlink(full) }
     if (!st.isFile()) return { type: 'other' }
-    return { type: 'file', buf: await readFile(full) }
+    return { type: 'file', size: st.size }
   } catch (e) {
     if (MISSING_FILE_CODES.has((e as NodeJS.ErrnoException).code ?? '')) return { type: 'missing' }
     throw e
@@ -84,13 +81,36 @@ async function inspectWorkingFile(cwd: string, path: string): Promise<WorkingFil
 
 const NO_LINES = { added: 0, deleted: 0, binary: false }
 
+async function startsBinary(file: string): Promise<boolean> {
+  const handle = await open(file, 'r')
+  try {
+    const { buffer, bytesRead } = await handle.read(Buffer.alloc(BINARY_PROBE_BYTES), 0, BINARY_PROBE_BYTES, 0)
+    return buffer.subarray(0, bytesRead).includes(0)
+  } finally {
+    await handle.close()
+  }
+}
+
+/** Lines of a file, read in chunks so that the main thread keeps answering. A last line needs no newline. */
+async function countLines(file: string): Promise<number> {
+  let lines = 0
+  let last = 10
+  for await (const chunk of createReadStream(file) as AsyncIterable<Buffer>) {
+    for (let at = chunk.indexOf(10); at !== -1; at = chunk.indexOf(10, at + 1)) lines++
+    last = chunk[chunk.length - 1]
+  }
+  return last === 10 ? lines : lines + 1
+}
+
 async function untrackedEntry(cwd: string, path: string): Promise<ChangedFile> {
   const f = await inspectWorkingFile(cwd, path)
   // A symlink counts as git would store it: its link text, one line.
   if (f.type === 'symlink') return { path, kind: 'A', ...NO_LINES, added: 1 }
   if (f.type !== 'file') return { path, kind: 'A', ...NO_LINES }
-  if (f.buf.subarray(0, 8192).includes(0)) return { path, kind: 'A', ...NO_LINES, binary: true }
-  return { path, kind: 'A', ...NO_LINES, added: countLines(f.buf) }
+  if (f.size > MAX_COUNT_BYTES) return { path, kind: 'A', ...NO_LINES, binary: true, size: f.size }
+  const full = join(cwd, path)
+  if (await startsBinary(full)) return { path, kind: 'A', ...NO_LINES, binary: true }
+  return { path, kind: 'A', ...NO_LINES, added: await countLines(full) }
 }
 
 /** Run fn over items with bounded concurrency, preserving order. Rejects on the first failure. */
@@ -114,6 +134,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 async function recreatedEntry(cwd: string, mb: string, path: string): Promise<ChangedFile> {
   const f = await inspectWorkingFile(cwd, path)
   if (f.type === 'missing') return { path, kind: 'D', ...NO_LINES }
+  if (f.type === 'file' && f.size > MAX_COUNT_BYTES) return { path, kind: 'M', ...NO_LINES, binary: true, size: f.size }
   const baseSize = parseInt((await git(cwd, ['cat-file', '-s', `${mb}:${path}`])).trim(), 10)
   if (baseSize > MAX_BASE_BYTES) return { path, kind: 'M', ...NO_LINES, binary: true }
   const dir = await mkdtemp(join(tmpdir(), 'canopy-diff-'))
@@ -121,7 +142,7 @@ async function recreatedEntry(cwd: string, mb: string, path: string): Promise<Ch
     const baseFile = join(dir, 'base')
     const newFile = join(dir, 'new')
     await writeFile(baseFile, await git(cwd, ['show', `${mb}:${path}`], { maxBuffer: MAX_BASE_BYTES + 1024 * 1024 }))
-    await writeFile(newFile, f.type === 'file' ? f.buf : f.type === 'symlink' ? f.target : '')
+    await writeFile(newFile, f.type === 'file' ? await readFile(join(cwd, path)) : f.type === 'symlink' ? f.target : '')
     const out = await git(cwd, ['diff', '--no-index', '--no-ext-diff', '--numstat', '-z', baseFile, newFile], {
       okCodes: [0, 1]
     })
@@ -148,14 +169,16 @@ export async function changedFiles(cwd: string, ref: string): Promise<ChangedFil
     // Deleted from the index/base but present on disk: report the real modification.
     if (e.kind === 'D' && untrackedPaths.has(e.path)) {
       untrackedPaths.delete(e.path)
-      return recreatedEntry(cwd, mb, e.path)
+      return recreatedEntry(cwd, mb, e.path).catch((): ChangedFile => ({ path: e.path, kind: 'M', ...NO_LINES, unreadable: true }))
     }
     const s = stats.get(e.path) ?? { added: 0, deleted: 0, binary: false }
     return e.oldPath === undefined
       ? { path: e.path, kind: e.kind, ...s }
       : { path: e.path, oldPath: e.oldPath, kind: e.kind, ...s }
   })
-  files.push(...(await mapLimit([...untrackedPaths], READ_CONCURRENCY, (p) => untrackedEntry(cwd, p))))
+  // One file that cannot be read must not cost the whole list.
+  files.push(...(await mapLimit([...untrackedPaths], READ_CONCURRENCY, (p) =>
+    untrackedEntry(cwd, p).catch((): ChangedFile => ({ path: p, kind: 'A', ...NO_LINES, unreadable: true })))))
   return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 

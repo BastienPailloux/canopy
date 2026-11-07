@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process'
-import { chmod, mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { execFile, execFileSync } from 'node:child_process'
+import { chmod, mkdir, readdir, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -171,12 +171,6 @@ describe('diff engine', () => {
     expect(files.reduce((n, f) => n + f.added, 0)).toBe(4500)
   })
 
-  it('rejects on an unexpected read error instead of counting zero', async () => {
-    await write(repo, 'locked.txt', 'a\n')
-    await chmod(join(repo.path, 'locked.txt'), 0o000)
-    await expect(changedFiles(repo.path, 'origin/main')).rejects.toThrow()
-    await chmod(join(repo.path, 'locked.txt'), 0o644)
-  })
 
   it('never follows an untracked symlink', async () => {
     await write(repo, '../outside-secret.txt', 's1\ns2\ns3\ns4\ns5\n')
@@ -264,5 +258,78 @@ describe('diff engine', () => {
     it('is zero on a clean branch', async () => {
       expect(await worktreeStats(repo.path, 'origin/main')).toEqual({ ahead: 0, added: 0, deleted: 0 })
     })
+  })
+})
+
+describe('changedFiles on files it cannot or should not read', () => {
+  const HUGE = 3 * 1024 * 1024 * 1024
+  let repo: TestRepo | undefined
+  afterEach(async () => { await repo?.cleanup(); repo = undefined })
+  const touch = async (file: string): Promise<string> => { await writeFile(file, ''); return file }
+
+  it('reports a file over 64 MiB by size, as binary, without reading it', async () => {
+    repo = await createRepo()
+    await writeFile(join(repo.path, 'small.txt'), 'a\n')
+    await truncate(await touch(join(repo.path, 'huge.log')), HUGE)
+    const files = await changedFiles(repo.path, 'main')
+    expect(files.find((f) => f.path === 'huge.log')).toEqual({ path: 'huge.log', kind: 'A', added: 0, deleted: 0, binary: true, size: HUGE })
+    expect(files.find((f) => f.path === 'small.txt')?.added).toBe(1)
+  })
+
+  it('counts the lines of a file bigger than one read, without a final newline', async () => {
+    repo = await createRepo()
+    await writeFile(join(repo.path, 'long.txt'), `${'line\n'.repeat(100_000)}end`)
+    const files = await changedFiles(repo.path, 'main')
+    expect(files.find((f) => f.path === 'long.txt')?.added).toBe(100_001)
+  })
+
+  it('sees a NUL in the first 8 KB as binary, and only there', async () => {
+    repo = await createRepo()
+    await writeFile(join(repo.path, 'early.bin'), Buffer.concat([Buffer.from('ab\0'), Buffer.alloc(100, 97)]))
+    await writeFile(join(repo.path, 'late.txt'), Buffer.concat([Buffer.alloc(9000, 97), Buffer.from('\n\0\n')]))
+    const files = await changedFiles(repo.path, 'main')
+    expect(files.find((f) => f.path === 'early.bin')?.binary).toBe(true)
+    expect(files.find((f) => f.path === 'late.txt')).toMatchObject({ binary: false, added: 2 })
+  })
+
+  it('degrades an unreadable file alone, the rest of the list stays', async () => {
+    repo = await createRepo()
+    await writeFile(join(repo.path, 'ok.txt'), 'a\n')
+    const secret = join(repo.path, 'secret.txt')
+    await writeFile(secret, 'x\n')
+    await chmod(secret, 0o000)
+    try {
+      const files = await changedFiles(repo.path, 'main')
+      expect(files.find((f) => f.path === 'secret.txt')).toEqual({ path: 'secret.txt', kind: 'A', added: 0, deleted: 0, binary: false, unreadable: true })
+      expect(files.find((f) => f.path === 'ok.txt')?.added).toBe(1)
+    } finally {
+      await chmod(secret, 0o644)
+    }
+  })
+
+  it('a gitlink replaced by a file does not reject the whole list', async () => {
+    repo = await createRepo()
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' }).trim()
+    const g = (...args: string[]): void => { execFileSync('git', args, { cwd: repo!.path, stdio: 'pipe' }) }
+    // A commit no object store here holds, as with a submodule that was never fetched.
+    g('update-index', '--add', '--cacheinfo', `160000,${'1'.repeat(40)},sub`)
+    g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'add gitlink')
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' }).trim()
+    expect(base).not.toBe(head)
+    g('update-index', '--force-remove', 'sub')
+    await writeFile(join(repo.path, 'sub'), 'now a file\n')
+    await writeFile(join(repo.path, 'other.txt'), 'a\n')
+    const files = await changedFiles(repo.path, base)
+    expect(files.find((f) => f.path === 'sub')).toMatchObject({ kind: 'M', unreadable: true })
+    expect(files.find((f) => f.path === 'other.txt')?.added).toBe(1)
+  })
+
+  it('a recreated file over 64 MiB is reported by size without being read', async () => {
+    repo = await createRepo()
+    const base = await repo.commit('data.txt', 'a\n')
+    execFileSync('git', ['rm', '-q', '--cached', 'data.txt'], { cwd: repo.path })
+    await truncate(join(repo.path, 'data.txt'), HUGE)
+    const files = await changedFiles(repo.path, base)
+    expect(files.find((f) => f.path === 'data.txt')).toEqual({ path: 'data.txt', kind: 'M', added: 0, deleted: 0, binary: true, size: HUGE })
   })
 })

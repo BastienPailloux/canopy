@@ -2,7 +2,18 @@ import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 
 export interface Worktree { path: string; branch: string | null; head: string; isMain: boolean }
 export interface BaseRef { name: string; ref: string }            // name: "main", ref: "origin/main" ou "main"
-export interface ChangedFile { path: string; oldPath?: string; kind: 'A'|'M'|'D'|'R'; added: number; deleted: number; binary: boolean }
+export interface ChangedFile {
+  path: string
+  oldPath?: string
+  kind: 'A'|'M'|'D'|'R'
+  added: number
+  deleted: number
+  binary: boolean
+  /** In bytes, for a file too big to count: it is then marked `binary`, its lines unknown. */
+  size?: number
+  /** Could not be read (rights, a submodule never fetched): its numbers say nothing. */
+  unreadable?: boolean
+}
 export interface WorktreeStats { ahead: number; added: number; deleted: number }
 export type WorktreeStatus = 'waiting' | 'working' | 'pr_open' | 'idle'
 export type SessionState = 'running' | 'waiting' | 'idle' | 'stopped' | 'error'
