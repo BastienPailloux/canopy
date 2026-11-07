@@ -1,3 +1,5 @@
+import { fenceFor } from '../fence'
+
 const MAX_LINES = 200
 
 // CSI sequences, OSC sequences (title, hyperlinks), and two-character escapes.
@@ -14,7 +16,6 @@ export function formatLogs(label: string, raw: string): string {
   const last = lines.slice(-MAX_LINES)
   if (last.length === 0) return `Logs de « ${label} » : aucune sortie pour l'instant.`
   const text = last.join('\n')
-  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
-  const fence = '`'.repeat(Math.max(3, longest + 1))
+  const fence = fenceFor(text)
   return `Voici les ${last.length} dernières lignes de « ${label} » :\n\n${fence}\n${text}\n${fence}`
 }
