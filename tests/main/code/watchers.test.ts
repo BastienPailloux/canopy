@@ -36,6 +36,20 @@ describe('syncWatchers', () => {
     expect(stopped).toEqual([linked])
   })
 
+  it('does not report the worktrees of a repo left behind: they still exist', async () => {
+    const stopped: string[] = []
+    await syncWatchers(repo.path, () => undefined, () => undefined, (cwd) => stopped.push(cwd))
+    const other = await createRepo()
+    try {
+      await syncWatchers(other.path, () => undefined, () => undefined, (cwd) => stopped.push(cwd))
+      expect(watchedPaths()).toEqual([other.path])
+      expect(stopped).toEqual([])
+    } finally {
+      stopAllWatchers()
+      await other.cleanup()
+    }
+  })
+
   it('drops the watchers of another repo', async () => {
     await syncWatchers(repo.path, () => undefined, () => undefined)
     const other = await createRepo()
