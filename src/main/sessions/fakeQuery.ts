@@ -114,6 +114,8 @@ async function* turn(t: Turn, text: string): AsyncGenerator<SDKMessage> {
     yield* useTool(t, 'Edit', { file_path: 'src/alpha.ts', old_string: 'a = 1', new_string: 'a = 2' }, [], 'ok')
   } else if (scenario === 'question') {
     yield* useTool(t, 'AskUserQuestion', QUESTIONS, [], '')
+  } else if (scenario === 'plan') {
+    yield* useTool(t, 'ExitPlanMode', { plan: '# Mon plan\n\n- une étape\n- une autre' }, [], 'ok')
   } else if (scenario === 'markdown') {
     yield* streamText(t, [MARKDOWN], 0)
   } else if (scenario === 'erreur') {

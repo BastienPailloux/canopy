@@ -39,6 +39,8 @@ export function toolDiff(name: string, input: Record<string, unknown>): DiffLine
 export interface ApprovalDetail {
   /** The command or path, verbatim. */
   text?: string
+  /** The plan of ExitPlanMode, as Markdown. */
+  plan?: string
   /** All the other fields. */
   json?: string
 }
@@ -50,6 +52,10 @@ export function approvalDetail(name: string, input: Record<string, unknown>): Ap
   if (name === 'Bash' && typeof input.command === 'string') {
     const { command, ...rest } = input
     return { text: command, ...json(rest) }
+  }
+  if (name === 'ExitPlanMode' && typeof input.plan === 'string') {
+    const { plan, ...rest } = input
+    return { plan, ...json(rest) }
   }
   if (name === 'Edit' || name === 'Write') {
     const { file_path: path, old_string: _old, new_string: _new, content: _content, ...rest } = input

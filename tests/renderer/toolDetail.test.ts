@@ -21,6 +21,17 @@ describe('approvalDetail', () => {
     expect(detail).toEqual({ text: '/r/a.ts', json: JSON.stringify({ replace_all: true }, null, 2) })
   })
 
+  it('gives the plan of ExitPlanMode as Markdown, and the rest apart', () => {
+    expect(approvalDetail('ExitPlanMode', { plan: '# Plan', allowedPrompts: ['x'] })).toEqual({
+      plan: '# Plan', json: JSON.stringify({ allowedPrompts: ['x'] }, null, 2)
+    })
+    expect(approvalDetail('ExitPlanMode', { plan: '# Plan' })).toEqual({ plan: '# Plan' })
+  })
+
+  it('shows ExitPlanMode as any tool if it has no plan', () => {
+    expect(approvalDetail('ExitPlanMode', { other: 1 })).toEqual({ json: JSON.stringify({ other: 1 }, null, 2) })
+  })
+
   it('has no json when nothing is left to show', () => {
     expect(approvalDetail('Bash', { command: 'ls' })).toEqual({ text: 'ls' })
   })
