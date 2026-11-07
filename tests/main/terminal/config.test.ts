@@ -41,6 +41,7 @@ test.each([
   ['a portEnv that is not a variable name', { services: [{ name: 'web', command: 'x', portEnv: 'A B' }] }],
   ['a portEnv that would redirect the shell config', { services: [{ name: 'web', command: 'x', portEnv: 'ZDOTDIR' }] }],
   ['a portEnv that would replace the PATH', { services: [{ name: 'web', command: 'x', portEnv: 'PATH' }] }],
+  ['a portEnv ending in PORT without the separator', { services: [{ name: 'web', command: 'x', portEnv: 'NOTAPORT' }] }],
   ['a portEnv in lower case', { services: [{ name: 'web', command: 'x', portEnv: 'vite_port' }] }],
   ['a portEnv with PORT only as a prefix', { services: [{ name: 'web', command: 'x', portEnv: 'PORT_PATH' }] }],
   ['a portEnv that is not a string', { services: [{ name: 'web', command: 'x', portEnv: 3000 }] }],
@@ -110,4 +111,9 @@ test('without portEnv a service gets PORT, which the declared form does not need
 test('a refused portEnv says what is expected', async () => {
   await writeConfig({ services: [{ name: 'web', command: 'x', portEnv: 'ZDOTDIR' }] })
   await expect(readConfig(dir)).rejects.toThrow(/portEnv.*web.*PORT/)
+})
+
+test('PORT itself may be spelled out, like any _PORT variable', async () => {
+  await writeConfig({ services: [{ name: 'web', command: 'x', portEnv: 'PORT' }, { name: 'api', command: 'y', portEnv: 'API_PORT' }] })
+  expect((await readConfig(dir)).services.map((s) => s.portEnv)).toEqual(['PORT', 'API_PORT'])
 })
