@@ -80,8 +80,11 @@ test('asks for trust before the first session, shows what the repo declares, and
   await expect(dialog.getByTestId('trust-settingsKeys')).toContainText('apiKeyHelper')
   await expect(dialog).not.toContainText('never-shown')
 
+  await page.keyboard.press('Enter') // no accidental answer
+  await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Refuser' }).click()
   await expect(dialog).toHaveCount(0)
+  await expect(composer()).toBeFocused()
   await expect(page.getByTestId('user-message')).toHaveCount(0)
   await expect(composer()).toHaveValue('bonjour') // nothing lost
   expect((await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).trusted).toBe(false)
@@ -182,6 +185,35 @@ test('a permission card shows all of what is being approved', async () => {
   const json = page.getByTestId('permission-json')
   await expect(json).toContainText('"query": "DELETE FROM clients"')
   await expect(json).toContainText('"force": true')
+})
+
+test('assistant text is Markdown, without raw HTML, and links leave the app', async () => {
+  await launch(true)
+  await app.evaluate(({ shell }) => {
+    const opened: string[] = []
+    Object.assign(globalThis, { opened })
+    shell.openExternal = async (url) => { opened.push(url) }
+  })
+  await send('markdown')
+  const message = assistantMessages()
+  await expect(message.getByRole('heading', { name: 'Titre' })).toBeVisible()
+  await expect(message.locator('li')).toHaveText(['premier', 'second'])
+  await expect(message.locator('td')).toHaveText(['1', '2'])
+  await expect(message.locator('pre code')).toContainText('const a = 1')
+  await expect(message.locator('p code')).toHaveText('mot')
+  await expect(message.locator('b')).toHaveCount(0)
+
+  const url = page.url()
+  await message.getByRole('link', { name: 'un lien' }).click()
+  await expect.poll(() => app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened)).toEqual(['https://exemple.test/page'])
+  expect(page.url()).toBe(url)
+  expect(app.windows()).toHaveLength(1)
+
+  // Nothing else can take over the window either.
+  await page.evaluate(() => { window.open('https://exemple.test/autre'); location.href = 'https://exemple.test/autre' })
+  await page.waitForTimeout(300)
+  expect(page.url()).toBe(url)
+  expect(app.windows()).toHaveLength(1)
 })
 
 test('a question is answered with the observed shape', async () => {
@@ -308,6 +340,28 @@ test('a pasted image is sent and shown, without any CSP violation', async () => 
   await expect(sent).toBeVisible()
   expect(await sent.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
   expect(messages.filter((m) => /Content Security Policy|Refused/.test(m))).toEqual([])
+})
+
+test('pasting text along with an image keeps the text', async () => {
+  await launch(true)
+  const prevented = await composer().evaluate((el) => {
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
+    const data = new DataTransfer()
+    data.setData('text/plain', 'du texte')
+    data.items.add(new File([png], 'a.png', { type: 'image/png' }))
+    const event = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })
+    el.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(prevented).toBe(false) // the browser inserts the text
+  await expect(page.getByAltText('Image 1')).toBeVisible()
+})
+
+test('pasting a path starts no session', async () => {
+  await launch(false)
+  await composer().fill('/Users/moi/projet')
+  await page.waitForTimeout(300)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
 })
 
 test('a long conversation keeps few rows in the page and follows the end', async () => {

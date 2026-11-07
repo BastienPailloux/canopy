@@ -1,5 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useLayoutEffect, useRef } from 'react'
+import { Markdown } from './Markdown'
 import { PermissionCard } from './PermissionCard'
 import { QuestionCard, questionsOf } from './QuestionCard'
 import { interrupt, type SessionTab, useSessions } from './sessionStore'
@@ -22,7 +23,7 @@ const Item = memo(function Item(props: { item: TranscriptItem; cwd: string; onIn
         </div>
       )
     case 'assistant':
-      return <p className="msg-assistant" data-testid="assistant-message">{item.text}</p>
+      return <div className="msg-assistant" data-testid="assistant-message"><Markdown text={item.text} /></div>
     case 'tool':
       return <ToolCard item={item} cwd={cwd} onInterrupt={onInterrupt} />
     case 'notice':

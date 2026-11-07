@@ -52,6 +52,8 @@ export interface CanopyApi {
   /** Resolves the base ref, then counts uncommitted files and unpushed commits at `path`. */
   removalRisks(repo: string, path: string): Promise<RemovalRisks>
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
+  /** Opens a web or mail link in the default browser. Rejects for any other scheme. */
+  openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */
   listTree(cwd: string): Promise<string[]>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */

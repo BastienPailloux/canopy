@@ -12,6 +12,7 @@ const api: CanopyApi = {
   createWorktree: (repo, o) => ipcRenderer.invoke('worktree:create', repo, o),
   removalRisks: (repo, path) => ipcRenderer.invoke('worktree:risks', repo, path),
   removeWorktree: (repo, path, force) => ipcRenderer.invoke('worktree:remove', repo, path, force),
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   listTree: (cwd) => ipcRenderer.invoke('code:listTree', cwd),
   repoTrust: (cwd) => ipcRenderer.invoke('repo:trust', cwd),
   trustRepo: (cwd, configHash) => ipcRenderer.invoke('repo:trustRepo', cwd, configHash),

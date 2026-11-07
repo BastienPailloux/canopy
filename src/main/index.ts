@@ -32,6 +32,10 @@ function createWindow(): void {
     }
   })
 
+  // Nothing a session prints may replace the app's page or open a window of its own.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (e) => { e.preventDefault() })
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {

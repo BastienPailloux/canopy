@@ -145,11 +145,79 @@
   border-radius: 6px;
 }
 .msg-assistant {
-  margin: 0;
   line-height: 1.6;
   color: #d5d9de;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.msg-assistant > :first-child {
+  margin-top: 0;
+}
+.msg-assistant > :last-child {
+  margin-bottom: 0;
+}
+.msg-assistant p,
+.msg-assistant ul,
+.msg-assistant ol,
+.msg-assistant pre,
+.msg-assistant table,
+.msg-assistant blockquote {
+  margin: 0 0 10px;
+}
+.msg-assistant ul,
+.msg-assistant ol {
+  padding-left: 22px;
+}
+.msg-assistant h1,
+.msg-assistant h2,
+.msg-assistant h3,
+.msg-assistant h4 {
+  margin: 16px 0 8px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.msg-assistant h1 {
+  font-size: 16px;
+}
+.msg-assistant a {
+  color: var(--accent-fg);
+}
+.msg-assistant code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--selected);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.msg-assistant pre {
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.msg-assistant pre code {
+  padding: 0;
+  background: transparent;
+}
+.msg-assistant table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.msg-assistant th,
+.msg-assistant td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  overflow-wrap: normal;
+}
+.msg-assistant blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--fg-2);
 }
 .msg-notice {
   margin: 0;
@@ -510,4 +578,7 @@
   margin: 0;
   color: var(--fg-2);
   line-height: 1.5;
+}
+.dialog.trust:focus {
+  outline: none;
 }
