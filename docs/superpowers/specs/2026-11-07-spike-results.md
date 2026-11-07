@@ -189,3 +189,22 @@ Limites et observations :
 - Une fois, pendant que deux scripts de pilotage se chevauchaient, un onglet a affiché « en cours » alors que le process principal disait `waiting`. Non reproduit sur un onglet propre : cause inconnue.
 - Le lancement d'une commande Bash a pris 66 s : le zsh de Bastien attend le verrou `~/.pyenv/shims/.pyenv-shim`, et le message d'erreur de pyenv apparaît dans la sortie de l'outil.
 - Après `/compact`, un hook `PostCompact` de la configuration de Bastien apparaît en entier dans une notice. C'est la sortie réelle du CLI, laissée telle quelle.
+
+## Validation du mode espace de travail
+
+Date : 2026-11-07. App reconstruite par `npm run build && npx electron-builder --mac` (dmg dans `dist/`).
+
+**Dossier jetable à la forme de `foxy-app`** : parent git (`master`, deux commits d'avance, fichiers non suivis) dont le `.gitignore` exclut `backend`, `backoffice`, `foxy` ; chaque repo imbriqué a un remote nu, `origin/HEAD` sur `master`, une branche `develop`, aucun `master` local (branche courante `mywork`, 1 commit devant `origin/develop`) ; `.worktrees/f/<repo>` pour les trois ; `backend-wt-x` à côté. App packagée lancée par `open -n` sous `env -i`, `--user-data-dir` dédié (recents et préférences de Bastien intacts), pilotée par CDP. Aucune session Claude, aucun terminal.
+
+| Point vérifié | Résultat |
+|---|---|
+| Sections | OK : Principal (3 repos), Espace (le parent), `f` (3 worktrees), Autres (`backend · wt-x`). 8 worktrees. |
+| Code d'un repo | OK : cliquer `backend` montre `dev.txt`, `file.txt`, `work.txt` (« 3 dans le repo »), pas `README.md` du parent. Un worktree `f-backoffice` montre le code de `backoffice`. `Espace` montre le parent (`untracked1.txt`, `scratch/`, `backend-wt-x/`). |
+| Mémoriser `origin/develop` | OK : `backend` passe de `+4` à `+1 1 commit` ; `f-backend` et `wt-x` passent à « à jour » ; `backoffice` et `foxy` restent à `+4` (base propre à chaque repo). Le sélecteur affiche `Diff vs origin/develop`. |
+| Diff | OK : `+1 −0 · 1 fichier modifié`, seul `work.txt` (le commit du repo) figure dans Modifiés, pas les fichiers du parent. |
+
+**`scanWorkspace` sur `/Users/basti/code/foxy-app`** (lecture seule, hors app, script temporaire hors du repo, aucune écriture) : 487 ms (0,6 s au total, process compris), 4 repos (le parent + `backend`, `backoffice`, `foxy`), 50 entrées : 1 `space`, 3 `main`, 41 `feature`, 5 `other` ; `truncated: false`, `failed: []`.
+
+Capture : `.superpowers/sdd/2026-11-07-canopy-workspace/task-4-foxy-shape.png`.
+
+`npm test` : 619 tests passent. `npm run typecheck` : propre.
