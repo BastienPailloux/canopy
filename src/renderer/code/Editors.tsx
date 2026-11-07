@@ -145,7 +145,10 @@ export function DiffPane(props: {
       readOnly: true,
       originalEditable: false,
       renderSideBySide: true,
-      renderOverviewRuler: false
+      renderOverviewRuler: false,
+      // A re-indented file must not look unchanged, and a big one must not give up on the exact diff.
+      ignoreTrimWhitespace: false,
+      maxComputationTime: 0
     })
     diffRef.current = diff
     props.handle.current = { selection: () => selectionOf(diff.getModifiedEditor()) }
