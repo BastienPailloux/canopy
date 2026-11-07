@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import type { UpdateState } from '../../shared/update'
 import { bannerText } from './updateText'
 
+/** Keeps the button disabled while the main process asks, and gives it back once the user cancels. */
+export function requestRestart(setAsked: (asked: boolean) => void, restart: () => Promise<void>): void {
+  setAsked(true)
+  void restart().catch(() => {}).finally(() => setAsked(false))
+}
+
 /** The update notice above the header. It cannot be closed: the restart is coming either way. */
 export function UpdateBanner(): React.JSX.Element | null {
   const [state, setState] = useState<UpdateState>({ phase: 'none' })
@@ -16,10 +22,11 @@ export function UpdateBanner(): React.JSX.Element | null {
     return off
   }, [])
 
+  // The countdown moves every second; "à HH:MM" must turn into "demain à HH:MM" and back across midnight.
   useEffect(() => {
-    if (state.phase !== 'warning') return
+    if (state.phase === 'none') return
     setNow(Date.now())
-    const t = setInterval(() => setNow(Date.now()), 1000)
+    const t = setInterval(() => setNow(Date.now()), state.phase === 'warning' ? 1000 : 60_000)
     return () => clearInterval(t)
   }, [state])
 
@@ -29,7 +36,7 @@ export function UpdateBanner(): React.JSX.Element | null {
   return (
     <div className="update-banner" data-phase={state.phase} role="status" data-testid="update-banner">
       <span>{text}</span>
-      <button disabled={asked} onClick={() => { setAsked(true); void window.canopy.restartToUpdate() }}>
+      <button disabled={asked} onClick={() => requestRestart(setAsked, () => window.canopy.restartToUpdate())}>
         {warning ? 'Redémarrer maintenant' : 'Redémarrer'}
       </button>
     </div>
