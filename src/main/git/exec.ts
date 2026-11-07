@@ -12,11 +12,14 @@ export class GitError extends Error {
   }
 }
 
-export function git(cwd: string, args: string[], opts: { maxBuffer?: number; okCodes?: number[] } = {}): Promise<string> {
+/** A repo's own config may name a command here: git would run it on a mere `status`. */
+const SAFE_CONFIG = ['-c', 'core.fsmonitor=false']
+
+export function git(cwd: string, args: string[], opts: { maxBuffer?: number; okCodes?: number[]; input?: string } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       'git',
-      args,
+      [...SAFE_CONFIG, ...args],
       { cwd, env: { ...currentEnv(), GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
@@ -31,5 +34,6 @@ export function git(cwd: string, args: string[], opts: { maxBuffer?: number; okC
         resolve(stdout)
       }
     )
+    if (opts.input !== undefined) child.stdin?.end(opts.input)
   })
 }
