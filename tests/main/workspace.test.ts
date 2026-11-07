@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { findRepos, resolveOpenedFolder, scanWorkspace } from '../../src/main/workspace'
+import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from '../../src/main/workspace'
 
 vi.mock('../../src/main/git/worktrees', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/main/git/worktrees')>()
@@ -171,5 +171,16 @@ describe('resolveOpenedFolder', () => {
 
   it('rejects an empty folder', async () => {
     await expect(resolveOpenedFolder(root)).rejects.toThrow('Aucun repo git dans ce dossier')
+  })
+})
+
+describe('parseRepoBase', () => {
+  it('takes a branch name, or null to forget', () => {
+    expect(parseRepoBase('develop')).toBe('develop')
+    expect(parseRepoBase(null)).toBeNull()
+  })
+
+  it('rejects anything else, undefined included', () => {
+    for (const bad of [undefined, 3, {}, ['develop']]) expect(() => parseRepoBase(bad)).toThrow('Branche invalide')
   })
 })

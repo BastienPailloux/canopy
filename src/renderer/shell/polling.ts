@@ -43,3 +43,41 @@ export function createOrdering(): { begin: (key: string) => () => boolean } {
     }
   }
 }
+
+/** Runs `fn` over `items`, at most `limit` at a time: a wide workspace must not start every git at once. */
+export async function eachLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) await fn(items[next++])
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+/**
+ * One `read` at a time. Calls arriving during a read share a single rerun after it, and that read's answer alone is
+ * applied: one started before a change must not undo it. A failed read applies nothing.
+ */
+export function latestOnly<T>(read: () => Promise<T>, apply: (value: T) => void): () => Promise<void> {
+  let running = false
+  let rerun: Promise<void> | undefined
+  let begin: ((run: Promise<void>) => void) | undefined
+  const start = async (): Promise<void> => {
+    running = true
+    try {
+      const value = await read()
+      if (!rerun) apply(value)
+    } catch {
+      // what the last read gave stays
+    }
+    running = false
+    const go = begin
+    rerun = undefined
+    begin = undefined
+    go?.(start())
+  }
+  return () => {
+    if (!running) return start()
+    rerun ??= new Promise<void>((resolve) => { begin = resolve })
+    return rerun
+  }
+}

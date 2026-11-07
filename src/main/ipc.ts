@@ -7,18 +7,21 @@ import { registerCodeIpc } from './code/codeIpc'
 import type { LspPool } from './code/lsp'
 import { openExternalUrl } from './externalLinks'
 import { resolveCompareRef } from './git/refs'
-import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer, setBaseOverride } from './git/sharedReads'
+import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer, setBaseOverride, TtlCache } from './git/sharedReads'
 import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
 import { parseUnsaved, type UnsavedCounts } from './quit'
-import { PrCache, repoNeedsAttention, worktreeStatus } from './status'
+import { folderNeedsAttention, PrCache, repoNeedsAttention, worktreeStatus, type AttentionDeps } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
-import { resolveOpenedFolder, scanWorkspace } from './workspace'
+import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
 import type { SessionManager } from './sessions/SessionManager'
 import { registerTerminalIpc } from './terminal/terminalIpc'
 import type { TerminalManager } from './terminal/TerminalManager'
 import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
+
+/** The repo picker asks about each recent folder on every session change: a walk of the disk cannot follow that pace. */
+const FOLDER_REPOS_TTL_MS = 60_000
 
 /** Push an event to every renderer (received through `CanopyApi.on`). */
 export function broadcast(event: string, payload?: unknown): void {
@@ -134,12 +137,16 @@ export function registerIpc(
     return worktreeStatus(sessions.activity(cwd), await prs.get(cwd, onFocus === true))
   })
 
-  ipcMain.handle('repo:needsAttention', (_e, path: unknown) => {
+  const attention: AttentionDeps = {
+    worktrees: async (repo) => (await cachedWorktrees(repo)).map((w) => w.path),
+    activity: (cwd) => sessions.activity(cwd)
+  }
+  const folderRepos = new TtlCache<string[]>(FOLDER_REPOS_TTL_MS)
+  const reposUnder = (folder: string): Promise<string[]> => folderRepos.get(folder, async () => (await findRepos(folder)).repos)
+
+  ipcMain.handle('repo:needsAttention', (_e, path: unknown, alone: unknown) => {
     assertPath(path)
-    return repoNeedsAttention(path, {
-      worktrees: async (repo) => (await cachedWorktrees(repo)).map((w) => w.path),
-      activity: (cwd) => sessions.activity(cwd)
-    })
+    return alone === true ? repoNeedsAttention(path, attention) : folderNeedsAttention(path, reposUnder, attention)
   })
 
   ipcMain.handle('settings:trustedRepos', () => store.trustedRepos)
@@ -189,7 +196,8 @@ export function registerIpc(
 
   ipcMain.handle('repo:setBase', async (_e, repo: unknown, branch: unknown) => {
     assertPath(repo)
-    const base = branch === null ? null : (await resolveCompareRef(repo, branch)).name
+    const picked = parseRepoBase(branch)
+    const base = picked === null ? null : (await resolveCompareRef(repo, picked)).name
     store.setRepoBase(await mainWorktreeRoot(repo), base)
     clearSharedReads()
   })

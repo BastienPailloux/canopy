@@ -317,6 +317,22 @@ input:focus-visible {
   color: var(--warn);
   font-size: 12px;
 }
+.list-notice {
+  margin: 0 14px 8px;
+  color: var(--fg-2);
+  font-size: 12px;
+}
+.wt-section {
+  margin: 10px 6px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wt-section:first-child { margin-top: 0; }
 
 /* Main */
 .main {

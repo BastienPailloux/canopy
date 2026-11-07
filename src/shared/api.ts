@@ -116,8 +116,8 @@ export interface CanopyApi {
    * 60 s per worktree; `onFocus` allows a refresh sooner). Without gh or a remote, the PR is ignored.
    */
   worktreeStatus(cwd: string, onFocus?: boolean): Promise<WorktreeStatus>
-  /** Whether a session in any worktree of the repo, displayed or not, waits for an answer. */
-  repoNeedsAttention(repo: string): Promise<boolean>
+  /** Whether a session in any worktree, displayed or not, waits for an answer: of any repo under `path`, or with `alone` of the repo at `path` only. */
+  repoNeedsAttention(path: string, alone?: boolean): Promise<boolean>
   /** Main worktree roots with an approved config. */
   trustedRepos(): Promise<string[]>
   /** Forgets every approval of that repo: its next session asks again. Sessions already running go on. */

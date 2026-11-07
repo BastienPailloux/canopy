@@ -420,3 +420,11 @@
   color: var(--fg-3);
   font-size: 12px;
 }
+
+.remember-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}

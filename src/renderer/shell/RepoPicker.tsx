@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { basename, useApp } from '../store'
 import { debounce, poll, POLL_HEALTHY_MS } from './polling'
 import { openRepoFlow, selectRepoFlow } from './repoActions'
+import { workspaceRepos } from './workspaceList'
 
 const folderIcon = (
   <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A0A7B2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -18,17 +19,33 @@ const chevron = (
 /** State changes come in bursts, and each read asks about every recent repo. */
 const ATTENTION_DEBOUNCE_MS = 300
 
-/** The recent repos with a session waiting for an answer, displayed or not. Refreshed as sessions change state. */
-function useAttention(repo: string | null): Set<string> {
-  const [waiting, setWaiting] = useState<Set<string>>(new Set())
+interface Attention {
+  /** The recent folders with a session waiting for an answer, displayed or not. */
+  waiting: Set<string>
+  /** One waits somewhere else than in the active repo. */
+  elsewhere: boolean
+}
+
+/**
+ * Who waits for an answer, refreshed as sessions change state. Each repo of the workspace is asked alone, a recent
+ * folder for all its repos: the opened folder, the parent repo included, would answer for the active repo too.
+ */
+function useAttention(repo: string | null, folder: string | null, repos: string): Attention {
+  const [attention, setAttention] = useState<Attention>({ waiting: new Set(), elsewhere: false })
   useEffect(() => {
     let live = true
+    const own = repos === '' ? [] : repos.split('\0')
+    const ask = (path: string, alone?: boolean): Promise<boolean> => window.canopy.repoNeedsAttention(path, alone).catch(() => false)
     const read = (): void => {
       void (async () => {
         const recents = await window.canopy.recentRepos().catch((): string[] => [])
-        const all = [...new Set([...(repo ? [repo] : []), ...recents])]
-        const flags = await Promise.all(all.map((r) => window.canopy.repoNeedsAttention(r).catch(() => false)))
-        if (live) setWaiting(new Set(all.filter((_, i) => flags[i])))
+        const [ownFlags, recentFlags] = await Promise.all([Promise.all(own.map((r) => ask(r, true))), Promise.all(recents.map((r) => ask(r)))])
+        if (!live) return
+        const waiting = recents.filter((_, i) => recentFlags[i])
+        setAttention({
+          waiting: new Set(waiting),
+          elsewhere: own.some((r, i) => r !== repo && ownFlags[i]) || waiting.some((r) => r !== repo && r !== folder)
+        })
       })()
     }
     read()
@@ -45,17 +62,19 @@ function useAttention(repo: string | null): Set<string> {
       off2()
       window.removeEventListener('focus', soon.call)
     }
-  }, [repo])
-  return waiting
+  }, [repo, folder, repos])
+  return attention
 }
 
 export function RepoPicker(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
+  // What was opened: recents and this button speak of folders, the list of the repos inside.
+  const folder = useApp((s) => (s.repo ? s.workspace?.root ?? s.repo : null))
+  const repos = useApp((s) => (s.workspace ? workspaceRepos(s.workspace).join('\0') : ''))
   const [open, setOpen] = useState(false)
   const [recents, setRecents] = useState<string[]>([])
   const root = useRef<HTMLDivElement>(null)
-  const waiting = useAttention(repo)
-  const otherWaiting = [...waiting].some((r) => r !== repo)
+  const { waiting, elsewhere } = useAttention(repo, folder, repos)
 
   useEffect(() => {
     if (!open) return
@@ -78,15 +97,15 @@ export function RepoPicker(): React.JSX.Element {
     <div className="repo-picker" ref={root}>
       <button className="ctl" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {folderIcon}
-        {repo ? (
+        {folder ? (
           <>
-            <span className="name">{basename(repo)}</span>
-            <span className="path" title={repo}>{repo}</span>
+            <span className="name">{basename(folder)}</span>
+            <span className="path" title={folder}>{folder}</span>
           </>
         ) : (
           <span>Aucun dépôt</span>
         )}
-        {otherWaiting && <span className="badge" role="img" aria-label="Une session attend ta réponse dans un autre dépôt" data-testid="repo-attention" />}
+        {elsewhere && <span className="badge" role="img" aria-label="Une session attend ta réponse dans un autre dépôt" data-testid="repo-attention" />}
         {chevron}
       </button>
       {open && (

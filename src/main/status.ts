@@ -25,6 +25,15 @@ export async function repoNeedsAttention(repoPath: string, deps: AttentionDeps):
   }
 }
 
+/** The same for a folder: any repo found under it. Without one, `folder` is taken as a repo. One at a time: this polls. */
+export async function folderNeedsAttention(folder: string, repos: (folder: string) => Promise<string[]>, deps: AttentionDeps): Promise<boolean> {
+  const found = await repos(folder).catch((): string[] => [])
+  for (const repo of found.length > 0 ? found : [folder]) {
+    if (await repoNeedsAttention(repo, deps)) return true
+  }
+  return false
+}
+
 const PR_TTL_MS = 60_000
 /** A focus refresh still does not hammer gh when the window is toggled quickly. */
 const PR_FOCUS_MIN_MS = 5_000

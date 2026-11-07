@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { PrCache, repoNeedsAttention, worktreeStatus, type Activity } from '../../src/main/status'
+import { folderNeedsAttention, PrCache, repoNeedsAttention, worktreeStatus, type Activity } from '../../src/main/status'
 import type { PrState } from '../../src/main/git/pr'
 
 const activities: Activity[] = ['waiting', 'working', 'idle']
@@ -24,6 +24,20 @@ test('repoNeedsAttention is true for a repo whose worktree waits, shown or not',
 test('repoNeedsAttention is false when worktrees cannot be listed', async () => {
   const worktrees = async (): Promise<string[]> => { throw new Error('gone') }
   expect(await repoNeedsAttention('/x', { worktrees, activity: () => 'waiting' })).toBe(false)
+})
+
+test('folderNeedsAttention aggregates the repos of a parent folder', async () => {
+  const worktrees = async (repo: string): Promise<string[]> => [repo]
+  const repos = async (): Promise<string[]> => ['/ws/a', '/ws/b']
+  expect(await folderNeedsAttention('/ws', repos, { worktrees, activity: (cwd) => (cwd === '/ws/b' ? 'waiting' : 'idle') })).toBe(true)
+  expect(await folderNeedsAttention('/ws', repos, { worktrees, activity: () => 'idle' })).toBe(false)
+})
+
+test('folderNeedsAttention asks about the path itself when nothing is found under it, or the search fails', async () => {
+  const worktrees = async (repo: string): Promise<string[]> => [repo]
+  const activity = (cwd: string): Activity => (cwd === '/r' ? 'waiting' : 'idle')
+  expect(await folderNeedsAttention('/r', async () => [], { worktrees, activity })).toBe(true)
+  expect(await folderNeedsAttention('/r', async () => { throw new Error('gone') }, { worktrees, activity })).toBe(true)
 })
 
 test('PrCache polls a worktree at most every 60 s, and shares concurrent reads', async () => {

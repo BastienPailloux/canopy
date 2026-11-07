@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { createOrdering, debounce, isAttended, poll } from '../../src/renderer/shell/polling'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { createOrdering, debounce, eachLimit, isAttended, latestOnly, poll } from '../../src/renderer/shell/polling'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })
@@ -58,4 +58,66 @@ test('answers arriving in order all apply', () => {
   const second = order.begin('a')
   expect(first()).toBe(true)
   expect(second()).toBe(true)
+})
+
+test('eachLimit never runs more than the limit at once, and runs everything', async () => {
+  vi.useRealTimers()
+  let running = 0
+  let peak = 0
+  const seen: number[] = []
+  await eachLimit([1, 2, 3, 4, 5], 2, async (n) => {
+    peak = Math.max(peak, ++running)
+    await Promise.resolve()
+    seen.push(n)
+    running--
+  })
+  expect(peak).toBe(2)
+  expect(seen.sort()).toEqual([1, 2, 3, 4, 5])
+})
+
+describe('latestOnly', () => {
+  function deferredReads(): { read: () => Promise<string>; answer: (i: number, v: string) => void; count: () => number } {
+    const pending: ((v: string) => void)[] = []
+    return {
+      read: () => new Promise<string>((resolve) => { pending.push(resolve) }),
+      answer: (i, v) => pending[i](v),
+      count: () => pending.length
+    }
+  }
+  const flush = async (): Promise<void> => { for (let i = 0; i < 5; i++) await Promise.resolve() }
+
+  test('applies the answer of a lone call', async () => {
+    const r = deferredReads()
+    const applied: string[] = []
+    const done = latestOnly(r.read, (v) => applied.push(v))()
+    r.answer(0, 'a')
+    await done
+    expect(applied).toEqual(['a'])
+  })
+
+  test('calls during a run share one rerun, and the overtaken answer is never applied', async () => {
+    const r = deferredReads()
+    const applied: string[] = []
+    const run = latestOnly(r.read, (v) => applied.push(v))
+    const first = run()
+    const second = run()
+    const third = run()
+    expect(r.count()).toBe(1)
+    r.answer(0, 'stale')
+    await flush()
+    expect(r.count()).toBe(2)
+    r.answer(1, 'fresh')
+    await Promise.all([first, second, third])
+    expect(applied).toEqual(['fresh'])
+  })
+
+  test('a failed read applies nothing and does not block the next one', async () => {
+    const applied: string[] = []
+    let fail = true
+    const run = latestOnly(async () => { if (fail) throw new Error('gone'); return 'ok' }, (v) => applied.push(v))
+    await run()
+    fail = false
+    await run()
+    expect(applied).toEqual(['ok'])
+  })
 })

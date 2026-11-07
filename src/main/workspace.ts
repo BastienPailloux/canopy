@@ -87,6 +87,12 @@ export async function scanWorkspace(root: string): Promise<Workspace> {
   return { root: real, entries, truncated }
 }
 
+/** A base to remember: a name, or null to forget it. Nothing else, or a missing value would remember the default branch. */
+export function parseRepoBase(branch: unknown): string | null {
+  if (branch !== null && typeof branch !== 'string') throw new Error('Branche invalide')
+  return branch
+}
+
 /**
  * The folder to open: itself when it holds repos other than its own (a parent folder, or a repo with nested ones),
  * else the root of the repo containing it. Rejects when there is no repo at all.

@@ -28,6 +28,8 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   const data = useCodeData(cwd, pickedBase)
   const filter = useRef<HTMLInputElement>(null)
   const [baseNotice, setBaseNotice] = useState<string | null>(null)
+  const [remembered, setRemembered] = useState<string | null>(null)
+  useEffect(() => { window.canopy.repoBase(cwd).then(setRemembered, () => undefined) }, [cwd])
   const request = useApp((s) => s.codeRequest)
   const [panel, setPanel] = useState<'files' | 'search' | 'results'>('files')
   const [found, setFound] = useState<Found | null>(null)
@@ -36,6 +38,17 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   const searchInput = useRef<HTMLInputElement>(null)
   const [reveal, setReveal] = useState<Reveal | undefined>()
   const select = (path: string): void => { setReveal(undefined); setSelected(path) }
+
+  const compared = pickedBase ?? data.base?.name
+  const isRemembered = remembered !== null && remembered === compared
+  /** Stored for the whole repo, for the worktrees that have not picked a branch of their own. Null forgets it. */
+  const remember = (branch: string | null): void => {
+    setRemembered(branch)
+    window.canopy.setRepoBase(cwd, branch).then(data.refresh, (e: unknown) => {
+      setBaseNotice(`Mémorisation impossible : ${errorText(e)}`)
+      window.canopy.repoBase(cwd).then(setRemembered, () => undefined)
+    })
+  }
 
   const openHit = (hit: Location): void => {
     if (hit.external) setNavNotice(`Hors du worktree, non ouvert : ${hit.path}:${hit.line}`)
@@ -133,11 +146,20 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         <span className="mono">{props.branch}</span>
         <span className="muted">comparé à</span>
         <select aria-label="Branche de comparaison" className="ctl-select mono" value={pickedBase ?? data.base?.ref ?? ''}
-          disabled={branchOptions.length === 0} onChange={(e) => { setBaseNotice(null); setPickedBase(e.target.value) }}>
+          disabled={branchOptions.length === 0}
+          onChange={(e) => {
+            setBaseNotice(null)
+            setPickedBase(e.target.value)
+            if (isRemembered) remember(e.target.value)
+          }}>
           {/* No default branch was found: picking one is the way out. */}
           {pickedBase === undefined && !data.base && <option value="" disabled>Choisir une branche…</option>}
           {branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
+        <label className="remember-base muted">
+          <input type="checkbox" checked={isRemembered} disabled={compared === undefined} onChange={(e) => remember(e.target.checked ? compared ?? null : null)} />
+          Mémoriser pour ce repo
+        </label>
         <span className="mono totals" data-testid="code-totals">
           <span className="add">+{totals.added}</span> <span className="del">−{totals.deleted}</span>
           <span className="muted"> · {data.files.length} fichier{data.files.length > 1 ? 's' : ''} modifié{data.files.length > 1 ? 's' : ''} · {data.tree.length} dans le repo</span>

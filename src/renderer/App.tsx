@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
@@ -13,12 +13,12 @@ import { basename, useApp, worktreeLabel } from './store'
 import { connectUnsaved } from './unsaved'
 
 function Empty(): React.JSX.Element {
-  const [error, setError] = useState<string | null>(null)
+  const error = useApp((s) => s.openError)
   return (
     <div className="empty">
       <h2>Aucun dépôt ouvert</h2>
       <span>Choisis un dépôt git pour voir ses worktrees.</span>
-      <button className="primary" onClick={() => void openRepoFlow().then(setError)}>Ouvrir un dépôt</button>
+      <button className="primary" onClick={() => void openRepoFlow()}>Ouvrir un dépôt</button>
       {error && <span role="alert" style={{ color: 'var(--del)' }}>{error}</span>}
     </div>
   )
@@ -52,6 +52,7 @@ function Main(): React.JSX.Element {
 
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
+  const workspace = useApp((s) => s.workspace)
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
@@ -62,7 +63,7 @@ export function App(): React.JSX.Element {
     if (view === 'sessions' && worktree && !document.querySelector('[aria-modal="true"]')) closeActiveTabIfSafe(worktree)
   }), [])
 
-  // Re-open the most recent repo that still exists.
+  // Re-open the most recent folder that still exists.
   useEffect(() => {
     let live = true
     void (async () => {
@@ -81,10 +82,10 @@ export function App(): React.JSX.Element {
       <CommandBar />
       <Header />
       <div className="body">
-        {repo ? (
+        {repo && workspace ? (
           <>
             <aside className="sidebar" aria-label="Worktrees">
-              <WorktreeList key={repo} repo={repo} />
+              <WorktreeList key={workspace.root} repo={repo} workspace={workspace} />
             </aside>
             <main className="main"><Main /></main>
           </>
