@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import type { WorktreeStatus } from '../../shared/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { Activity, WorktreeStatus } from '../../shared/types'
 import { useApp } from '../store'
-import { eachLimit, poll, POLL_HEALTHY_MS } from './polling'
-import { entryPaths } from './workspaceList'
+import { poll, POLL_HEALTHY_MS } from './polling'
+import { createStatusReads, rowStatuses, statusRows, type StatusRow } from './statusReads'
 
 export const STATUS_LABEL: Record<WorktreeStatus, string> = {
   waiting: 'Attend ta réponse',
@@ -11,38 +11,42 @@ export const STATUS_LABEL: Record<WorktreeStatus, string> = {
   idle: 'Inactif'
 }
 
-/** A status can cost a gh call. */
-const STATUS_CONCURRENCY = 8
-
 /**
- * Status of every worktree of the workspace. Sessions changing state refresh it at once; the PR part is cached by the
- * main process (60 s per worktree), and a window focus asks for it sooner. A failing read keeps the last status.
+ * Status of every worktree of the workspace. Sessions changing state refresh their activity at once and never touch
+ * gh. The open PRs are read per repo on the slow poll, cached by the main process, and a window focus asks sooner for
+ * the active repo.
  */
 export function useStatuses(): Record<string, WorktreeStatus> {
-  const paths = useApp((s) => entryPaths(s.workspace, s.worktrees).join('\0'))
-  const [statuses, setStatuses] = useState<Record<string, WorktreeStatus>>({})
+  const key = useApp((s) => JSON.stringify(statusRows(s.workspace, s.worktrees, s.repo)))
+  const rows = useMemo(() => JSON.parse(key) as StatusRow[], [key])
+  const [activities, setActivities] = useState<Record<string, Activity>>({})
+  const [prs, setPrs] = useState<Record<string, string[] | null>>({})
 
   useEffect(() => {
     let live = true
-    const list = paths === '' ? [] : paths.split('\0')
-    const read = (onFocus: boolean): void => {
-      void eachLimit(list, STATUS_CONCURRENCY, (path) => window.canopy.worktreeStatus(path, onFocus).then(
-        (status) => { if (live) setStatuses((prev) => (prev[path] === status ? prev : { ...prev, [path]: status })) },
-        () => undefined
-      ))
+    const reads = createStatusReads(rows, {
+      activity: (path) => window.canopy.sessionActivity(path),
+      openPrs: (repo, soon) => window.canopy.openPrs(repo, soon),
+      activeRepo: () => useApp.getState().repo,
+      onActivity: (path, activity) => { if (live) setActivities((prev) => (prev[path] === activity ? prev : { ...prev, [path]: activity })) },
+      onPrs: (repo, branches) => { if (live) setPrs((prev) => ({ ...prev, [repo]: branches })) }
+    })
+    const readBoth = (onFocus: boolean): void => {
+      void reads.activities()
+      void reads.prs(onFocus)
     }
-    read(false)
-    const stopPolling = poll(() => read(false), POLL_HEALTHY_MS)
-    const onFocus = (): void => read(true)
+    readBoth(false)
+    const stopPolling = poll(() => readBoth(false), POLL_HEALTHY_MS)
+    const onFocus = (): void => readBoth(true)
     window.addEventListener('focus', onFocus)
-    const off = window.canopy.on('session:state', () => read(false))
+    const off = window.canopy.on('session:state', () => void reads.activities())
     return () => {
       live = false
       stopPolling()
       window.removeEventListener('focus', onFocus)
       off()
     }
-  }, [paths])
+  }, [rows])
 
-  return statuses
+  return useMemo(() => rowStatuses(rows, activities, prs), [rows, activities, prs])
 }

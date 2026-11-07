@@ -1,14 +1,7 @@
-import type { WorktreeStatus } from '../shared/types'
-import { prState as readPrState, type PrState } from './git/pr'
+import type { Activity } from '../shared/types'
+import { openPrBranches } from './git/pr'
 
-export type Activity = 'waiting' | 'working' | 'idle'
-
-/** What the sidebar shows for a worktree: a question to answer first, then work in progress, then an open PR. */
-export function worktreeStatus(activity: Activity, pr: PrState): WorktreeStatus {
-  if (activity === 'waiting') return 'waiting'
-  if (activity === 'working') return 'working'
-  return pr === 'open' ? 'pr_open' : 'idle'
-}
+export type { Activity }
 
 export interface AttentionDeps {
   /** Paths of every worktree of the repo, wherever they live. */
@@ -35,29 +28,31 @@ export async function folderNeedsAttention(folder: string, repos: (folder: strin
 }
 
 const PR_TTL_MS = 60_000
-/** A focus refresh still does not hammer gh when the window is toggled quickly. */
-const PR_FOCUS_MIN_MS = 5_000
+/** Asking sooner still does not hammer gh when the window is toggled quickly. */
+const PR_SOON_MIN_MS = 5_000
 
-interface PrEntry { state: PrState; at: number }
+type OpenPrs = string[] | null
 
-/** PR state per worktree: polled at most every 60 s, earlier only on focus. Concurrent reads share one gh call. */
+interface PrEntry { branches: OpenPrs; at: number }
+
+/** Open PR branches per repo, null if gh cannot tell: read at most every 60 s, earlier only when asked. Concurrent reads share one gh call. */
 export class PrCache {
   private readonly entries = new Map<string, PrEntry>()
-  private readonly inFlight = new Map<string, Promise<PrState>>()
+  private readonly inFlight = new Map<string, Promise<OpenPrs>>()
 
-  constructor(private readonly read: (cwd: string) => Promise<PrState> = readPrState, private readonly now: () => number = Date.now) {}
+  constructor(private readonly read: (repo: string) => Promise<OpenPrs> = openPrBranches, private readonly now: () => number = Date.now) {}
 
-  async get(cwd: string, onFocus = false): Promise<PrState> {
-    const entry = this.entries.get(cwd)
+  async get(repo: string, soon = false): Promise<OpenPrs> {
+    const entry = this.entries.get(repo)
     const age = entry ? this.now() - entry.at : Infinity
-    if (entry && age < (onFocus ? PR_FOCUS_MIN_MS : PR_TTL_MS)) return entry.state
-    const running = this.inFlight.get(cwd)
+    if (entry && age < (soon ? PR_SOON_MIN_MS : PR_TTL_MS)) return entry.branches
+    const running = this.inFlight.get(repo)
     if (running) return running
-    const p = this.read(cwd).catch((): PrState => 'unavailable').then((state) => {
-      this.entries.set(cwd, { state, at: this.now() })
-      return state
-    }).finally(() => { this.inFlight.delete(cwd) })
-    this.inFlight.set(cwd, p)
+    const p = this.read(repo).catch((): OpenPrs => null).then((branches) => {
+      this.entries.set(repo, { branches, at: this.now() })
+      return branches
+    }).finally(() => { this.inFlight.delete(repo) })
+    this.inFlight.set(repo, p)
     return p
   }
 }

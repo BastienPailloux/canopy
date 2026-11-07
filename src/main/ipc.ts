@@ -13,7 +13,7 @@ import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
 import { parseUnsaved, type UnsavedCounts } from './quit'
-import { folderNeedsAttention, PrCache, worktreeStatus, type AttentionDeps } from './status'
+import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
 import type { SessionManager } from './sessions/SessionManager'
@@ -133,9 +133,9 @@ export function registerIpc(
     killTerminals: (cwd) => terminals.killIn(cwd)
   }
 
-  ipcMain.handle('worktree:status', async (_e, cwd: unknown, onFocus: unknown) => {
-    assertPath(cwd)
-    return worktreeStatus(sessions.activity(cwd), await prs.get(cwd, onFocus === true))
+  ipcMain.handle('repo:openPrs', (_e, repo: unknown, soon: unknown) => {
+    assertPath(repo)
+    return prs.get(repo, soon === true)
   })
 
   const attention: AttentionDeps = {

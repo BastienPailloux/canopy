@@ -1,34 +1,33 @@
 import { expect, test } from 'vitest'
-import { prState, type GhRunner } from '../../../src/main/git/pr'
+import { openPrBranches, type GhRunner } from '../../../src/main/git/pr'
 
-const ok = (state: string): GhRunner => async () => JSON.stringify({ state })
+const prs = (...list: { headRefName: string; isCrossRepository?: boolean }[]): GhRunner => async () => JSON.stringify(list)
 const fail = (stderr: string, code?: string): GhRunner => async () => { throw Object.assign(new Error('gh failed'), { stderr, code }) }
 
-test('an open PR', async () => {
-  expect(await prState('/wt', ok('OPEN'))).toBe('open')
+test('the branches with an open PR', async () => {
+  expect(await openPrBranches('/repo', prs({ headRefName: 'feat/a' }, { headRefName: 'feat/b' }))).toEqual(['feat/a', 'feat/b'])
 })
 
-test('a merged or closed PR is not an open one', async () => {
-  expect(await prState('/wt', ok('MERGED'))).toBe('none')
-  expect(await prState('/wt', ok('CLOSED'))).toBe('none')
+test('no open PR is an empty list, not an unknown one', async () => {
+  expect(await openPrBranches('/repo', prs())).toEqual([])
 })
 
-test('no PR for the branch', async () => {
-  expect(await prState('/wt', fail('no pull requests found for branch "feat/x"'))).toBe('none')
+test('a fork\'s branch is not ours, even under the same name', async () => {
+  expect(await openPrBranches('/repo', prs({ headRefName: 'main', isCrossRepository: true }, { headRefName: 'feat/a', isCrossRepository: false }))).toEqual(['feat/a'])
 })
 
-test('gh missing resolves unavailable without throwing', async () => {
-  expect(await prState('/wt', fail('', 'ENOENT'))).toBe('unavailable')
+test('gh missing resolves null without throwing', async () => {
+  expect(await openPrBranches('/repo', fail('', 'ENOENT'))).toBeNull()
 })
 
-test('no remote, no login or unreadable output resolve unavailable', async () => {
-  expect(await prState('/wt', fail('none of the git remotes configured for this repository point to a known GitHub host'))).toBe('unavailable')
-  expect(await prState('/wt', async () => 'not json')).toBe('unavailable')
-  expect(await prState('/wt', async () => '{}')).toBe('unavailable')
+test('no remote, no login or unreadable output resolve null', async () => {
+  expect(await openPrBranches('/repo', fail('none of the git remotes configured for this repository point to a known GitHub host'))).toBeNull()
+  expect(await openPrBranches('/repo', async () => 'not json')).toBeNull()
+  expect(await openPrBranches('/repo', async () => '{}')).toBeNull()
 })
 
-test('asks gh for the state in the worktree, with an argument array', async () => {
+test('one gh call for the repo, with an argument array, past gh\'s default of 30', async () => {
   const calls: [string[], string][] = []
-  await prState('/wt', async (args, cwd) => { calls.push([args, cwd]); return '{"state":"OPEN"}' })
-  expect(calls).toEqual([[['pr', 'view', '--json', 'state'], '/wt']])
+  await openPrBranches('/repo', async (args, cwd) => { calls.push([args, cwd]); return '[]' })
+  expect(calls).toEqual([[['pr', 'list', '--state', 'open', '--limit', '200', '--json', 'headRefName,isCrossRepository'], '/repo']])
 })

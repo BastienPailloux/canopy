@@ -1,7 +1,7 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats, WorktreeStatus } from './types'
+import type { Activity, BaseRef, ChangedFile, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 
 export interface RemovalRisks {
   dirty: number
@@ -111,11 +111,8 @@ export interface CanopyApi {
   repoBase(repo: string): Promise<string | null>
   recentRepos(): Promise<string[]>
   listWorktrees(repo: string): Promise<Worktree[]>
-  /**
-   * What the sidebar shows for the worktree: from its sessions, and from its PR (through gh, polled at most every
-   * 60 s per worktree; `onFocus` allows a refresh sooner). Without gh or a remote, the PR is ignored.
-   */
-  worktreeStatus(cwd: string, onFocus?: boolean): Promise<WorktreeStatus>
+  /** Branches of `repo` with an open PR, through one gh call polled at most every 60 s; `soon` allows it sooner. Null if gh cannot tell: the PR is then ignored. */
+  openPrs(repo: string, soon?: boolean): Promise<string[] | null>
   /** Whether a session in any worktree, displayed or gone from disk, waits for an answer, in any repo under `path` other than `except`. */
   repoNeedsAttention(path: string, except?: string): Promise<boolean>
   /** Main worktree roots with an approved config. */
@@ -194,7 +191,7 @@ export interface CanopyApi {
   resolvePermission(requestId: string, decision: PermissionDecision): Promise<void>
   listSessions(cwd: string): Promise<SessionSummary[]>
   sessionHistory(cwd: string, sessionId: string): Promise<SessionMessage[]>
-  sessionActivity(cwd: string): Promise<'waiting' | 'working' | 'idle'>
+  sessionActivity(cwd: string): Promise<Activity>
   sessionCommands(localId: string): Promise<SlashCommand[]>
   sessionModels(localId: string): Promise<ModelInfo[]>
   /** Requests still unanswered, to show again after a reload. */

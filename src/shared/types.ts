@@ -15,6 +15,7 @@ export interface ChangedFile {
   unreadable?: boolean
 }
 export interface WorktreeStats { ahead: number; added: number; deleted: number }
+export type Activity = 'waiting' | 'working' | 'idle'
 export type WorktreeStatus = 'waiting' | 'working' | 'pr_open' | 'idle'
 export type SessionState = 'running' | 'waiting' | 'idle' | 'stopped' | 'error'
 export interface SessionSummary {
