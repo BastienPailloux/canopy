@@ -5,7 +5,6 @@ import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-ag
 import { AppStore } from './appStore'
 import { loginShellEnv } from './env'
 import { setGitEnv } from './git/exec'
-import { mainWorktreeRoot } from './git/worktrees'
 import { registerIpc } from './ipc'
 import { SessionManager } from './sessions/SessionManager'
 
@@ -50,7 +49,7 @@ void app.whenReady().then(async () => {
     getSessionMessages,
     env: () => env,
     pathToClaudeCodeExecutable: claudeExecutablePath,
-    isTrusted: async (cwd) => store.isRepoTrusted(await mainWorktreeRoot(cwd))
+    isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
   })
   app.on('before-quit', () => sessions.stopAll())
   registerIpc(store, sessions)

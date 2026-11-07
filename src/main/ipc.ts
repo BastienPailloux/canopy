@@ -5,7 +5,7 @@ import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
 import { worktreeStats } from './git/diff'
 import { createWorktree, listWorktrees, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
-import { readRepoConfig } from './repoTrust'
+import { repoTrust, requireTrustedRoot } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
 import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
 
@@ -27,7 +27,7 @@ async function repoRoot(dir: string): Promise<string | null> {
   }
 }
 
-function registerSessionIpc(sessions: SessionManager): void {
+function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
   sessions.on('message', (e) => broadcast('session:message', e))
   sessions.on('permission', (e) => broadcast('session:permission', e))
   sessions.on('permissionCancelled', (e) => broadcast('session:permissionCancelled', e))
@@ -37,7 +37,7 @@ function registerSessionIpc(sessions: SessionManager): void {
   ipcMain.handle('session:start', async (_e, cwd: unknown, o: unknown) => {
     assertPath(cwd)
     const options = parseStartOptions(o)
-    return sessions.start(cwd, { ...options, trusted: await sessions.isTrusted(cwd) })
+    return sessions.start(cwd, { ...options, repoRoot: await requireTrustedRoot(store, cwd) })
   })
 
   ipcMain.handle('session:send', (_e, localId: unknown, content: unknown) => {
@@ -103,7 +103,7 @@ function registerSessionIpc(sessions: SessionManager): void {
 }
 
 export function registerIpc(store: AppStore, sessions: SessionManager): void {
-  registerSessionIpc(sessions)
+  registerSessionIpc(store, sessions)
 
   ipcMain.handle('repo:open', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
@@ -126,10 +126,9 @@ export function registerIpc(store: AppStore, sessions: SessionManager): void {
 
   ipcMain.handle('repo:recent', () => store.recentRepos)
 
-  ipcMain.handle('repo:trust', async (_e, repo: unknown) => {
+  ipcMain.handle('repo:trust', (_e, repo: unknown) => {
     assertPath(repo)
-    const trusted = store.isRepoTrusted(await mainWorktreeRoot(repo))
-    return { trusted, ...(await readRepoConfig(repo)) }
+    return repoTrust(store, repo)
   })
 
   ipcMain.handle('repo:trustRepo', async (_e, repo: unknown) => {

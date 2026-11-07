@@ -5,6 +5,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import { SessionManager } from '../../../src/main/sessions/SessionManager'
 import type { SessionEvents } from '../../../src/shared/api'
+import { isRepoNotTrusted, REPO_NOT_TRUSTED, RepoNotTrustedError } from '../../../src/shared/errors'
 import type { PermissionRequest } from '../../../src/shared/types'
 
 /** A `query` stand-in: the test drives what the session sees. */
@@ -82,7 +83,7 @@ interface Harness {
   getSessionMessages: ReturnType<typeof vi.fn<typeof getSessionMessages>>
 }
 
-function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (cwd: string) => boolean | Promise<boolean>; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
+function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (root: string) => boolean; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
   const queries: FakeQuery[] = []
   const states: SessionEvents['state'][] = []
   const permissions: PermissionRequest[] = []
@@ -99,7 +100,7 @@ function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options
     getSessionMessages: messages,
     env: () => o.env ?? { PATH: '/x' },
     pathToClaudeCodeExecutable: o.executable,
-    isTrusted: o.isTrusted
+    isTrusted: o.isTrusted ?? (() => true)
   })
   m.on('state', (s) => states.push(s))
   m.on('permission', (p) => permissions.push(p))
@@ -634,7 +635,7 @@ test('an empty resumeId counts as absent', () => {
 
 test('options for a new session', () => {
   const h = setup()
-  h.m.start('/a', { content: content('hi'), model: 'opus', mode: 'plan', trusted: true })
+  h.m.start('/a', { content: content('hi'), model: 'opus', mode: 'plan' })
   const o = h.queries[0].options
   expect(o).toMatchObject({ cwd: '/a', includePartialMessages: true, permissionMode: 'plan', model: 'opus' })
   expect(typeof o.canUseTool).toBe('function')
@@ -664,31 +665,40 @@ test('a failing executable lookup is reported by start, not thrown', async () =>
   expect(h.queries).toEqual([])
 })
 
-test('an untrusted session loads user settings only', () => {
-  const h = setup()
+test('an untrusted start throws REPO_NOT_TRUSTED and never calls query', () => {
+  const h = setup({ isTrusted: () => false })
+  let caught: unknown
+  try {
+    h.m.start('/a', { content: content('hi') })
+  } catch (err) {
+    caught = err
+  }
+  expect(caught).toBeInstanceOf(RepoNotTrustedError)
+  expect(isRepoNotTrusted(caught)).toBe(true)
+  expect(h.queries).toEqual([])
+  expect(h.states).toEqual([])
+  expect(h.m.activity('/a')).toBe('idle')
+})
+
+test('without an injected check, nothing is trusted', () => {
+  const query = vi.fn()
+  const m = new SessionManager({ query: query as never, listSessions: vi.fn(), getSessionMessages: vi.fn(), env: () => ({}) })
+  expect(() => m.start('/a', { content: content('hi') })).toThrow(REPO_NOT_TRUSTED)
+  expect(query).not.toHaveBeenCalled()
+})
+
+test('the check runs on repoRoot when given, else on cwd', () => {
+  const asked: string[] = []
+  const h = setup({ isTrusted: (root) => { asked.push(root); return true } })
+  h.m.start('/repo/.worktrees/a', { content: content('hi'), repoRoot: '/repo' })
+  h.m.start('/b', { content: content('hi') })
+  expect(asked).toEqual(['/repo', '/b'])
+})
+
+test('a trusted start passes no settingSources', () => {
+  const h = setup({ isTrusted: () => true })
   h.m.start('/a', { content: content('hi') })
-  expect(h.queries[0].options.settingSources).toEqual(['user'])
-})
-
-test('a trusted session leaves settingSources undefined', () => {
-  const h = setup()
-  h.m.start('/a', { content: content('hi'), trusted: true })
   expect(h.queries[0].options).not.toHaveProperty('settingSources')
-})
-
-test('isTrusted defaults to untrusted', async () => {
-  const m = new SessionManager({ query: vi.fn() as never, listSessions: vi.fn(), getSessionMessages: vi.fn(), env: () => ({}) })
-  expect(await m.isTrusted('/a')).toBe(false)
-})
-
-test('isTrusted asks the injected check, sync or async', async () => {
-  expect(await setup({ isTrusted: (cwd) => cwd === '/a' }).m.isTrusted('/a')).toBe(true)
-  expect(await setup({ isTrusted: async () => true }).m.isTrusted('/b')).toBe(true)
-  expect(await setup({ isTrusted: () => false }).m.isTrusted('/a')).toBe(false)
-})
-
-test('isTrusted fails closed', async () => {
-  expect(await setup({ isTrusted: async () => { throw new Error('not a git repo') } }).m.isTrusted('/gone')).toBe(false)
 })
 
 test('env keeps process.env under the login env and drops ELECTRON_RUN_AS_NODE', () => {

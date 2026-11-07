@@ -112,7 +112,12 @@ test('loads bundled fonts and raises no CSP violation', async () => {
 
 test('trusting a repo covers its worktrees and persists its listed config', async () => {
   await writeFile(join(repo.path, '.mcp.json'), JSON.stringify({ mcpServers: { db: { command: 'db-mcp' } } }))
-  expect(await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).toEqual({ trusted: false, hooks: [], mcpServers: ['db'], allowRules: [] })
+  expect(await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).toEqual({
+    trusted: false, hooks: [], mcpServers: ['db'], allowRules: [], apiKeyHelper: [], statusLine: [], env: []
+  })
+  // Refused before any process starts, so this runs no Claude session.
+  const refusal = await page.evaluate((r) => window.canopy.startSession(r, { content: { text: 'hi' } }).catch((e: Error) => e.message), repo.path)
+  expect(refusal).toContain('REPO_NOT_TRUSTED')
   await page.evaluate((r) => window.canopy.trustRepo(r), featPath)
   expect((await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).trusted).toBe(true)
   expect((await page.evaluate((r) => window.canopy.repoTrust(r), featPath)).trusted).toBe(true)

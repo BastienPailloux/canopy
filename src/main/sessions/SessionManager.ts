@@ -5,6 +5,7 @@ import type {
   query, Query, SDKMessage, SDKResultMessage, SDKUserMessage, SessionMessage, SlashCommand
 } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvents, StartSessionOptions } from '../../shared/api'
+import { RepoNotTrustedError } from '../../shared/errors'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent } from '../../shared/types'
 import { createInputQueue, type InputQueue } from './inputQueue'
 
@@ -16,8 +17,8 @@ export interface SessionManagerDeps {
   env: () => NodeJS.ProcessEnv
   /** Required in the packaged app, where the SDK cannot run the binary from inside the asar. May throw: `start` reports it. */
   pathToClaudeCodeExecutable?: () => string | undefined
-  /** Whether the repo holding `cwd` may configure sessions. Unset means untrusted. */
-  isTrusted?: (cwd: string) => boolean | Promise<boolean>
+  /** Whether sessions may run in this main worktree root. Unset means nothing is trusted. */
+  isTrusted?: (repoRoot: string) => boolean
 }
 
 type EventMap = { [K in keyof SessionEvents]: [SessionEvents[K]] }
@@ -85,8 +86,13 @@ export class SessionManager extends EventEmitter<EventMap> {
   /**
    * Resuming a session live in Canopy reuses it. Nothing detects one open in an external CLI: both
    * would write to the same file and the conversation would fork silently.
+   *
+   * Throws `RepoNotTrustedError` unless the repo is trusted: a session loads the repo's config, and
+   * nothing limits that to safe parts. `repoRoot` is the main worktree root of `cwd`, default `cwd`.
    */
-  start(cwd: string, o: StartSessionOptions & { trusted?: boolean }): string {
+  start(cwd: string, o: StartSessionOptions & { repoRoot?: string }): string {
+    if (this.deps.isTrusted?.(o.repoRoot ?? cwd) !== true) throw new RepoNotTrustedError()
+
     const existing = [...this.sessions.values()].find((s) => s.sessionId === o.resumeId)
     if (existing) {
       this.send(existing.localId, o.content)
@@ -199,15 +205,6 @@ export class SessionManager extends EventEmitter<EventMap> {
     return states.includes('running') ? 'working' : 'idle'
   }
 
-  /** Never rejects: a repo that cannot be checked is untrusted. */
-  async isTrusted(cwd: string): Promise<boolean> {
-    try {
-      return (await this.deps.isTrusted?.(cwd)) === true
-    } catch {
-      return false
-    }
-  }
-
   /** Requests still waiting for an answer, for a window that missed their `permission` event. */
   pendingPermissions(): PermissionRequest[] {
     return [...this.sessions.values()].flatMap((s) => [...s.pending.values()].map((p) => p.request))
@@ -228,7 +225,7 @@ export class SessionManager extends EventEmitter<EventMap> {
   private options(
     cwd: string,
     sessionId: string,
-    o: StartSessionOptions & { trusted?: boolean },
+    o: StartSessionOptions,
     canUseTool: CanUseTool
   ): Options {
     // `env` replaces process.env, and a session without USER is logged out.
@@ -241,8 +238,6 @@ export class SessionManager extends EventEmitter<EventMap> {
       canUseTool,
       includePartialMessages: true,
       permissionMode: o.mode ?? 'default',
-      // Undefined loads every source. An untrusted repo must not bring its own hooks and allow rules.
-      ...(o.trusted ? {} : { settingSources: ['user' as const] }),
       ...(o.resumeId ? { resume: o.resumeId } : { sessionId }),
       ...(o.model ? { model: o.model } : {}),
       ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {})

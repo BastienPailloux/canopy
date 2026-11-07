@@ -19,7 +19,15 @@ export interface SessionEvents {
 }
 
 /** What a repo's own config would run or allow in a session. */
-export interface RepoConfig { hooks: string[]; mcpServers: string[]; allowRules: string[] }
+export interface RepoConfig {
+  hooks: string[]
+  mcpServers: string[]
+  allowRules: string[]
+  apiKeyHelper: string[]
+  statusLine: string[]
+  /** Variable names only: values may be secrets. */
+  env: string[]
+}
 export interface RepoTrust extends RepoConfig { trusted: boolean }
 
 export interface CanopyApi {
@@ -36,10 +44,13 @@ export interface CanopyApi {
   /** Resolves the base ref, then counts uncommitted files and unpushed commits at `path`. */
   removalRisks(repo: string, path: string): Promise<RemovalRisks>
   removeWorktree(repo: string, path: string, force: boolean): Promise<void>
-  /** Trust is shared by all the worktrees of a repo. The lists describe the config at `repo`. */
+  /** Trust and the listed config both come from the main worktree of `repo`, shared by all its worktrees. */
   repoTrust(repo: string): Promise<RepoTrust>
   trustRepo(repo: string): Promise<void>
-  /** Resolves the session's localId. Resuming a session already live resolves its existing localId. */
+  /**
+   * Resolves the session's localId. Resuming a session already live resolves its existing localId.
+   * Rejects with `REPO_NOT_TRUSTED` (see `isRepoNotTrusted`) until `trustRepo` was called.
+   */
   startSession(cwd: string, o: StartSessionOptions): Promise<string>
   /** Rejects if the session has ended: resume it with `startSession`. */
   sendToSession(localId: string, content: UserContent): Promise<void>

@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { RepoConfig } from '../shared/api'
+import type { RepoConfig, RepoTrust } from '../shared/api'
+import { RepoNotTrustedError } from '../shared/errors'
+import type { AppStore } from './appStore'
+import { mainWorktreeRoot } from './git/worktrees'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -33,6 +36,9 @@ function allowRules(settings: Record<string, unknown>): string[] {
   return rules.filter((r): r is string => typeof r === 'string')
 }
 
+const stringOf = (v: unknown): string[] => (typeof v === 'string' ? [v] : [])
+const unique = (...lists: string[][]): string[] => [...new Set(lists.flat())]
+
 /** What the config files at `root` would run or allow. Missing or invalid files count as empty. */
 export async function readRepoConfig(root: string): Promise<RepoConfig> {
   const [shared, local, mcp] = await Promise.all([
@@ -40,9 +46,25 @@ export async function readRepoConfig(root: string): Promise<RepoConfig> {
     readJson(join(root, '.claude', 'settings.local.json')),
     readJson(join(root, '.mcp.json'))
   ])
+  const fromSettings = (read: (settings: Record<string, unknown>) => string[]): string[] => unique(read(shared), read(local))
   return {
-    hooks: [...new Set([...hookLines(shared), ...hookLines(local)])],
+    hooks: fromSettings(hookLines),
     mcpServers: isRecord(mcp.mcpServers) ? Object.keys(mcp.mcpServers) : [],
-    allowRules: [...new Set([...allowRules(shared), ...allowRules(local)])]
+    allowRules: fromSettings(allowRules),
+    apiKeyHelper: fromSettings((s) => stringOf(s.apiKeyHelper)),
+    statusLine: fromSettings((s) => (isRecord(s.statusLine) ? stringOf(s.statusLine.command) : [])),
+    env: fromSettings((s) => (isRecord(s.env) ? Object.keys(s.env) : []))
   }
+}
+
+export async function repoTrust(store: AppStore, repo: string): Promise<RepoTrust> {
+  const root = await mainWorktreeRoot(repo)
+  return { trusted: store.isRepoTrusted(root), ...(await readRepoConfig(root)) }
+}
+
+/** The main worktree root of `cwd`. Throws `RepoNotTrustedError` if that repo is not trusted. */
+export async function requireTrustedRoot(store: AppStore, cwd: string): Promise<string> {
+  const root = await mainWorktreeRoot(cwd)
+  if (!store.isRepoTrusted(root)) throw new RepoNotTrustedError()
+  return root
 }
