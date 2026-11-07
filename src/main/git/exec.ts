@@ -34,6 +34,10 @@ export function git(cwd: string, args: string[], opts: { maxBuffer?: number; okC
         resolve(stdout)
       }
     )
-    if (opts.input !== undefined) child.stdin?.end(opts.input)
+    if (opts.input !== undefined) {
+      // A command may exit before reading everything; its exit code already reports the failure.
+      child.stdin?.on('error', () => undefined)
+      child.stdin?.end(opts.input)
+    }
   })
 }

@@ -26,3 +26,22 @@ test('input goes to the command\'s stdin', async () => {
   const out = await git(repo.path, ['check-ignore', '--stdin'], { input: 'dist\nsrc\n', okCodes: [1] })
   expect(out).toBe('dist\n')
 })
+
+test('a command that exits without reading a large input does not raise an uncaught EPIPE', async () => {
+  const uncaught: unknown[] = []
+  const onUncaught = (e: unknown): void => { uncaught.push(e) }
+  const previous = process.listeners('uncaughtException')
+  process.removeAllListeners('uncaughtException')
+  process.on('uncaughtException', onUncaught)
+  try {
+    const repo = await createRepo()
+    await repo.commit('a.txt', 'a\n')
+    await git(repo.path, ['rev-parse', 'HEAD'], { input: 'x\n'.repeat(2_000_000) })
+    await new Promise((r) => setTimeout(r, 50))
+    await repo.cleanup()
+    expect(uncaught).toEqual([])
+  } finally {
+    process.off('uncaughtException', onUncaught)
+    for (const l of previous) process.on('uncaughtException', l)
+  }
+})
