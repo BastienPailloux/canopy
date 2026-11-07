@@ -36,3 +36,6 @@ export interface ServiceConfig { name: string; command: string; portEnv: string 
 export interface CanopyConfig { setup: string[]; services: ServiceConfig[] }
 export interface SearchHit { path: string; line: number; column: number; text: string }
 export interface Location { path: string; line: number; column: number }
+
+/** Hits `searchText` returns at most, unless asked otherwise. */
+export const DEFAULT_SEARCH_LIMIT = 2000

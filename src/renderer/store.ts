@@ -4,7 +4,7 @@ import type { Worktree } from '../shared/types'
 export type View = 'sessions' | 'code'
 
 /** A file the Code view must open as soon as it shows. */
-export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; seq: number }
+export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; /** 1-based line to reveal. */ line?: number; seq: number }
 
 interface AppState {
   repo: string | null
@@ -13,8 +13,8 @@ interface AppState {
   worktrees: Worktree[]
   view: View
   codeRequest: CodeRequest | null
-  /** Opens the Code view of `cwd` on `path`. */
-  openInCode: (cwd: string, path: string, mode: 'code' | 'diff') => void
+  /** Opens the Code view of `cwd` on `path`, at `line` (1-based) if given. */
+  openInCode: (cwd: string, path: string, mode: 'code' | 'diff', line?: number) => void
   /** The Code view took request `seq`: a later mount must not apply it again. */
   clearCodeRequest: (seq: number) => void
   setRepo: (repo: string | null) => void
@@ -31,8 +31,8 @@ export const useApp = create<AppState>((set) => ({
   worktrees: [],
   view: 'sessions',
   codeRequest: null,
-  openInCode: (cwd, path, mode) =>
-    set(() => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, seq: ++requestCount } })),
+  openInCode: (cwd, path, mode, line) =>
+    set(() => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, line, seq: ++requestCount } })),
   clearCodeRequest: (seq) => set((s) => (s.codeRequest?.seq === seq ? { codeRequest: null } : s)),
   setRepo: (repo) => set({ repo, worktree: null, worktrees: [] }),
   // Keeps the selection if it still exists, else falls back to the main worktree.

@@ -4,6 +4,13 @@ import { useApp } from '../../src/renderer/store'
 beforeEach(() => { useApp.setState({ view: 'sessions', worktree: null, codeRequest: null }) })
 
 describe('openInCode', () => {
+  it('carries the line to reveal', () => {
+    useApp.getState().openInCode('/wt', 'src/a.ts', 'code', 42)
+    expect(useApp.getState().codeRequest).toMatchObject({ path: 'src/a.ts', mode: 'code', line: 42 })
+    useApp.getState().openInCode('/wt', 'src/a.ts', 'diff')
+    expect(useApp.getState().codeRequest?.line).toBeUndefined()
+  })
+
   it('opens the Code view on a file, and the request is gone once consumed', () => {
     useApp.getState().openInCode('/wt', 'src/a.ts', 'diff')
     const { codeRequest, view, worktree } = useApp.getState()

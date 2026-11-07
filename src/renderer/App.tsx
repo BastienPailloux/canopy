@@ -3,6 +3,7 @@ import { CodeScreen } from './code/CodeScreen'
 import { SessionsView } from './sessions/SessionsView'
 import { connectSessions } from './sessions/sessionStore'
 import { TrustDialog } from './sessions/TrustDialog'
+import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
 import { WorktreeList } from './shell/WorktreeList'
 import { openRepoFlow, selectRepoFlow } from './shell/repoActions'
@@ -58,6 +59,7 @@ export function App(): React.JSX.Element {
   return (
     <div className="app">
       <TrustDialog />
+      <CommandBar />
       <Header />
       <div className="body">
         {repo ? (

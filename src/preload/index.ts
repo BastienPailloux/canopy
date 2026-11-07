@@ -14,6 +14,7 @@ const api: CanopyApi = {
   removeWorktree: (repo, path, force) => ipcRenderer.invoke('worktree:remove', repo, path, force),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   listTree: (cwd) => ipcRenderer.invoke('code:listTree', cwd),
+  searchText: (cwd, q, o) => ipcRenderer.invoke('code:search', cwd, q, o),
   codeChanges: (cwd, base) => ipcRenderer.invoke('code:changes', cwd, base),
   codeBranches: (cwd) => ipcRenderer.invoke('code:branches', cwd),
   readBase: (cwd, base, path) => ipcRenderer.invoke('code:readBase', cwd, base, path),

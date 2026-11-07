@@ -267,3 +267,149 @@
   margin-left: 3px;
   background: var(--add);
 }
+
+/* Project search */
+.search-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.search-field {
+  display: flex;
+  gap: 4px;
+}
+.search-field .opt {
+  flex: 0 0 auto;
+  min-width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+.search-field .opt[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--fg);
+  background: #23262d;
+}
+.search-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+.search-path {
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+  direction: rtl;
+  text-align: left;
+}
+.search-hit {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font-size: 12px;
+}
+.search-hit:hover {
+  background: #1a1d22;
+}
+.search-hit .line {
+  flex: 0 0 auto;
+  min-width: 28px;
+  text-align: right;
+  color: var(--fg-3);
+}
+.search-hit .text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Command bar (⌘K) */
+.cmdbar-overlay {
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+.cmdbar {
+  width: 600px;
+  max-width: calc(100vw - 32px);
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cmdbar input {
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font-size: 14px;
+}
+.cmdbar-list {
+  overflow: auto;
+  padding: 6px;
+}
+.cmdbar-section {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cmdbar-item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font-size: 12.5px;
+}
+.cmdbar-item[aria-selected='true'] {
+  background: #23262d;
+}
+.cmdbar-item .main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdbar-item .detail {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--fg-3);
+}
+.cmdbar-empty {
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--fg-3);
+  font-size: 12px;
+}

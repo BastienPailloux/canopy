@@ -1,7 +1,7 @@
 // Contrat IPC entre le renderer et le process principal.
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
-import type { BaseRef, ChangedFile, PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, Worktree, WorktreeStats } from './types'
+import type { BaseRef, ChangedFile, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, UserContent, Worktree, WorktreeStats } from './types'
 
 export interface RemovalRisks { dirty: number; unpushed: number }
 
@@ -68,6 +68,12 @@ export interface CanopyApi {
   openExternal(url: string): Promise<void>
   /** Paths relative to `cwd` of its tracked and untracked files, without ignored ones. */
   listTree(cwd: string): Promise<string[]>
+  /**
+   * Text search in the files of `cwd` (.gitignore honored, links not followed), at most 2000 hits unless `limit`.
+   * One search runs per window: a new call cancels the previous one, which then resolves null.
+   * Rejects with a readable message for an invalid regex.
+   */
+  searchText(cwd: string, q: string, o?: { regex?: boolean; caseSensitive?: boolean; limit?: number }): Promise<SearchHit[] | null>
   /** Files changed since the merge-base with `base` (default: the repo's base branch). Rejects on git failures. */
   codeChanges(cwd: string, base?: string): Promise<{ base: BaseRef; files: ChangedFile[] }>
   /** Local and remote branches one can compare against. */

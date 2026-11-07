@@ -7,7 +7,7 @@ import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { askMessage } from './askMessage'
 import { dropDraft, getDraft, setDraft } from './drafts'
-import { CodeEditor, DiffPane, type EditorHandle, type Selection } from './Editors'
+import { CodeEditor, DiffPane, type EditorHandle, type Reveal, type Selection } from './Editors'
 
 export type Mode = 'code' | 'diff'
 
@@ -80,6 +80,7 @@ export function CodeView(props: {
   /** Changes whenever the lists were refreshed: the file may have changed too. */
   tick: number
   onSaved: () => void
+  reveal?: Reveal
 }): React.JSX.Element {
   const { cwd, base, path, change } = props
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -186,7 +187,7 @@ export function CodeView(props: {
   } else if (work.kind === 'missing') body = <Message>Ce fichier est supprimé depuis {base.name}. Le diff montre ce qui disparaît.</Message>
   else if (work.kind === 'binary') body = <Message>Fichier binaire : pas d'aperçu.</Message>
   else if (work.kind === 'tooLarge') body = <Message>Fichier trop volumineux ({megabytes(work.size)}) : pas d'aperçu.</Message>
-  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} handle={handle} />
+  else body = <CodeEditor path={path} value={text} readOnly={!editing} addedLines={added} onChange={setText} onSave={() => void save(false)} reveal={props.reveal} handle={handle} />
 
   return (
     <section className="code-view" aria-label="Contenu du fichier">

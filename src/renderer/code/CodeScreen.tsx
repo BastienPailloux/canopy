@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../store'
 import { CodeView, type Mode } from './CodeView'
+import type { Reveal } from './Editors'
 import { getShown, setShown } from './drafts'
 import { FileTree } from './FileTree'
+import { SearchPanel } from './SearchPanel'
 import { useCodeData } from './useCodeData'
 import './code.css'
 
@@ -21,12 +23,17 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   const filter = useRef<HTMLInputElement>(null)
   const [baseNotice, setBaseNotice] = useState<string | null>(null)
   const request = useApp((s) => s.codeRequest)
+  const [panel, setPanel] = useState<'files' | 'search'>('files')
+  const searchInput = useRef<HTMLInputElement>(null)
+  const [reveal, setReveal] = useState<Reveal | undefined>()
+  const select = (path: string): void => { setReveal(undefined); setSelected(path) }
 
   // A tool card asked for a file, possibly before the changed list was known: the request waits for it.
   useEffect(() => {
     if (!request || request.cwd !== cwd || data.loading) return
     useApp.getState().clearCodeRequest(request.seq)
     setSelected(request.path)
+    setReveal(request.line === undefined ? undefined : { line: request.line, seq: request.seq })
     setMode(request.mode)
     setScope(data.files.some((f) => f.path === request.path) ? 'changed' : 'all')
     setQuery('')
@@ -44,9 +51,15 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
     const onKey = (e: KeyboardEvent): void => {
       if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
         e.preventDefault()
+        setPanel('files')
         setScope('all')
-        filter.current?.focus()
-        filter.current?.select()
+        // The filter may not be mounted yet if the search was showing.
+        setTimeout(() => { filter.current?.focus(); filter.current?.select() })
+      }
+      if (e.metaKey && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setPanel('search')
+        setTimeout(() => { searchInput.current?.focus(); searchInput.current?.select() })
       }
     }
     window.addEventListener('keydown', onKey)
@@ -103,6 +116,10 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
       )}
       <div className="code-main">
         <nav className="code-tree" aria-label="Fichiers">
+          {panel === 'search' ? (
+            <SearchPanel cwd={cwd} inputRef={searchInput} onClose={() => setPanel('files')}
+              onOpen={(path, line) => useApp.getState().openInCode(cwd, path, 'code', line)} />
+          ) : (<>
           <div role="group" aria-label="Fichiers affichés" className="seg">
             <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>Tout le repo</button>
             <button type="button" aria-pressed={scope === 'changed'} data-testid="scope-changed" onClick={() => setScope('changed')}>
@@ -111,11 +128,15 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
           </div>
           <input ref={filter} aria-label="Filtrer les fichiers" placeholder="Aller au fichier… ⌘P" value={query}
             onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setQuery('') }} />
-          <FileTree paths={scope === 'all' ? data.tree : changedPaths} changed={data.files} selected={selected} query={query} onSelect={setSelected} />
+          <button type="button" className="link-btn" onClick={() => { setPanel('search'); setTimeout(() => searchInput.current?.focus()) }}>
+            Rechercher dans le projet <span className="kbd">⇧⌘F</span>
+          </button>
+          <FileTree paths={scope === 'all' ? data.tree : changedPaths} changed={data.files} selected={selected} query={query} onSelect={select} />
+          </>)}
         </nav>
         {selected !== null && data.base ? (
           <CodeView key={`${cwd}\0${selected}`} cwd={cwd} base={data.base} path={selected} change={change} mode={mode} onMode={setMode}
-            tick={data.tick} onSaved={data.refresh} />
+            tick={data.tick} onSaved={data.refresh} reveal={reveal} />
         ) : (
           <div className="code-view"><div className="code-message">{data.loading ? 'Chargement…' : 'Choisis un fichier.'}</div></div>
         )}

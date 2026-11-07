@@ -3,6 +3,8 @@ import { monaco, THEME } from './monaco'
 
 export interface Selection { text: string; startLine: number; endLine: number }
 /** Lets the screen read what is selected, when "Demander à Claude" opens. */
+/** A line to bring into view, once per `seq`. */
+export interface Reveal { line: number; seq: number }
 export interface EditorHandle { selection: () => Selection | null }
 
 type Editor = monaco.editor.IStandaloneCodeEditor
@@ -45,6 +47,8 @@ export function CodeEditor(props: {
   addedLines: number[]
   onChange: (text: string) => void
   onSave: () => void
+  /** Scrolls to this 1-based line each time the object changes. */
+  reveal?: Reveal
   handle: React.RefObject<EditorHandle | null>
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
@@ -82,6 +86,16 @@ export function CodeEditor(props: {
     const model = editorRef.current?.getModel()
     if (model && model.getValue() !== props.value) model.setValue(props.value)
   }, [props.value, props.path])
+
+  // After the model and its content, so that the line exists.
+  useEffect(() => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model || !props.reveal) return
+    const line = Math.min(Math.max(props.reveal.line, 1), model.getLineCount())
+    editor.setPosition({ lineNumber: line, column: 1 })
+    editor.revealLineInCenter(line)
+  }, [props.reveal, props.path])
 
   useEffect(() => { editorRef.current?.updateOptions({ readOnly: props.readOnly }) }, [props.readOnly])
 
