@@ -55,7 +55,7 @@ export function TrustDialog(): React.JSX.Element | null {
             </section>
           ))}
         <p className="plain">
-          Ses commandes, skills, agents et plugins seront aussi chargés. Cette liste vient de ce worktree :
+          Ses commandes, skills, agents et plugins seront aussi chargés. Cette liste vient de ce worktree et des serveurs MCP des dossiers au-dessus :
           si sa configuration change, ou si une autre branche en déclare une autre, Canopy te demandera à nouveau.
         </p>
         <p className="plain">Si tu refuses, aucune session ne démarre. Le code et le terminal restent utilisables.</p>

@@ -208,3 +208,19 @@ Date : 2026-11-07. App reconstruite par `npm run build && npx electron-builder -
 Capture : `.superpowers/sdd/2026-11-07-canopy-workspace/task-4-foxy-shape.png`.
 
 `npm test` : 619 tests passent. `npm run typecheck` : propre.
+
+## Config du parent
+
+Date : 2026-11-07. Une session dans un repo imbriqué charge-t-elle la config du dossier parent ? CLI `2.1.304`, SDK `query()` avec les options de Canopy (`permissionMode: 'default'`, `canUseTool` qui refuse tout), `model: 'haiku'`, une question d'une ligne. `settingSources: ['project', 'local']`, pour que les hooks et plugins de Bastien ne tournent pas pendant la sonde. Dossier jetable : `.mcp.json` (serveur stdio qui écrit un marqueur), `.claude/settings.json` (hooks `SessionStart` et `UserPromptSubmit` marqueurs), une skill, une commande, un `CLAUDE.md` avec un mot marqueur, et `nested/`, un repo git à l'intérieur.
+
+| Élément du parent | Session dans le parent (témoin) | Session dans `nested/`, parent sans git | Session dans `nested/`, parent repo git |
+|---|---|---|---|
+| Serveur de `.mcp.json` | Chargé et lancé | **Chargé et lancé**, cwd `nested/` | **Chargé et lancé**, cwd `nested/` |
+| Hooks de `.claude/settings.json` | Exécutés (2 fois) | Non | Non |
+| Skill de `.claude/skills` | Listée | Non | Non |
+| Commande de `.claude/commands` | Listée | Non | Non |
+| `CLAUDE.md` | Lu | **Lu** | **Lu** |
+
+Le serveur apparaît en `pending` dans le message `init`, mais le marqueur prouve que sa commande a tourné, sans aucune approbation.
+
+Conséquence : le `.mcp.json` des dossiers au-dessus exécute du code dans une session d'un repo imbriqué. `configHash` et le dialogue de confiance le prennent désormais en compte, pour chaque dossier jusqu'à la racine du disque, ce qui couvre aussi le repo principal au-dessus d'un worktree dans `.worktrees/`. Seul le niveau juste au-dessus a été essayé : les niveaux suivants sont une précaution, pas une observation. Hooks et skills du parent ne sont pas chargés : rien à ajouter. `CLAUDE.md` n'exécute rien et n'entre pas dans le hash, dans le repo comme au-dessus : ce sont des instructions, pas une config. Un `CLAUDE.md` de parent peut donc orienter une session sans passer par le dialogue.

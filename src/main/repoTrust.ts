@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile, realpath } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { RepoConfig, RepoTrust } from '../shared/api'
 import { RepoNotTrustedError } from '../shared/errors'
 import type { AppStore } from './appStore'
@@ -23,6 +23,16 @@ const MCP = '.mcp.json'
 const HASHED_FILES = [SETTINGS, MCP, CONFIG_FILE]
 
 const isMissing = (err: unknown): boolean => (err as NodeJS.ErrnoException).code === 'ENOENT'
+
+/**
+ * A session also loads and runs the `.mcp.json` of every folder above its own, past repo boundaries, unlike the
+ * parent's settings and skills: see "Config du parent" in the spike results. Nearest first.
+ */
+function parentMcpFiles(dir: string): string[] {
+  const files: string[] = []
+  for (let at = dir; dirname(at) !== at; at = dirname(at)) files.push(join(dirname(at), MCP))
+  return files
+}
 
 /** The parsed object, empty if the file is missing. `unknown` when the file exists but says nothing readable. */
 async function readJson(file: string): Promise<{ data: Record<string, unknown>; unknown: boolean }> {
@@ -76,7 +86,7 @@ async function canopyCommands(dir: string): Promise<{ setup: string[]; services:
   }
 }
 
-/** What the config files at `dir` would run or allow. Missing files count as empty, unreadable ones are flagged. */
+/** What a session at `dir` would load: its config files, and the servers of the folders above. Missing files count as empty, unreadable ones are flagged. */
 export async function readRepoConfig(dir: string): Promise<RepoConfig> {
   const files = [SETTINGS, LOCAL_SETTINGS, MCP, CONFIG_FILE]
   const reads = await Promise.all(files.map((f) => readJson(join(dir, f))))
@@ -85,10 +95,13 @@ export async function readRepoConfig(dir: string): Promise<RepoConfig> {
   const canopyConfig = canopy.unknown ? undefined : await canopyCommands(dir)
   if (canopyConfig === null) canopy.unknown = true
   const fromSettings = (read: (settings: Record<string, unknown>) => string[]): string[] => unique(read(shared.data), read(local.data))
-  const servers = mcp.data.mcpServers
+  const parents = parentMcpFiles(dir)
+  const parentReads = await Promise.all(parents.map((f) => readJson(f)))
+  const serverLines = (data: Record<string, unknown>): string[] =>
+    isRecord(data.mcpServers) ? Object.entries(data.mcpServers).map(([name, server]) => mcpLine(name, server)) : []
   return {
     hooks: fromSettings(hookLines),
-    mcpServers: isRecord(servers) ? Object.entries(servers).map(([name, server]) => mcpLine(name, server)) : [],
+    mcpServers: [...serverLines(mcp.data), ...parentReads.flatMap((r, i) => serverLines(r.data).map((line) => `${line} (depuis ${parents[i]})`))],
     allowRules: fromSettings(allowRules),
     apiKeyHelper: fromSettings((s) => stringOf(s.apiKeyHelper)),
     statusLine: fromSettings((s) => (isRecord(s.statusLine) ? stringOf(s.statusLine.command) : [])),
@@ -96,7 +109,7 @@ export async function readRepoConfig(dir: string): Promise<RepoConfig> {
     settingsKeys: fromSettings((s) => Object.keys(s)),
     setup: canopyConfig?.setup ?? [],
     services: canopyConfig?.services ?? [],
-    unknownFiles: files.filter((_, i) => reads[i].unknown)
+    unknownFiles: [...files.filter((_, i) => reads[i].unknown), ...parents.filter((_, i) => parentReads[i].unknown)]
   }
 }
 
@@ -117,6 +130,13 @@ export async function configHash(dir: string): Promise<string> {
     const content = await readFile(join(dir, file)).catch((err: unknown) => (isMissing(err) ? null : undefined))
     const state = content === null ? 'missing' : content === undefined ? 'unreadable' : `bytes:${content.length}`
     hash.update(`${file}\0${state}\0`)
+    if (content) hash.update(content)
+  }
+  // After the rest, and only when there is one: the hash of a config approved before stays.
+  for (const file of parentMcpFiles(dir)) {
+    const content = await readFile(file).catch((err: unknown) => (isMissing(err) ? null : undefined))
+    if (content === null) continue
+    hash.update(`${file}\0${content === undefined ? 'unreadable' : `bytes:${content.length}`}\0`)
     if (content) hash.update(content)
   }
   return hash.digest('hex')

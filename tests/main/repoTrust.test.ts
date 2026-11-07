@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { AppStore } from '../../src/main/appStore'
 import { createWorktree } from '../../src/main/git/worktrees'
 import { approveConfig, configHash, readRepoConfig, repoTrust, requireTrustedRoot } from '../../src/main/repoTrust'
@@ -203,13 +203,20 @@ test('a worktree is judged on its own config, and shares the approvals of its re
 
 test('repoTrust lists the config of the given worktree, not the main one', async () => {
   repo = await createRepo()
-  const wt = await createWorktree(repo.path, { name: 'alpha', branch: 'feat/alpha', base: 'main' })
+  const wt = await createWorktree(repo.path, { name: 'alpha', branch: 'feat/alpha', base: 'main', parentDir: dir })
   await writeFile(join(repo.path, '.mcp.json'), JSON.stringify({ mcpServers: { main: {} } }))
   await writeFile(join(wt.path, '.mcp.json'), JSON.stringify({ mcpServers: { branch: {} } }))
   const store = new AppStore(join(dir, 'state.json'))
   expect(await repoTrust(store, wt.path)).toEqual({
     ...EMPTY, repo: repo.path, trusted: false, mcpServers: ['branch'], configHash: await configHash(wt.path)
   })
+})
+
+test('a worktree inside the main one also lists the main one\'s servers: a session loads them from above', async () => {
+  repo = await createRepo()
+  const wt = await createWorktree(repo.path, { name: 'alpha', branch: 'feat/alpha', base: 'main' })
+  await writeFile(join(repo.path, '.mcp.json'), JSON.stringify({ mcpServers: { main: {} } }))
+  expect((await readRepoConfig(wt.path)).mcpServers).toEqual([`main (depuis ${join(repo.path, '.mcp.json')})`])
 })
 
 test('a directory whose .git file points into a trusted repo, but which is not one of its worktrees, is refused', async () => {
@@ -282,4 +289,62 @@ test('repoTrust names the repo, the same from a linked worktree', async () => {
   } finally {
     await repo.cleanup()
   }
+})
+
+describe('the .mcp.json of folders above: a session loads them, across repos', () => {
+  const mcp = (command: string): string => JSON.stringify({ mcpServers: { parent: { command } } })
+  let nested: string
+  beforeEach(async () => {
+    nested = join(dir, 'a', 'nested')
+    await mkdir(nested, { recursive: true })
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: nested })
+  })
+
+  test('are listed, with where they come from', async () => {
+    await write('.mcp.json', mcp('far'))
+    await writeFile(join(dir, 'a', '.mcp.json'), mcp('near'))
+    expect((await readRepoConfig(nested)).mcpServers).toEqual([
+      `parent: near (depuis ${join(dir, 'a', '.mcp.json')})`,
+      `parent: far (depuis ${join(dir, '.mcp.json')})`
+    ])
+  })
+
+  test('come after the folder\'s own', async () => {
+    await write('.mcp.json', mcp('far'))
+    await writeFile(join(nested, '.mcp.json'), mcp('own'))
+    expect((await readRepoConfig(nested)).mcpServers).toEqual(['parent: own', `parent: far (depuis ${join(dir, '.mcp.json')})`])
+  })
+
+  test('an unreadable one is flagged by its full path', async () => {
+    await write('.mcp.json', 'not json')
+    expect((await readRepoConfig(nested)).unknownFiles).toEqual([join(dir, '.mcp.json')])
+  })
+
+  test('change the hash, so a changed one asks again', async () => {
+    const without = await configHash(nested)
+    await write('.mcp.json', mcp('one'))
+    const one = await configHash(nested)
+    await write('.mcp.json', mcp('two'))
+    expect(new Set([without, one, await configHash(nested)]).size).toBe(3)
+  })
+
+  test('a config approved in the nested repo no longer starts once a parent declares a server', async () => {
+    const store = new AppStore(join(dir, 'state.json'))
+    await approveConfig(store, nested, await configHash(nested))
+    await expect(requireTrustedRoot(store, nested)).resolves.toBeDefined()
+    await write('.mcp.json', mcp('later'))
+    await expect(requireTrustedRoot(store, nested)).rejects.toThrow()
+    expect((await repoTrust(store, nested)).trusted).toBe(false)
+  })
+
+  test('without one, the hash of an approved config does not move', async () => {
+    const hash = await configHash(nested)
+    await mkdir(join(dir, 'a', 'unrelated'))
+    expect(await configHash(nested)).toBe(hash)
+  })
+
+  test('the settings and skills of a parent are not listed: a session does not load them', async () => {
+    await write('.claude/settings.json', { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'nope' }] }] } })
+    expect((await readRepoConfig(nested)).hooks).toEqual([])
+  })
 })
