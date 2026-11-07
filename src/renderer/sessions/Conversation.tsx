@@ -30,8 +30,8 @@ const Item = memo(function Item(props: { item: TranscriptItem; cwd: string; onIn
   }
 })
 
-function PendingRequests(props: { localId?: string; cwd: string }): React.JSX.Element | null {
-  const { localId, cwd } = props
+function PendingRequests(props: { localId?: string }): React.JSX.Element | null {
+  const { localId } = props
   const permissions = useSessions((s) => s.permissions)
   const mine = permissions.filter((p) => p.localId === localId)
   if (!localId || mine.length === 0) return null
@@ -41,7 +41,7 @@ function PendingRequests(props: { localId?: string; cwd: string }): React.JSX.El
         const questions = p.toolName === 'AskUserQuestion' ? questionsOf(p.input) : null
         return questions
           ? <QuestionCard key={p.requestId} request={p} questions={questions} />
-          : <PermissionCard key={p.requestId} request={p} cwd={cwd} />
+          : <PermissionCard key={p.requestId} request={p} />
       })}
     </div>
   )
@@ -87,7 +87,7 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
           })}
         </div>
       </div>
-      <PendingRequests localId={tab.localId} cwd={tab.cwd} />
+      <PendingRequests localId={tab.localId} />
     </>
   )
 }

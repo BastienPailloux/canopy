@@ -1,61 +1,13 @@
 import { memo, useMemo, useState } from 'react'
-import { lineDiff, type DiffLine } from './lineDiff'
-import type { TranscriptItem } from './transcript'
-
-type ToolItem = Extract<TranscriptItem, { kind: 'tool' }>
+import type { DiffLine } from './lineDiff'
+import { clipOutput, outcome, plural, toolDiff, toolTarget, type ToolItem } from './toolDetail'
 
 const MAX_DIFF_LINES = 400
-const MAX_RESULT_CHARS = 20_000
 const SIGNS: Record<DiffLine['kind'], string> = { add: '+', del: '−', same: ' ' }
 
-const asText = (v: unknown): string => (typeof v === 'string' ? v : '')
-
-const relativeTo = (cwd: string, path: string): string => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
-
-/** What a tool acts on, in one line. Paths inside `cwd` are shown relative to it. */
-export function toolTarget(name: string, input: Record<string, unknown>, cwd: string): string {
-  switch (name) {
-    case 'Read':
-    case 'Edit':
-    case 'Write':
-      return relativeTo(cwd, asText(input.file_path))
-    case 'Grep':
-      return [`"${asText(input.pattern)}"`, relativeTo(cwd, asText(input.path))].filter(Boolean).join(' ')
-    case 'Glob':
-      return asText(input.pattern)
-    case 'Bash':
-      return asText(input.command)
-    default:
-      return Object.values(input).find((v): v is string => typeof v === 'string') ?? ''
-  }
-}
-
-/** The change an Edit or Write makes, or null for any other tool. */
-export function toolDiff(name: string, input: Record<string, unknown>): DiffLine[] | null {
-  if (name === 'Edit') return lineDiff(asText(input.old_string), asText(input.new_string))
-  if (name === 'Write') return lineDiff('', asText(input.content))
-  return null
-}
-
-const countLines = (s: string): number => s.split('\n').filter((l) => l !== '').length
-/** Read numbers each line of the file, including the empty one after a final newline, and may add text of its own. */
-const countReadLines = (s: string): number =>
-  s.replace(/\n\s*\d+[\t→]$/, '').split('\n').filter((l) => /^\s*\d+[\t→]/.test(l)).length
-
-const plural = (n: number | string, word: string): string => `${n} ${word}${Number(n) > 1 ? 's' : ''}`
-
-function outcome(item: ToolItem): string {
-  if (item.isError) return 'Erreur'
-  const result = item.result ?? ''
-  if (item.name === 'Read') return plural(countReadLines(result), 'ligne')
-  if (item.name === 'Grep' || item.name === 'Glob') {
-    return plural(/^Found (\d+)/.exec(result)?.[1] ?? countLines(result), 'résultat')
-  }
-  return ''
-}
-
-export function DiffView(props: { lines: DiffLine[] }): React.JSX.Element {
-  const shown = props.lines.slice(0, MAX_DIFF_LINES)
+/** A card shows a preview. Whoever must see everything, like an approval, passes `whole`. */
+export function DiffView(props: { lines: DiffLine[]; whole?: boolean }): React.JSX.Element {
+  const shown = props.whole ? props.lines : props.lines.slice(0, MAX_DIFF_LINES)
   const hidden = props.lines.length - shown.length
   return (
     <div className="diff" data-testid="tool-diff">
@@ -72,9 +24,10 @@ function Elapsed(props: { seconds?: number }): React.JSX.Element {
 
 interface CardProps { item: ToolItem; cwd: string; onInterrupt?: () => void }
 
-function Header(props: CardProps & { children?: React.ReactNode }): React.JSX.Element {
-  const { item, cwd, onInterrupt, children } = props
+function Summary(props: { item: ToolItem; cwd: string; children?: React.ReactNode }): React.JSX.Element {
+  const { item, cwd, children } = props
   const target = toolTarget(item.name, item.input, cwd)
+  const result = outcome(item)
   return (
     <>
       {item.running && <span className="running-dot" aria-hidden="true" />}
@@ -82,48 +35,54 @@ function Header(props: CardProps & { children?: React.ReactNode }): React.JSX.El
       <span className="target" title={target}>{target}</span>
       <span className="end">
         {children}
-        {item.running ? <Elapsed seconds={item.elapsed} /> : <span className={item.isError ? 'del' : 'outcome'}>{outcome(item)}</span>}
+        {item.running
+          ? <Elapsed seconds={item.elapsed} />
+          : <span className={item.isError ? 'del' : item.result === undefined ? 'warn' : 'outcome'}>{result}</span>}
       </span>
-      {item.running && onInterrupt && (
-        <button type="button" className="interrupt" onClick={(e) => { e.stopPropagation(); onInterrupt() }}>Interrompre</button>
-      )}
     </>
   )
 }
 
+function InterruptButton(props: CardProps): React.JSX.Element | null {
+  if (!props.item.running || !props.onInterrupt) return null
+  return <button type="button" className="interrupt" onClick={props.onInterrupt}>Interrompre</button>
+}
+
 function DiffCard(props: CardProps & { lines: DiffLine[] }): React.JSX.Element {
   const { lines, ...card } = props
-  const { item } = card
+  const { item, cwd } = card
   const added = lines.filter((l) => l.kind === 'add').length
   const removed = lines.filter((l) => l.kind === 'del').length
   return (
     <div className="tool-card with-diff" data-testid="tool-card" data-running={item.running}>
       <div className="tool-head">
-        <Header {...card}>
-          {added > 0 && <span className="add">+{added}</span>}
-          {removed > 0 && <span className="del">−{removed}</span>}
-        </Header>
+        <div className="tool-summary">
+          <Summary item={item} cwd={cwd}>
+            {added > 0 && <span className="add">+{added}</span>}
+            {removed > 0 && <span className="del">−{removed}</span>}
+          </Summary>
+        </div>
+        <InterruptButton {...card} />
       </div>
       <DiffView lines={lines} />
-      {item.isError && item.result && <pre className="tool-output">{item.result}</pre>}
+      {item.isError && item.result && <pre className="tool-output">{clipOutput(item.result)}</pre>}
     </div>
   )
 }
 
 function PlainCard(props: CardProps): React.JSX.Element {
-  const { item } = props
+  const { item, cwd } = props
   const [open, setOpen] = useState(false)
   const output = item.result ?? ''
   return (
     <div className="tool-card" data-testid="tool-card" data-running={item.running}>
-      <button type="button" className="tool-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Header {...props} />
-      </button>
-      {open && (
-        <pre className="tool-output">
-          {output === '' ? JSON.stringify(item.input, null, 2) : output.slice(0, MAX_RESULT_CHARS)}
-        </pre>
-      )}
+      <div className="tool-head">
+        <button type="button" className="tool-summary" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Summary item={item} cwd={cwd} />
+        </button>
+        <InterruptButton {...props} />
+      </div>
+      {open && <pre className="tool-output">{output === '' ? JSON.stringify(item.input, null, 2) : clipOutput(output)}</pre>}
     </div>
   )
 }

@@ -177,9 +177,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  padding-right: 12px;
+}
+.tool-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-height: 34px;
-  padding: 6px 12px;
+  padding: 6px 0 6px 12px;
   border: 0;
   background: transparent;
   text-align: left;
@@ -193,8 +200,7 @@
   flex: 0 0 auto;
   color: var(--fg-2);
 }
-.tool-head .target,
-.ask-head .target {
+.tool-head .target {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -304,6 +310,18 @@
   gap: 10px;
   font-family: var(--mono);
   font-size: 12px;
+}
+.ask-detail {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .ask-text {
   margin: 0;
