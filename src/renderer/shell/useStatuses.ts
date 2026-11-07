@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { WorktreeStatus } from '../../shared/types'
 import { useApp } from '../store'
-
-const REFRESH_MS = 10_000
+import { poll, POLL_HEALTHY_MS } from './polling'
 
 export const STATUS_LABEL: Record<WorktreeStatus, string> = {
   waiting: 'Attend ta réponse',
@@ -31,13 +30,13 @@ export function useStatuses(repo: string): Record<string, WorktreeStatus> {
       }
     }
     read(false)
-    const timer = setInterval(() => read(false), REFRESH_MS)
+    const stopPolling = poll(() => read(false), POLL_HEALTHY_MS)
     const onFocus = (): void => read(true)
     window.addEventListener('focus', onFocus)
     const off = window.canopy.on('session:state', () => read(false))
     return () => {
       live = false
-      clearInterval(timer)
+      stopPolling()
       window.removeEventListener('focus', onFocus)
       off()
     }

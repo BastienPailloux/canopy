@@ -2,16 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Worktree, WorktreeStats } from '../../shared/types'
 import { useApp, worktreeLabel } from '../store'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
+import { createOrdering, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polling'
 import { RemoveWorktreeDialog } from './RemoveWorktreeDialog'
 import { STATUS_LABEL, useStatuses } from './useStatuses'
 import type { WorktreeStatus } from '../../shared/types'
 
-const REFRESH_MS = 10_000
-
 interface StatsEntry { stats?: WorktreeStats; error?: string }
 
 /**
- * Worktrees of `repo`, refreshed every 10 s and on window focus.
+ * Worktrees of `repo`, refreshed on file events, on window focus, and by a poll that is slow while the watcher works.
  * A failing stats call keeps the last good stats and flags that worktree only.
  */
 function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; listError: string | null; refresh: () => Promise<void> } {
@@ -23,6 +22,21 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
   const watched = useRef('')
   const current = useRef(repo)
   current.current = repo
+  const order = useRef(createOrdering())
+  const [watchFailed, setWatchFailed] = useState(false)
+
+  /** Stats of one worktree. An answer overtaken by a later one is dropped. */
+  const readStats = useCallback(async (path: string, forRepo: string): Promise<void> => {
+    const apply = order.current.begin(path)
+    let patch: StatsEntry
+    try {
+      patch = { stats: await window.canopy.worktreeStats(path) }
+    } catch (e) {
+      patch = { error: e instanceof Error ? e.message : String(e) }
+    }
+    if (current.current !== forRepo || !apply()) return
+    setEntries((prev) => ({ ...prev, [path]: { stats: prev[path]?.stats, ...patch } }))
+  }, [])
 
   const refresh = useCallback(async (): Promise<void> => {
     if (inFlight.current) {
@@ -48,18 +62,7 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
         watched.current = key
         window.canopy.watchWorktrees(forRepo).catch(() => { watched.current = '' })
       }
-      await Promise.all(
-        list.map(async (w) => {
-          let patch: StatsEntry
-          try {
-            patch = { stats: await window.canopy.worktreeStats(w.path) }
-          } catch (e) {
-            patch = { error: e instanceof Error ? e.message : String(e) }
-          }
-          if (current.current !== forRepo) return
-          setEntries((prev) => ({ ...prev, [w.path]: { stats: prev[w.path]?.stats, ...patch } }))
-        })
-      )
+      await Promise.all(list.map((w) => readStats(w.path, forRepo)))
       if (current.current === forRepo) {
         const paths = new Set(list.map((w) => w.path))
         setEntries((prev) => Object.fromEntries(Object.entries(prev).filter(([p]) => paths.has(p))))
@@ -71,37 +74,37 @@ function useWorktrees(repo: string): { entries: Record<string, StatsEntry>; list
         void refresh()
       }
     }
-  }, [repo, setWorktrees])
+  }, [repo, setWorktrees, readStats])
 
-  // Files or commits changed in a worktree: only its numbers are stale.
-  useEffect(() => window.canopy.on('code:changed', (payload) => {
-    const path = (payload as { cwd?: string } | null)?.cwd
-    if (!path || !useApp.getState().worktrees.some((w) => w.path === path)) return
-    const forRepo = current.current
-    window.canopy.worktreeStats(path).then(
-      (stats) => {
-        if (current.current === forRepo) setEntries((prev) => ({ ...prev, [path]: { stats } }))
-      },
-      (e: unknown) => {
-        const error = e instanceof Error ? e.message : String(e)
-        if (current.current === forRepo) setEntries((prev) => ({ ...prev, [path]: { stats: prev[path]?.stats, error } }))
-      }
-    )
-  }), [])
+  // Files or commits changed in a worktree: its numbers are stale, and the list too if one came or went.
+  useEffect(() => {
+    const offChanged = window.canopy.on('code:changed', (payload) => {
+      const path = (payload as { cwd?: string } | null)?.cwd
+      const known = useApp.getState().worktrees
+      if (!path || !known.some((w) => w.path === path)) return
+      const forRepo = current.current
+      void readStats(path, forRepo)
+      void window.canopy.listWorktrees(forRepo).then((list) => {
+        if (current.current !== forRepo) return
+        const paths = (l: Worktree[]): string => l.map((w) => w.path).join('\0')
+        if (paths(list) !== paths(useApp.getState().worktrees)) void refresh()
+      }, () => undefined)
+    })
+    const offError = window.canopy.on('code:watchError', () => setWatchFailed(true))
+    return () => { offChanged(); offError() }
+  }, [readStats, refresh])
 
   useEffect(() => {
     setEntries({})
     setListError(null)
     watched.current = ''
     void refresh()
-    const timer = setInterval(() => void refresh(), REFRESH_MS)
     const onFocus = (): void => void refresh()
     window.addEventListener('focus', onFocus)
-    return () => {
-      clearInterval(timer)
-      window.removeEventListener('focus', onFocus)
-    }
+    return () => window.removeEventListener('focus', onFocus)
   }, [refresh])
+
+  useEffect(() => poll(() => void refresh(), watchFailed ? POLL_DEGRADED_MS : POLL_HEALTHY_MS), [refresh, watchFailed])
 
   return { entries, listError, refresh }
 }

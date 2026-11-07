@@ -1,14 +1,15 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { isAbsolute } from 'node:path'
 import type { NewWorktree } from '../shared/api'
+import type { WorktreeStats } from '../shared/types'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
 import type { LspPool } from './code/lsp'
 import { openExternalUrl } from './externalLinks'
 import { git } from './git/exec'
-import { resolveBaseRef } from './git/refs'
+import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer } from './git/sharedReads'
 import { worktreeStats } from './git/diff'
-import { createWorktree, listWorktrees, removalRisks, removeWorktree } from './git/worktrees'
+import { createWorktree, removalRisks, removeWorktree } from './git/worktrees'
 import { PrCache, repoNeedsAttention, worktreeStatus } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
@@ -131,7 +132,7 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
   ipcMain.handle('repo:needsAttention', (_e, path: unknown) => {
     assertPath(path)
     return repoNeedsAttention(path, {
-      worktrees: async (repo) => (await listWorktrees(repo)).map((w) => w.path),
+      worktrees: async (repo) => (await cachedWorktrees(repo)).map((w) => w.path),
       activity: (cwd) => sessions.activity(cwd)
     })
   })
@@ -182,36 +183,40 @@ export function registerIpc(store: AppStore, sessions: SessionManager, lsp: LspP
 
   ipcMain.handle('worktree:list', (_e, repo: unknown) => {
     assertPath(repo)
-    return listWorktrees(repo)
+    return cachedWorktrees(repo)
   })
 
-  ipcMain.handle('worktree:stats', async (_e, cwd: unknown) => {
+  const stats = new Coalescer<WorktreeStats>()
+  ipcMain.handle('worktree:stats', (_e, cwd: unknown) => {
     assertPath(cwd)
-    return worktreeStats(cwd, (await resolveBaseRef(cwd)).ref)
+    return stats.run(cwd, async () => worktreeStats(cwd, (await cachedBaseRef(cwd)).ref))
   })
 
   ipcMain.handle('worktree:defaultBase', (_e, cwd: unknown) => {
     assertPath(cwd)
-    return resolveBaseRef(cwd).catch(() => null)
+    return cachedBaseRef(cwd).catch(() => null)
   })
 
   ipcMain.handle('worktree:create', async (_e, repo: unknown, raw: unknown) => {
     assertPath(repo)
     const o = parseNewWorktree(raw)
-    const base = o.existing ? undefined : o.base ?? (await resolveBaseRef(repo)).ref
-    return createWorktree(repo, { ...o, base })
+    const base = o.existing ? undefined : o.base ?? (await cachedBaseRef(repo)).ref
+    const created = await createWorktree(repo, { ...o, base })
+    clearSharedReads()
+    return created
   })
 
   ipcMain.handle('worktree:risks', async (_e, repo: unknown, path: unknown) => {
     assertPath(repo)
     assertPath(path)
-    return removalRisks(path, (await resolveBaseRef(repo)).ref)
+    return removalRisks(path, (await cachedBaseRef(repo)).ref)
   })
 
   ipcMain.handle('worktree:remove', (_e, repo: unknown, path: unknown, force: unknown) => {
     assertPath(repo)
     assertPath(path)
     return removeWorktree(repo, path, force === true).then(() => {
+      clearSharedReads()
       // Their shells would sit in a folder that is gone: they end, and the exit is reported.
       for (const t of terminals.list(path)) terminals.kill(t.id)
     })

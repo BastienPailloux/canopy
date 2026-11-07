@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { BaseRef, ChangedFile } from '../../shared/types'
+import { createOrdering, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from '../shell/polling'
 import { useApp } from '../store'
 import { PR_PROMPT, rebasePrompt } from './panelPrompts'
 import { askClaude, useSessions } from './sessionStore'
 
-const POLL_MS = 10_000
 const KIND_COLOR: Record<ChangedFile['kind'], string> = { A: 'var(--add)', M: 'var(--warn)', D: 'var(--del)', R: 'var(--accent)' }
 
 /** Files changed against the comparison base, kept up to date; a failing read keeps the last good one. */
@@ -12,22 +12,26 @@ function useChanges(cwd: string, picked: string | undefined): { base: BaseRef | 
   const [state, setState] = useState<{ base: BaseRef | null; files: ChangedFile[]; error: string | null }>({ base: null, files: [], error: null })
   const key = useRef('')
   key.current = `${cwd}\0${picked ?? ''}`
+  const order = useRef(createOrdering())
+  const [watchFailed, setWatchFailed] = useState(false)
 
   useEffect(() => {
     const asked = key.current
     setState({ base: null, files: [], error: null })
     const read = (): void => {
+      const apply = order.current.begin(asked)
       window.canopy.codeChanges(cwd, picked).then(
-        (r) => { if (key.current === asked) setState({ base: r.base, files: r.files, error: null }) },
-        (e: unknown) => { if (key.current === asked) setState((prev) => ({ ...prev, error: e instanceof Error ? e.message : String(e) })) }
+        (r) => { if (key.current === asked && apply()) setState({ base: r.base, files: r.files, error: null }) },
+        (e: unknown) => { if (key.current === asked && apply()) setState((prev) => ({ ...prev, error: e instanceof Error ? e.message : String(e) })) }
       )
     }
     read()
-    const timer = setInterval(read, POLL_MS)
+    const stopPolling = poll(read, watchFailed ? POLL_DEGRADED_MS : POLL_HEALTHY_MS)
     window.addEventListener('focus', read)
     const off = window.canopy.on('code:changed', (p) => { if ((p as { cwd?: string } | null)?.cwd === cwd) read() })
-    return () => { clearInterval(timer); window.removeEventListener('focus', read); off() }
-  }, [cwd, picked])
+    const offError = window.canopy.on('code:watchError', (p) => { if ((p as { cwd?: string } | null)?.cwd === cwd) setWatchFailed(true) })
+    return () => { stopPolling(); window.removeEventListener('focus', read); off(); offError() }
+  }, [cwd, picked, watchFailed])
 
   return state
 }

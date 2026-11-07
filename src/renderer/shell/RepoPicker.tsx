@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { basename, useApp } from '../store'
+import { debounce, poll, POLL_HEALTHY_MS } from './polling'
 import { openRepoFlow, selectRepoFlow } from './repoActions'
 
 const folderIcon = (
@@ -14,7 +15,8 @@ const chevron = (
   </svg>
 )
 
-const REFRESH_MS = 10_000
+/** State changes come in bursts, and each read asks about every recent repo. */
+const ATTENTION_DEBOUNCE_MS = 300
 
 /** The recent repos with a session waiting for an answer, displayed or not. Refreshed as sessions change state. */
 function useAttention(repo: string | null): Set<string> {
@@ -30,10 +32,19 @@ function useAttention(repo: string | null): Set<string> {
       })()
     }
     read()
-    const timer = setInterval(read, REFRESH_MS)
-    const off = window.canopy.on('session:state', read)
-    const off2 = window.canopy.on('session:permission', read)
-    return () => { live = false; clearInterval(timer); off(); off2() }
+    const soon = debounce(read, ATTENTION_DEBOUNCE_MS)
+    const stopPolling = poll(read, POLL_HEALTHY_MS)
+    const off = window.canopy.on('session:state', soon.call)
+    const off2 = window.canopy.on('session:permission', soon.call)
+    window.addEventListener('focus', soon.call)
+    return () => {
+      live = false
+      soon.cancel()
+      stopPolling()
+      off()
+      off2()
+      window.removeEventListener('focus', soon.call)
+    }
   }, [repo])
   return waiting
 }

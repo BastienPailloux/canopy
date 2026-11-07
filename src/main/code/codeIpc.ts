@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron'
 import { isAbsolute } from 'node:path'
+import type { BaseRef, ChangedFile } from '../../shared/types'
 import { changedFiles, readAtBase } from '../git/diff'
 import { listBranches, resolveCompareRef } from '../git/refs'
+import { cachedBaseRef, clearSharedReads, Coalescer } from '../git/sharedReads'
 import { listTree, readFileSafe, writeFileSafe } from './files'
 import type { LspPool } from './lsp'
 import { searchText } from './search'
@@ -26,6 +28,8 @@ function assertPosition(n: unknown): asserts n is number {
 
 /** One search per window and caller: the panel and the bar do not cancel each other. */
 const searches = new SearchSlots()
+/** File events come in bursts: each worktree and base computes its changes once at a time. */
+const changes = new Coalescer<{ base: BaseRef; files: ChangedFile[] }>()
 
 export function registerCodeIpc(broadcast: (event: string, payload?: unknown) => void, lsp: LspPool): void {
   ipcMain.handle('code:listTree', (_e, cwd: unknown) => {
@@ -70,8 +74,10 @@ export function registerCodeIpc(broadcast: (event: string, payload?: unknown) =>
 
   ipcMain.handle('code:changes', async (_e, cwd: unknown, base: unknown) => {
     assertPath(cwd)
-    const ref = await resolveCompareRef(cwd, base)
-    return { base: ref, files: await changedFiles(cwd, ref.ref) }
+    return changes.run(`${cwd}\0${String(base)}`, async () => {
+      const ref = base === undefined ? await cachedBaseRef(cwd) : await resolveCompareRef(cwd, base)
+      return { base: ref, files: await changedFiles(cwd, ref.ref) }
+    })
   })
 
   ipcMain.handle('code:branches', (_e, cwd: unknown) => {
@@ -101,7 +107,10 @@ export function registerCodeIpc(broadcast: (event: string, payload?: unknown) =>
     assertPath(repo)
     await syncWatchers(
       repo,
-      (cwd) => broadcast('code:changed', { cwd }),
+      (cwd) => {
+        clearSharedReads()
+        broadcast('code:changed', { cwd })
+      },
       (cwd, e) => broadcast('code:watchError', { cwd, message: e.message }),
       (cwd) => lsp.release(cwd)
     )
