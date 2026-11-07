@@ -18,12 +18,12 @@ export function setGitEnv(env: NodeJS.ProcessEnv | undefined): void {
   gitEnv = env
 }
 
-export function git(cwd: string, args: string[]): Promise<string> {
+export function git(cwd: string, args: string[], opts: { maxBuffer?: number } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       args,
-      { cwd, env: gitEnv ?? process.env, maxBuffer: 64 * 1024 * 1024 },
+      { cwd, env: gitEnv ?? process.env, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
           const e = err as NodeJS.ErrnoException

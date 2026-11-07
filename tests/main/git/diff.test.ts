@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -127,6 +127,46 @@ describe('diff engine', () => {
     expect(await changedFiles(repo.path, 'origin/main')).toEqual([])
   })
 
+  it('reports a committed rename with an edit with real counts', async () => {
+    await sh(repo.path, 'mv', 'src/a.txt', 'src/c.txt')
+    await write(repo, 'src/c.txt', 'one\ntwo\nthree\nfour\n')
+    await sh(repo.path, 'add', '-A')
+    await sh(repo.path, 'commit', '-m', 'rename+edit')
+    expect(await changedFiles(repo.path, 'origin/main')).toEqual([
+      { path: 'src/c.txt', oldPath: 'src/a.txt', kind: 'R', added: 1, deleted: 0, binary: false }
+    ])
+  })
+
+  it('reports a file deleted from the index but recreated on disk as modified', async () => {
+    await sh(repo.path, 'rm', '-q', 'src/a.txt')
+    await sh(repo.path, 'commit', '-m', 'rm')
+    await write(repo, 'src/a.txt', 'n1\nn2\nn3\nn4\n')
+    expect(await changedFiles(repo.path, 'origin/main')).toEqual([
+      { path: 'src/a.txt', kind: 'M', added: 4, deleted: 3, binary: false }
+    ])
+  })
+
+  it('reports a file removed with rm --cached but still on disk as modified', async () => {
+    await sh(repo.path, 'rm', '-q', '--cached', 'src/a.txt')
+    const f = await changedFiles(repo.path, 'origin/main')
+    expect(f).toEqual([{ path: 'src/a.txt', kind: 'M', added: 0, deleted: 0, binary: false }])
+  })
+
+  it('counts many untracked files exactly', async () => {
+    const names = Array.from({ length: 1500 }, (_, i) => `many/f${i}.txt`)
+    await Promise.all(names.map((n) => write(repo, n, '1\n2\n3\n')))
+    const files = await changedFiles(repo.path, 'origin/main')
+    expect(files).toHaveLength(1500)
+    expect(files.reduce((n, f) => n + f.added, 0)).toBe(4500)
+  })
+
+  it('rejects on an unexpected read error instead of counting zero', async () => {
+    await write(repo, 'locked.txt', 'a\n')
+    await chmod(join(repo.path, 'locked.txt'), 0o000)
+    await expect(changedFiles(repo.path, 'origin/main')).rejects.toThrow()
+    await chmod(join(repo.path, 'locked.txt'), 0o644)
+  })
+
   describe('readAtBase', () => {
     it('returns the content at the merge-base', async () => {
       await repo.commit('src/a.txt', 'changed\n')
@@ -136,6 +176,18 @@ describe('diff engine', () => {
       await repo.commit('fresh.txt', 'x\n')
       expect(await readAtBase(repo.path, 'origin/main', 'fresh.txt')).toBeNull()
     })
+    it('does not report a real git failure as a missing file', async () => {
+      await expect(readAtBase(repo.path, 'origin/nope', 'src/a.txt')).rejects.toThrow()
+    })
+    it('reads a file larger than the default buffer', async () => {
+      await sh(repo.path, 'checkout', 'main')
+      await repo.commit('big.txt', 'x'.repeat(70 * 1024 * 1024))
+      await sh(repo.path, 'push', 'origin', 'main')
+      await sh(repo.path, 'checkout', 'feat/a')
+      await sh(repo.path, 'merge', 'main')
+      await repo.commit('big.txt', 'y\n')
+      expect((await readAtBase(repo.path, 'origin/main', 'big.txt'))?.length).toBe(70 * 1024 * 1024)
+    }, 60000)
     it('handles unicode paths', async () => {
       await sh(repo.path, 'checkout', 'main')
       await repo.commit('été 1.md', 'hello\n')
