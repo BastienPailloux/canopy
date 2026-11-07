@@ -1,6 +1,6 @@
-import { expect, test, vi } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from '../../src/main/worktreeLife'
-import type { Worktree } from '../../src/shared/types'
+import type { Workspace, WorkspaceEntry, Worktree } from '../../src/shared/types'
 
 const wt = (path: string): Worktree => ({ path, branch: path.slice(1), head: 'abc', isMain: false })
 
@@ -33,7 +33,7 @@ test('a worktree gone from the list with live processes is an orphan, with its c
   const tracker = new OrphanTracker()
   tracker.observe('/repo', [wt('/a'), wt('/b')])
   tracker.observe('/repo', [wt('/a')])
-  expect(tracker.orphans('/repo', live({ '/b': { sessions: 1, terminals: 2 } }))).toEqual([{ ...wt('/b'), sessions: 1, terminals: 2 }])
+  expect(tracker.orphans('/repo', live({ '/b': { sessions: 1, terminals: 2 } }))).toEqual([{ ...wt('/b'), repo: '/repo', sessions: 1, terminals: 2 }])
 })
 
 test('a worktree gone with nothing running is forgotten, for good', () => {
@@ -58,4 +58,38 @@ test('a worktree that comes back is no orphan any more', () => {
   tracker.observe('/repo', [])
   tracker.observe('/repo', [wt('/a')])
   expect(tracker.orphans('/repo', live({ '/a': { sessions: 1, terminals: 0 } }))).toEqual([])
+})
+
+describe('OrphanTracker across a workspace', () => {
+  const entry = (repo: string, path: string): WorkspaceEntry => ({ repo, repoName: repo, group: 'main', worktree: wt(path) })
+  const scan = (entries: WorkspaceEntry[], more: Partial<Workspace> = {}): Workspace => ({ root: '/ws', entries, truncated: false, failed: [], ...more })
+  const running = live({ '/ws/b': { sessions: 1, terminals: 0 } })
+
+  test('tracks every repo of a scan, active or not', () => {
+    const tracker = new OrphanTracker()
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a'), entry('/ws/b', '/ws/b'), entry('/ws/b', '/ws/b-wt')]))
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a'), entry('/ws/b', '/ws/b')]))
+    expect(tracker.orphansUnder('/ws', live({ '/ws/b-wt': { sessions: 0, terminals: 1 } }))).toEqual([{ ...wt('/ws/b-wt'), repo: '/ws/b', sessions: 0, terminals: 1 }])
+  })
+
+  test('a repo the scan no longer finds leaves its running worktrees as orphans', () => {
+    const tracker = new OrphanTracker()
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a'), entry('/ws/b', '/ws/b')]))
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a')]))
+    expect(tracker.orphansUnder('/ws', running)).toEqual([{ ...wt('/ws/b'), repo: '/ws/b', sessions: 1, terminals: 0 }])
+    expect(tracker.repos('/ws')).toEqual(['/ws/a', '/ws/b'])
+  })
+
+  test('a repo that could not be read, or a scan cut at its limit, proves nothing', () => {
+    const tracker = new OrphanTracker()
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a'), entry('/ws/b', '/ws/b')]))
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a')], { failed: ['/ws/b'] }))
+    expect(tracker.orphansUnder('/ws', running)).toEqual([])
+    tracker.observeScan(scan([entry('/ws/a', '/ws/a')], { truncated: true }))
+    expect(tracker.orphansUnder('/ws', running)).toEqual([])
+  })
+
+  test('nothing is known of a folder never scanned', () => {
+    expect(new OrphanTracker().orphansUnder('/ws', running)).toEqual([])
+  })
 })

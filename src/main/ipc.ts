@@ -1,7 +1,8 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { access } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { NewWorktree } from '../shared/api'
-import type { WorktreeStats } from '../shared/types'
+import type { Worktree, WorktreeStats } from '../shared/types'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
 import type { LspPool } from './code/lsp'
@@ -12,7 +13,7 @@ import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
 import { parseUnsaved, type UnsavedCounts } from './quit'
-import { folderNeedsAttention, PrCache, repoNeedsAttention, worktreeStatus, type AttentionDeps } from './status'
+import { folderNeedsAttention, PrCache, worktreeStatus, type AttentionDeps } from './status'
 import { approveConfig, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
 import type { SessionManager } from './sessions/SessionManager'
@@ -21,7 +22,7 @@ import type { TerminalManager } from './terminal/TerminalManager'
 import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
 
 /** The repo picker asks about each recent folder on every session change: a walk of the disk cannot follow that pace. */
-const FOLDER_REPOS_TTL_MS = 60_000
+const FOLDER_REPOS_TTL_MS = 5 * 60_000
 
 /** Push an event to every renderer (received through `CanopyApi.on`). */
 export function broadcast(event: string, payload?: unknown): void {
@@ -138,15 +139,23 @@ export function registerIpc(
   })
 
   const attention: AttentionDeps = {
-    worktrees: async (repo) => (await cachedWorktrees(repo)).map((w) => w.path),
+    // Orphans too: a session left in a folder that is gone can still ask a question.
+    worktrees: async (repo) => [
+      ...(await cachedWorktrees(repo).catch((): Worktree[] => [])),
+      ...orphans.orphans(repo, live)
+    ].map((w) => w.path),
     activity: (cwd) => sessions.activity(cwd)
   }
   const folderRepos = new TtlCache<string[]>(FOLDER_REPOS_TTL_MS)
-  const reposUnder = (folder: string): Promise<string[]> => folderRepos.get(folder, async () => (await findRepos(folder)).repos)
+  /** What a walk finds, and what scans knew there: a deleted repo can still hold a session. */
+  const reposUnder = async (folder: string): Promise<string[]> => [
+    ...new Set([...await folderRepos.get(folder, async () => (await findRepos(folder)).repos), ...orphans.repos(folder)])
+  ]
 
-  ipcMain.handle('repo:needsAttention', (_e, path: unknown, alone: unknown) => {
+  ipcMain.handle('repo:needsAttention', (_e, path: unknown, except: unknown) => {
     assertPath(path)
-    return alone === true ? repoNeedsAttention(path, attention) : folderNeedsAttention(path, reposUnder, attention)
+    if (except !== undefined) assertPath(except)
+    return folderNeedsAttention(path, reposUnder, attention, except)
   })
 
   ipcMain.handle('settings:trustedRepos', () => store.trustedRepos)
@@ -189,9 +198,11 @@ export function registerIpc(
     return folder
   })
 
-  ipcMain.handle('workspace:scan', (_e, root: unknown) => {
+  ipcMain.handle('workspace:scan', async (_e, root: unknown) => {
     assertPath(root)
-    return scanWorkspace(root)
+    const scan = await scanWorkspace(root)
+    orphans.observeScan(scan)
+    return scan
   })
 
   ipcMain.handle('repo:setBase', async (_e, repo: unknown, branch: unknown) => {
@@ -226,14 +237,18 @@ export function registerIpc(
 
   ipcMain.handle('worktree:list', async (_e, repo: unknown) => {
     assertPath(repo)
-    const list = await cachedWorktrees(repo)
+    // Git cannot say it: a deleted repo lists nothing, and what runs in it becomes orphans.
+    const list = await access(repo).then(() => cachedWorktrees(repo), (e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return []
+      throw e
+    })
     orphans.observe(repo, list)
     return list
   })
 
-  ipcMain.handle('worktree:orphans', (_e, repo: unknown) => {
-    assertPath(repo)
-    return orphans.orphans(repo, live)
+  ipcMain.handle('worktree:orphans', (_e, root: unknown) => {
+    assertPath(root)
+    return orphans.orphansUnder(root, live)
   })
 
   const stats = new Coalescer<WorktreeStats>()

@@ -39,7 +39,7 @@ describe('openInCode', () => {
 
 describe('setWorktrees with orphans', () => {
   const main = { path: '/main', branch: 'main', head: 'h', isMain: true }
-  const gone = { path: '/gone', branch: 'feat', head: 'h', isMain: false, sessions: 1, terminals: 0 }
+  const gone = { repo: '/main', path: '/gone', branch: 'feat', head: 'h', isMain: false, sessions: 1, terminals: 0 }
 
   it('keeps an orphan selected while it is reachable, and falls back once it is not', () => {
     useApp.setState({ worktree: '/gone', worktrees: [main], orphans: [] })
@@ -54,7 +54,7 @@ describe('setWorktrees with orphans', () => {
 
   it('a new repo starts without orphans', () => {
     useApp.setState({ repo: '/main', orphans: [gone] })
-    useApp.getState().setWorkspace({ root: '/other', truncated: false, entries: [entry('/other', '/other')] })
+    useApp.getState().setWorkspace({ root: '/other', truncated: false, failed: [], entries: [entry('/other', '/other')] })
     expect(useApp.getState().orphans).toEqual([])
   })
 })
@@ -68,7 +68,7 @@ describe('workspace', () => {
   const a = entry('/ws/a', '/ws/a')
   const aFeat = entry('/ws/a', '/ws/.worktrees/f/a', 'feature')
   const b = entry('/ws/b', '/ws/b')
-  const ws = (...entries: WorkspaceEntry[]): Workspace => ({ root: '/ws', entries, truncated: false })
+  const ws = (...entries: WorkspaceEntry[]): Workspace => ({ root: '/ws', entries, truncated: false, failed: [] })
 
   it('opens on the first main entry, not on the parent repo', () => {
     useApp.getState().setWorkspace(ws(space, a, aFeat, b))
@@ -97,7 +97,7 @@ describe('workspace', () => {
   })
 
   it('selectEntry within the repo keeps its orphans and its fresher list', () => {
-    const gone = { path: '/gone', branch: 'x', head: 'h', isMain: false, sessions: 1, terminals: 0 }
+    const gone = { repo: '/ws/a', path: '/gone', branch: 'x', head: 'h', isMain: false, sessions: 1, terminals: 0 }
     useApp.getState().setWorkspace(ws(a, aFeat))
     useApp.getState().setOrphans([gone])
     const fresh = [a.worktree, aFeat.worktree, { path: '/new', branch: 'n', head: 'h', isMain: false }]
@@ -106,11 +106,22 @@ describe('workspace', () => {
     expect(useApp.getState()).toMatchObject({ worktree: '/ws/.worktrees/f/a', orphans: [gone], worktrees: fresh })
   })
 
-  it('selectEntry in another repo drops the orphans of the one left', () => {
+  it('selectEntry in another repo keeps the orphans of the workspace', () => {
+    const gone = { repo: '/ws/a', path: '/gone', branch: 'x', head: 'h', isMain: false, sessions: 1, terminals: 0 }
     useApp.getState().setWorkspace(ws(a, b))
-    useApp.getState().setOrphans([{ path: '/gone', branch: 'x', head: 'h', isMain: false, sessions: 1, terminals: 0 }])
+    useApp.getState().setOrphans([gone])
     useApp.getState().selectEntry(b)
-    expect(useApp.getState().orphans).toEqual([])
+    expect(useApp.getState().orphans).toEqual([gone])
+  })
+
+  it('selectOrphan makes its repo active, even one no scan finds anymore', () => {
+    const gone = { repo: '/ws/deleted', path: '/ws/deleted', branch: 'x', head: 'h', isMain: true, sessions: 1, terminals: 0 }
+    useApp.getState().setWorkspace(ws(a, b))
+    useApp.getState().setOrphans([gone])
+    useApp.getState().selectOrphan(gone)
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/deleted', worktree: '/ws/deleted', worktrees: [] })
+    useApp.getState().setWorkspace(ws(a, b))
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/deleted', worktree: '/ws/deleted' })
   })
 
   it('a new scan keeps the selection while its entry exists', () => {
@@ -131,25 +142,85 @@ describe('workspace', () => {
   it('a new scan keeps an orphan selected while its repo is there', () => {
     useApp.getState().setWorkspace(ws(a, aFeat, b))
     useApp.getState().selectEntry(aFeat)
-    useApp.getState().setOrphans([{ ...aFeat.worktree, sessions: 1, terminals: 0 }])
+    useApp.getState().setOrphans([{ ...aFeat.worktree, repo: '/ws/a', sessions: 1, terminals: 0 }])
     useApp.getState().setWorkspace(ws(a, b))
     expect(useApp.getState()).toMatchObject({ repo: '/ws/a', worktree: '/ws/.worktrees/f/a' })
   })
 
   it('a folder with one repo behaves as that repo: main worktree first, the list drives the selection', () => {
     const feat = entry('/r', '/r/.worktrees/x', 'other')
-    useApp.getState().setWorkspace({ root: '/r', truncated: false, entries: [entry('/r', '/r'), feat] })
+    useApp.getState().setWorkspace({ root: '/r', truncated: false, failed: [], entries: [entry('/r', '/r'), feat] })
     expect(useApp.getState()).toMatchObject({ repo: '/r', worktree: '/r' })
     useApp.getState().setWorktree('/r/.worktrees/x')
     useApp.getState().setWorktrees([entry('/r', '/r').worktree])
     expect(useApp.getState().worktree).toBe('/r')
   })
 
-  it('a scan that finds nothing closes the folder with a message', () => {
+  it('a rescan keeps the entries of a repo it could not read, and the selection in it', () => {
+    useApp.getState().setWorkspace(ws(a, aFeat, b))
+    useApp.getState().selectEntry(b)
+    useApp.getState().setWorkspace({ ...ws(a, aFeat), failed: ['/ws/b'] })
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/b', worktree: '/ws/b' })
+    expect(useApp.getState().workspace?.entries).toEqual([a, aFeat, b])
+    expect(useApp.getState().workspace?.failed).toEqual(['/ws/b'])
+  })
+
+  it('a truncated rescan does not take the active repo for gone', () => {
+    useApp.getState().setWorkspace(ws(a, b))
+    useApp.getState().selectEntry(b)
+    useApp.getState().setWorkspace({ ...ws(a), truncated: true })
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/b', worktree: '/ws/b' })
+  })
+
+  it('a rescan that finds nothing never closes the open folder', () => {
     useApp.getState().setWorkspace(ws(a))
     useApp.getState().setWorkspace(ws())
-    expect(useApp.getState()).toMatchObject({ repo: null, worktree: null, worktrees: [] })
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/a', worktree: '/ws/a' })
+    expect(useApp.getState().workspace?.entries).toEqual([a])
     expect(useApp.getState().openError).toContain('/ws')
+  })
+
+  it('opening a folder without a repo leaves the open one in place, with a message', () => {
+    useApp.getState().setWorkspace(ws(a))
+    useApp.getState().setWorkspace({ root: '/vide', entries: [], truncated: false, failed: [] })
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/a', workspace: { root: '/ws' } })
+    expect(useApp.getState().openError).toContain('/vide')
+  })
+
+  it('opening a folder without a repo when nothing is open gives the message', () => {
+    useApp.getState().setWorkspace({ root: '/vide', entries: [], truncated: false, failed: [] })
+    expect(useApp.getState()).toMatchObject({ repo: null, workspace: null })
+    expect(useApp.getState().openError).toContain('/vide')
+  })
+
+  it('a rescan that loses the active repo stays on it while an orphan of it lives', () => {
+    const live = { ...b.worktree, repo: '/ws/b', sessions: 1, terminals: 0 }
+    useApp.getState().setWorkspace(ws(a, b))
+    useApp.getState().selectEntry(b)
+    useApp.getState().setOrphans([live])
+    useApp.getState().setWorkspace(ws(a))
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/b', worktree: '/ws/b', orphans: [live] })
+  })
+
+  it('moves to a live orphan of the active repo when the selected worktree left with the repo', () => {
+    const live = { ...aFeat.worktree, repo: '/ws/a', sessions: 1, terminals: 0 }
+    useApp.getState().setWorkspace(ws(a, aFeat, b))
+    useApp.getState().setOrphans([live])
+    useApp.getState().setWorkspace(ws(b))
+    expect(useApp.getState()).toMatchObject({ repo: '/ws/a', worktree: '/ws/.worktrees/f/a' })
+  })
+
+  it('another folder starts without the orphans of the last one', () => {
+    useApp.getState().setWorkspace(ws(a))
+    useApp.getState().setOrphans([{ ...a.worktree, repo: '/ws/a', sessions: 1, terminals: 0 }])
+    useApp.getState().setWorkspace({ root: '/autre', entries: [entry('/autre', '/autre')], truncated: false, failed: [] })
+    expect(useApp.getState()).toMatchObject({ repo: '/autre', orphans: [] })
+  })
+
+  it('baseChanged counts, for what shows numbers against the base', () => {
+    const before = useApp.getState().baseEpoch
+    useApp.getState().baseChanged()
+    expect(useApp.getState().baseEpoch).toBe(before + 1)
   })
 
   it('a scan that finds repos clears the last message', () => {

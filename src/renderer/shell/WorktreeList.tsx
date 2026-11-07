@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { OrphanedWorktree } from '../../shared/api'
-import type { Workspace, WorkspaceEntry, Worktree, WorktreeStatus } from '../../shared/types'
-import { useApp, worktreeLabel } from '../store'
+import { MAX_WORKSPACE_REPOS, type Workspace, type WorkspaceEntry, type Worktree, type WorktreeStatus } from '../../shared/types'
+import { basename, useApp, worktreeLabel } from '../store'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
 import { RemoveWorktreeDialog } from './RemoveWorktreeDialog'
 import { STATUS_LABEL, useStatuses } from './useStatuses'
@@ -66,20 +66,22 @@ function liveText(w: OrphanedWorktree): string {
 }
 
 /** Deleted from outside while something runs there: reachable until that ends, closed from its tabs. */
-function Orphans(props: { active: string | null; onPick: (path: string) => void }): React.JSX.Element | null {
+function Orphans(props: { active: string | null; single: boolean }): React.JSX.Element | null {
   const orphans = useApp((s) => s.orphans)
+  const selectOrphan = useApp((s) => s.selectOrphan)
   if (orphans.length === 0) return null
+  const label = (w: OrphanedWorktree): string => (props.single ? worktreeLabel(w) : `${basename(w.repo)} · ${worktreeLabel(w)}`)
   return (
     <>
       <p className="list-error" role="alert" data-testid="orphan-notice">
-        {orphans.map((w) => `« ${worktreeLabel(w)} » a disparu du disque : ${liveText(w)} encore actif${w.sessions + w.terminals > 1 ? 's' : ''}.`).join(' ')}
+        {orphans.map((w) => `« ${label(w)} » a disparu du disque : ${liveText(w)} encore actif${w.sessions + w.terminals > 1 ? 's' : ''}.`).join(' ')}
       </p>
       {orphans.map((w) => (
         <div key={w.path} className="wt-row">
-          <button className="wt" aria-current={w.path === props.active} onClick={() => props.onPick(w.path)} data-testid="worktree-orphan" data-path={w.path}>
+          <button className="wt" aria-current={w.path === props.active} onClick={() => selectOrphan(w)} data-testid="worktree-orphan" data-path={w.path}>
             <span className="dot" data-status="waiting" aria-hidden="true" />
             <span className="col">
-              <span className="name" title={w.path}>{worktreeLabel(w)}</span>
+              <span className="name" title={w.path}>{label(w)}</span>
               <span className="status">Dossier disparu · {liveText(w)}</span>
             </span>
           </button>
@@ -110,7 +112,12 @@ export function WorktreeList({ repo, workspace }: { repo: string; workspace: Wor
       {openError && <p className="list-error" role="alert">{openError}</p>}
       {listError && <p className="list-error" role="alert">Liste indisponible : {listError}</p>}
       {workspace.truncated && (
-        <p className="list-notice" role="status" data-testid="workspace-truncated">Trop de repos dans ce dossier : seuls les 200 premiers sont listés.</p>
+        <p className="list-notice" role="status" data-testid="workspace-truncated">Trop de repos dans ce dossier : seuls les {MAX_WORKSPACE_REPOS} premiers sont listés.</p>
+      )}
+      {workspace.failed.length > 0 && (
+        <p className="list-notice" role="status" data-testid="workspace-failed" title={workspace.failed.join('\n')}>
+          Lecture impossible de {workspace.failed.map(basename).join(', ')} : dernières données conservées.
+        </p>
       )}
       <div className="wt-list">
         {sections.map((section) => (
@@ -126,7 +133,7 @@ export function WorktreeList({ repo, workspace }: { repo: string; workspace: Wor
             })}
           </Fragment>
         ))}
-        <Orphans active={active} onPick={setWorktree} />
+        <Orphans active={active} single={single} />
       </div>
       {creating && (
         <NewWorktreeDialog repo={repo} onClose={() => setCreating(false)}

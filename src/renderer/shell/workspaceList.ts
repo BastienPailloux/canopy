@@ -1,4 +1,4 @@
-import type { Workspace, WorkspaceEntry, Worktree } from '../../shared/types'
+import { isUnder, type Workspace, type WorkspaceEntry, type Worktree } from '../../shared/types'
 
 export interface EntrySection {
   id: string
@@ -37,6 +37,18 @@ export function groupEntries(w: Workspace): EntrySection[] {
     ...features.map((f) => ({ id: `feature:${f}`, title: f, entries: of('feature').filter((e) => e.feature === f) })),
     { id: 'other', title: 'Autres', entries: of('other') }
   ].filter((s) => s.entries.length > 0)
+}
+
+/**
+ * A later scan of the same folder. What it misses is gone only if it could tell: entries it could not read stay,
+ * and so does the active repo when it stopped at its limit.
+ */
+export function mergeScan(previous: Workspace, scan: Workspace, activeRepo: string | null): Workspace {
+  const found = new Set(scan.entries.map((e) => e.worktree.path))
+  const unknown = (e: WorkspaceEntry): boolean => isUnder(scan.failed, e.repo) || isUnder(scan.failed, e.worktree.path) || (scan.truncated && e.repo === activeRepo)
+  const kept = previous.entries.filter((e) => !found.has(e.worktree.path) && unknown(e))
+  const byRepo = (a: WorkspaceEntry, b: WorkspaceEntry): number => (a.repo < b.repo ? -1 : a.repo > b.repo ? 1 : 0)
+  return { ...scan, entries: [...scan.entries, ...kept].sort(byRepo) }
 }
 
 /** What the sidebar reports on: the live list of the active repo first, then every other entry. */

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { OrphanedWorktree } from '../shared/api'
 import type { Workspace, WorkspaceEntry, Worktree } from '../shared/types'
-import { defaultEntry, repoWorktrees, worktreeLabel } from './shell/workspaceList'
+import { defaultEntry, mergeScan, repoWorktrees, worktreeLabel } from './shell/workspaceList'
 
 export { worktreeLabel }
 
@@ -20,7 +20,7 @@ interface AppState {
   /** Path of the active worktree. */
   worktree: string | null
   worktrees: Worktree[]
-  /** Worktrees deleted from outside, kept reachable for what still runs in them. */
+  /** Worktrees of the workspace deleted from outside, kept reachable for what still runs in them. */
   orphans: OrphanedWorktree[]
   view: View
   /** Branch each worktree is compared against when the user picked one; absent: the default branch. */
@@ -30,10 +30,18 @@ interface AppState {
   openInCode: (cwd: string, path: string, mode: 'code' | 'diff', line?: number, column?: number) => void
   /** The Code view took request `seq`: a later mount must not apply it again. */
   clearCodeRequest: (seq: number) => void
-  /** Takes a scan. The selection stays while its entry exists, else moves to the default entry. */
+  /**
+   * Takes a scan. Of the open folder, it is merged, see `mergeScan`. The selection stays while its entry exists, then
+   * goes to what lives on of the active repo, then to the default entry. A scan with nothing in it closes nothing.
+   */
   setWorkspace: (workspace: Workspace) => void
   /** Makes the repo of `entry` active on that worktree. What other repos hold stays, all of it is kept by path. */
   selectEntry: (entry: WorkspaceEntry) => void
+  /** The same for a worktree gone from disk: no scan lists it, its repo may be gone too. */
+  selectOrphan: (orphan: OrphanedWorktree) => void
+  /** Counts the changes of a remembered base: what is numbered against it is stale. */
+  baseEpoch: number
+  baseChanged: () => void
   setOpenError: (message: string | null) => void
   setWorktrees: (list: Worktree[]) => void
   setOrphans: (list: OrphanedWorktree[]) => void
@@ -44,11 +52,10 @@ interface AppState {
 
 let requestCount = 0
 
-type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees' | 'orphans'>
+type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees'>
 
-function selection(s: Selection, workspace: Workspace, e: WorkspaceEntry): Partial<Selection> {
-  if (e.repo === s.repo) return { worktree: e.worktree.path }
-  return { repo: e.repo, worktree: e.worktree.path, worktrees: repoWorktrees(workspace, e.repo), orphans: [] }
+function selection(s: Selection, workspace: Workspace, repo: string, worktree: string): Partial<Selection> {
+  return repo === s.repo ? { worktree } : { repo, worktree, worktrees: repoWorktrees(workspace, repo) }
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -64,15 +71,22 @@ export const useApp = create<AppState>((set) => ({
   openInCode: (cwd, path, mode, line, column) =>
     set(() => ({ worktree: cwd, view: 'code', codeRequest: { cwd, path, mode, line, column, seq: ++requestCount } })),
   clearCodeRequest: (seq) => set((s) => (s.codeRequest?.seq === seq ? { codeRequest: null } : s)),
-  setWorkspace: (workspace) => set((s) => {
+  setWorkspace: (scan) => set((s) => {
+    const same = s.workspace?.root === scan.root
+    const workspace = s.workspace && same ? mergeScan(s.workspace, scan, s.repo) : scan
     const first = defaultEntry(workspace)
-    if (!first) return { workspace, repo: null, worktree: null, worktrees: [], orphans: [], openError: `Aucun repo git dans ${workspace.root}` }
-    const inRepo = workspace.entries.filter((e) => e.repo === s.repo)
-    // An orphan is in no scan, and stays reachable as long as its repo is there.
-    const kept = inRepo.some((e) => e.worktree.path === s.worktree) || (inRepo.length > 0 && s.orphans.some((o) => o.path === s.worktree))
-    return { workspace, openError: null, ...(kept ? {} : selection(s, workspace, first)) }
+    if (!first) return { openError: `Aucun repo git dans ${scan.root}` }
+    const orphans = same ? s.orphans : []
+    const base = { workspace, orphans, openError: null }
+    const selected = (p: { path: string }): boolean => p.path === s.worktree
+    if (workspace.entries.some((e) => e.repo === s.repo && selected(e.worktree)) || orphans.some(selected)) return base
+    const heir = orphans.find((o) => o.repo === s.repo)
+    return { ...base, ...(heir ? { worktree: heir.path } : selection(s, workspace, first.repo, first.worktree.path)) }
   }),
-  selectEntry: (entry) => set((s) => (s.workspace ? selection(s, s.workspace, entry) : s)),
+  selectEntry: (e) => set((s) => (s.workspace ? selection(s, s.workspace, e.repo, e.worktree.path) : s)),
+  selectOrphan: (o) => set((s) => (s.workspace ? selection(s, s.workspace, o.repo, o.path) : s)),
+  baseEpoch: 0,
+  baseChanged: () => set((s) => ({ baseEpoch: s.baseEpoch + 1 })),
   setOpenError: (openError) => set({ openError }),
   setOrphans: (orphans) => set({ orphans }),
   // Keeps the selection if it can still be reached, else falls back to the main worktree.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { createOrdering, debounce, eachLimit, isAttended, latestOnly, poll } from '../../src/renderer/shell/polling'
+import { createOrdering, debounce, eachLimit, isAttended, latestOnly, minInterval, poll } from '../../src/renderer/shell/polling'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })
@@ -120,4 +120,14 @@ describe('latestOnly', () => {
     await run()
     expect(applied).toEqual(['ok'])
   })
+})
+
+test('minInterval lets a first call through, then one per interval', () => {
+  const due = minInterval(10_000)
+  expect(due()).toBe(true)
+  vi.advanceTimersByTime(9_999)
+  expect(due()).toBe(false)
+  vi.advanceTimersByTime(1)
+  expect(due()).toBe(true)
+  expect(due()).toBe(false)
 })

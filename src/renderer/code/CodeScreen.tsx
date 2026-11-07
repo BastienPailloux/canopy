@@ -39,12 +39,15 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   const [reveal, setReveal] = useState<Reveal | undefined>()
   const select = (path: string): void => { setReveal(undefined); setSelected(path) }
 
-  const compared = pickedBase ?? data.base?.name
+  const compared = pickedBase ?? data.base?.ref
   const isRemembered = remembered !== null && remembered === compared
   /** Stored for the whole repo, for the worktrees that have not picked a branch of their own. Null forgets it. */
   const remember = (branch: string | null): void => {
     setRemembered(branch)
-    window.canopy.setRepoBase(cwd, branch).then(data.refresh, (e: unknown) => {
+    window.canopy.setRepoBase(cwd, branch).then(() => {
+      data.refresh()
+      useApp.getState().baseChanged()
+    }, (e: unknown) => {
       setBaseNotice(`Mémorisation impossible : ${errorText(e)}`)
       window.canopy.repoBase(cwd).then(setRemembered, () => undefined)
     })

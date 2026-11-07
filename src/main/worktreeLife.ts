@@ -1,5 +1,5 @@
 import type { OrphanedWorktree } from '../shared/api'
-import type { Worktree } from '../shared/types'
+import { isUnder, type Workspace, type Worktree } from '../shared/types'
 
 /** What runs in a worktree, whatever the repo: sessions and terminals only know their folder. */
 export interface LiveProcesses {
@@ -26,12 +26,36 @@ export async function removeAndStop(
 export class OrphanTracker {
   private readonly known = new Map<string, Map<string, Worktree>>()
   private readonly listed = new Map<string, Set<string>>()
+  /** Every repo a scan of the folder found, deleted ones included. */
+  private readonly scanned = new Map<string, Set<string>>()
 
   observe(repo: string, list: Worktree[]): void {
     const seen = this.known.get(repo) ?? new Map<string, Worktree>()
     for (const w of list) seen.set(w.path, w)
     this.known.set(repo, seen)
     this.listed.set(repo, new Set(list.map((w) => w.path)))
+  }
+
+  /** Takes the lists of a whole scan. A repo it no longer finds lists nothing, unless the scan cannot tell. */
+  observeScan(scan: Workspace): void {
+    const lists = new Map<string, Worktree[]>()
+    for (const e of scan.entries) lists.set(e.repo, [...(lists.get(e.repo) ?? []), e.worktree])
+    for (const [repo, list] of lists) this.observe(repo, list)
+    const known = this.repos(scan.root)
+    for (const repo of known) {
+      if (!lists.has(repo) && !scan.truncated && !isUnder(scan.failed, repo)) this.observe(repo, [])
+    }
+    this.scanned.set(scan.root, new Set([...known, ...lists.keys()]))
+  }
+
+  /** The repos of a folder as scans found them. */
+  repos(root: string): string[] {
+    return [...(this.scanned.get(root) ?? [])]
+  }
+
+  /** The orphans of every repo of a folder. */
+  orphansUnder(root: string, live: Pick<LiveProcesses, 'sessions' | 'terminals'>): OrphanedWorktree[] {
+    return this.repos(root).flatMap((repo) => this.orphans(repo, live))
   }
 
   /** Worktrees gone from the list with something still running. One with nothing running is forgotten. */
@@ -44,7 +68,7 @@ export class OrphanTracker {
       if (listed.has(path)) continue
       const sessions = live.sessions(path)
       const terminals = live.terminals(path)
-      if (sessions + terminals > 0) found.push({ ...worktree, sessions, terminals })
+      if (sessions + terminals > 0) found.push({ ...worktree, repo, sessions, terminals })
       else seen.delete(path)
     }
     return found

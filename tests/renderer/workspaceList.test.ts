@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultEntry, entryLabel, entryPaths, groupEntries, isSingleRepo, listDiffers, repoWorktrees, workspaceRepos } from '../../src/renderer/shell/workspaceList'
+import { defaultEntry, entryLabel, entryPaths, groupEntries, isSingleRepo, listDiffers, mergeScan, repoWorktrees, workspaceRepos } from '../../src/renderer/shell/workspaceList'
 import type { Workspace, WorkspaceEntry } from '../../src/shared/types'
 
 function entry(repoName: string, group: WorkspaceEntry['group'], branch: string | null = 'main', feature?: string): WorkspaceEntry {
@@ -8,7 +8,7 @@ function entry(repoName: string, group: WorkspaceEntry['group'], branch: string 
   return { repo, repoName, group, ...(feature ? { feature } : {}), worktree: { path, branch, head: '0123456789', isMain: group === 'main' || group === 'space' } }
 }
 
-const ws = (...entries: WorkspaceEntry[]): Workspace => ({ root: '/ws', entries, truncated: false })
+const ws = (...entries: WorkspaceEntry[]): Workspace => ({ root: '/ws', entries, truncated: false, failed: [] })
 
 const space = entry('ws', 'space')
 const a = entry('a', 'main')
@@ -80,6 +80,33 @@ describe('defaultEntry', () => {
 
   it('has nothing to take in an empty workspace', () => {
     expect(defaultEntry(ws())).toBeUndefined()
+  })
+})
+
+describe('mergeScan', () => {
+  it('takes a clean scan as it is: what it misses is gone', () => {
+    expect(mergeScan(ws(a, b), ws(a), null).entries).toEqual([a])
+  })
+
+  it('keeps the entries of a failed repo, in repo order', () => {
+    expect(mergeScan(ws(a, aZed, b), { ...ws(b), failed: ['/ws/a'] }, null).entries).toEqual([a, aZed, b])
+  })
+
+  it('keeps what lies under a folder that could not be read, repo or worktree', () => {
+    const under = { ...bHot, worktree: { ...bHot.worktree, path: '/ws/sub/hot' } }
+    expect(mergeScan(ws(a, under), { ...ws(a), failed: ['/ws/sub'] }, null).entries).toEqual([a, under])
+  })
+
+  it('does not take a sibling sharing a prefix for something under the folder', () => {
+    expect(mergeScan(ws(a, entry('ab', 'main')), { ...ws(a), failed: ['/ws/a'] }, null).entries).toEqual([a])
+  })
+
+  it('does not double an entry the scan still has', () => {
+    expect(mergeScan(ws(a, aZed), { ...ws(a, aZed), failed: ['/ws/a'] }, null).entries).toEqual([a, aZed])
+  })
+
+  it('keeps the active repo when the scan stopped at its limit, and only that one', () => {
+    expect(mergeScan(ws(a, b), { ...ws(), truncated: true }, '/ws/b').entries).toEqual([b])
   })
 })
 

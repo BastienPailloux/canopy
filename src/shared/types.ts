@@ -71,4 +71,16 @@ export interface WorkspaceEntry {
   group: 'space' | 'main' | 'feature' | 'other'
   feature?: string
 }
-export interface Workspace { root: string; entries: WorkspaceEntry[]; truncated: boolean }
+export interface Workspace {
+  root: string
+  entries: WorkspaceEntry[]
+  truncated: boolean
+  /** Repos or folders that could not be read: what they held is unknown, not gone. */
+  failed: string[]
+}
+
+/** Repos a scan keeps at most. */
+export const MAX_WORKSPACE_REPOS = 200
+
+/** Whether `path` is one of `folders` or lies under one. */
+export const isUnder = (folders: string[], path: string): boolean => folders.some((f) => path === f || path.startsWith(`${f}/`))

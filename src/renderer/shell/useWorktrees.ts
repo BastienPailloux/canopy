@@ -4,11 +4,13 @@ import type { Worktree, WorktreeStats } from '../../shared/types'
 import { dropDrafts } from '../code/drafts'
 import { forgetWorktree } from '../sessions/sessionStore'
 import { useApp } from '../store'
-import { createOrdering, eachLimit, latestOnly, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polling'
+import { createOrdering, eachLimit, latestOnly, minInterval, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from './polling'
 import { entryPaths, listDiffers } from './workspaceList'
 
 /** Each stats read runs several gits. */
 const STATS_CONCURRENCY = 8
+/** Switching windows back and forth must not walk the folder each time. */
+const FOCUS_SCAN_MIN_MS = 10_000
 
 /** What the page still holds for a worktree that is gone. */
 export function forget(path: string): void {
@@ -19,6 +21,7 @@ export function forget(path: string): void {
 export interface StatsEntry { stats?: WorktreeStats; error?: string }
 export type Ports = Record<string, Record<string, number>>
 
+const knownPaths = (): string[] => entryPaths(useApp.getState().workspace, useApp.getState().worktrees)
 const isActive = (repo: string): boolean => useApp.getState().repo === repo
 const pick = <T,>(all: Record<string, T>, paths: Set<string>): Record<string, T> => Object.fromEntries(Object.entries(all).filter(([p]) => paths.has(p)))
 
@@ -34,8 +37,6 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
   const [entries, setEntries] = useState<Record<string, StatsEntry>>({})
   const [ports, setPorts] = useState<Ports>({})
   const [listError, setListError] = useState<string | null>(null)
-  const inFlight = useRef(false)
-  const rerun = useRef(false)
   const watched = useRef('')
   const order = useRef(createOrdering())
   const seen = useRef(new Set<string>())
@@ -67,58 +68,70 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
     if (useApp.getState().workspace?.root === w.root) useApp.getState().setWorkspace(w)
   }), [root])
 
-  const refresh = useCallback(async (): Promise<void> => {
-    if (inFlight.current) {
-      rerun.current = true
+  /** Every orphan of the folder, whatever the active repo. Returns the ones that ended: nothing runs there any more. */
+  const readOrphans = useCallback(async (): Promise<OrphanedWorktree[]> => {
+    const gone = await window.canopy.orphanedWorktrees(root).catch(() => null)
+    if (!gone || useApp.getState().workspace?.root !== root) return []
+    const ended = useApp.getState().orphans.filter((o) => !gone.some((g) => g.path === o.path))
+    setOrphans(gone)
+    return ended
+  }, [root, setOrphans])
+
+  /** One that came back in `listed` is a worktree again, with what it held. */
+  const settle = useCallback((ended: OrphanedWorktree[], listed: string[] = knownPaths()): void => {
+    const left = ended.filter((o) => !listed.includes(o.path))
+    left.forEach((o) => forget(o.path))
+    // The last thing running in a deleted repo: nothing holds the selection there now.
+    if (left.length > 0) void rescan()
+  }, [rescan])
+
+  const readList = useCallback(async (): Promise<void> => {
+    const forRepo = repo
+    let list: Worktree[]
+    try {
+      list = await window.canopy.listWorktrees(forRepo)
+    } catch (e) {
+      if (isActive(forRepo)) setListError(e instanceof Error ? e.message : String(e))
+      settle(await readOrphans())
       return
     }
-    inFlight.current = true
-    const forRepo = repo
-    try {
-      let list: Worktree[]
-      try {
-        list = await window.canopy.listWorktrees(forRepo)
-      } catch (e) {
-        if (isActive(forRepo)) setListError(e instanceof Error ? e.message : String(e))
-        return
-      }
-      // After the list: the main process compares with it. Before the store: the selection may be one of them.
-      const gone = await window.canopy.orphanedWorktrees(forRepo).catch((): OrphanedWorktree[] => [])
-      if (!isActive(forRepo)) return
-      setListError(null)
-      const ended = useApp.getState().orphans.filter((o) => !gone.some((g) => g.path === o.path) && !list.some((w) => w.path === o.path))
-      setOrphans(gone)
-      setWorktrees(list)
-      ended.forEach((o) => forget(o.path))
-      if (listDiffers(useApp.getState().workspace, forRepo, list)) void rescan()
-      // The main process watches exactly these, and drops the ones that left the list.
-      const key = `${forRepo}\0${list.map((w) => w.path).join('\0')}`
-      if (watched.current !== key) {
-        watched.current = key
-        window.canopy.watchWorktrees(forRepo).catch(() => { watched.current = '' })
-      }
-      list.forEach((w) => readPorts(w.path))
-      await Promise.all(list.map((w) => readStats(w.path)))
-    } finally {
-      inFlight.current = false
-      if (rerun.current) {
-        rerun.current = false
-        void latest.current()
-      }
+    // After the list: the main process compares with it. Before the store: the selection may be one of them.
+    const ended = await readOrphans()
+    if (!isActive(forRepo)) {
+      settle(ended)
+      return
     }
-  }, [repo, setWorktrees, setOrphans, readStats, readPorts, rescan])
-  // The repo may have changed during a run: what follows it is for the active one.
-  const latest = useRef(refresh)
-  latest.current = refresh
+    setListError(null)
+    setWorktrees(list)
+    settle(ended, list.map((w) => w.path))
+    if (listDiffers(useApp.getState().workspace, forRepo, list)) void rescan()
+    // The main process watches exactly these, and drops the ones that left the list.
+    const key = `${forRepo}\0${list.map((w) => w.path).join('\0')}`
+    if (watched.current !== key) {
+      watched.current = key
+      window.canopy.watchWorktrees(forRepo).catch(() => { watched.current = '' })
+    }
+    list.forEach((w) => readPorts(w.path))
+    await Promise.all(list.map((w) => readStats(w.path)))
+  }, [repo, setWorktrees, readOrphans, settle, readStats, readPorts, rescan])
+  // The repo may change during a run: what runs next is for the active one.
+  const latest = useRef(readList)
+  latest.current = readList
+  /** Resolves once the list was read after this call, a rerun included: what follows can rely on it. */
+  const refresh = useMemo(() => latestOnly(() => latest.current(), () => undefined), [])
 
-  /** The list first: a worktree deleted under a running session must be known as an orphan before the scan misses it. */
+  /**
+   * The list first: a repo deleted under a running session must be known as an orphan before the scan misses it. The
+   * orphans again after the scan: only it can tell about the repos that are not active.
+   */
   const sync = useMemo(() => latestOnly(async () => {
-    await latest.current()
+    await refresh()
     await rescan()
+    settle(await readOrphans())
     const { workspace, worktrees } = useApp.getState()
     const live = new Set(worktrees.map((w) => w.path))
     await readAll(entryPaths(workspace, worktrees).filter((p) => !live.has(p)))
-  }, () => undefined), [rescan, readAll])
+  }, () => undefined), [refresh, rescan, readOrphans, settle, readAll])
 
   // Files or commits changed in a worktree: its numbers are stale, and the list too if one came or went.
   useEffect(() => {
@@ -151,7 +164,16 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
     setWatchFailed(false)
     watched.current = ''
     void refresh()
-  }, [refresh])
+  }, [repo, refresh])
+
+  // The remembered base changed: every number counted against it is stale.
+  const baseEpoch = useApp((s) => s.baseEpoch)
+  const counted = useRef(baseEpoch)
+  useEffect(() => {
+    if (counted.current === baseEpoch) return
+    counted.current = baseEpoch
+    void readAll(useApp.getState().worktrees.map((w) => w.path))
+  }, [baseEpoch, readAll])
 
   // Entries that just appeared have nothing to show yet; the ones that left have nothing to keep.
   useEffect(() => {
@@ -164,14 +186,15 @@ export function useWorktrees(repo: string, root: string): { entries: Record<stri
   }, [paths, readAll])
 
   useEffect(() => {
-    const onFocus = (): void => void sync()
+    const scanDue = minInterval(FOCUS_SCAN_MIN_MS)
+    const onFocus = (): void => void (scanDue() ? sync() : refresh())
     window.addEventListener('focus', onFocus)
-    const stop = poll(onFocus, POLL_HEALTHY_MS)
+    const stop = poll(() => void sync(), POLL_HEALTHY_MS)
     return () => {
       stop()
       window.removeEventListener('focus', onFocus)
     }
-  }, [sync])
+  }, [sync, refresh])
 
   useEffect(() => (watchFailed ? poll(() => void refresh(), POLL_DEGRADED_MS) : undefined), [refresh, watchFailed])
 

@@ -40,6 +40,15 @@ test('folderNeedsAttention asks about the path itself when nothing is found unde
   expect(await folderNeedsAttention('/r', async () => { throw new Error('gone') }, { worktrees, activity })).toBe(true)
 })
 
+test('folderNeedsAttention can leave one repo out, also when it is the only one', async () => {
+  const worktrees = async (repo: string): Promise<string[]> => [repo]
+  const activity = (cwd: string): Activity => (cwd === '/ws/a' ? 'waiting' : 'idle')
+  const repos = async (): Promise<string[]> => ['/ws/a', '/ws/b']
+  expect(await folderNeedsAttention('/ws', repos, { worktrees, activity }, '/ws/a')).toBe(false)
+  expect(await folderNeedsAttention('/ws', repos, { worktrees, activity }, '/ws/b')).toBe(true)
+  expect(await folderNeedsAttention('/ws/a', async () => [], { worktrees, activity }, '/ws/a')).toBe(false)
+})
+
 test('PrCache polls a worktree at most every 60 s, and shares concurrent reads', async () => {
   let t = 0
   let calls = 0

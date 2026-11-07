@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { basename, useApp } from '../store'
 import { debounce, poll, POLL_HEALTHY_MS } from './polling'
 import { openRepoFlow, selectRepoFlow } from './repoActions'
-import { workspaceRepos } from './workspaceList'
 
 const folderIcon = (
   <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A0A7B2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -26,26 +25,21 @@ interface Attention {
   elsewhere: boolean
 }
 
-/**
- * Who waits for an answer, refreshed as sessions change state. Each repo of the workspace is asked alone, a recent
- * folder for all its repos: the opened folder, the parent repo included, would answer for the active repo too.
- */
-function useAttention(repo: string | null, folder: string | null, repos: string): Attention {
+/** Who waits for an answer, refreshed as sessions change state. A folder answers for its repos, without the active one when asked for "elsewhere". */
+function useAttention(repo: string | null, folder: string | null): Attention {
   const [attention, setAttention] = useState<Attention>({ waiting: new Set(), elsewhere: false })
   useEffect(() => {
     let live = true
-    const own = repos === '' ? [] : repos.split('\0')
-    const ask = (path: string, alone?: boolean): Promise<boolean> => window.canopy.repoNeedsAttention(path, alone).catch(() => false)
+    const ask = (path: string, except?: string): Promise<boolean> => window.canopy.repoNeedsAttention(path, except).catch(() => false)
     const read = (): void => {
       void (async () => {
         const recents = await window.canopy.recentRepos().catch((): string[] => [])
-        const [ownFlags, recentFlags] = await Promise.all([Promise.all(own.map((r) => ask(r, true))), Promise.all(recents.map((r) => ask(r)))])
-        if (!live) return
-        const waiting = recents.filter((_, i) => recentFlags[i])
-        setAttention({
-          waiting: new Set(waiting),
-          elsewhere: own.some((r, i) => r !== repo && ownFlags[i]) || waiting.some((r) => r !== repo && r !== folder)
-        })
+        const folders = [...new Set([...(folder ? [folder] : []), ...recents])]
+        const [recentFlags, elsewhereFlags] = await Promise.all([
+          Promise.all(recents.map((r) => ask(r))),
+          Promise.all(folders.map((f) => ask(f, repo ?? undefined)))
+        ])
+        if (live) setAttention({ waiting: new Set(recents.filter((_, i) => recentFlags[i])), elsewhere: elsewhereFlags.some(Boolean) })
       })()
     }
     read()
@@ -62,7 +56,7 @@ function useAttention(repo: string | null, folder: string | null, repos: string)
       off2()
       window.removeEventListener('focus', soon.call)
     }
-  }, [repo, folder, repos])
+  }, [repo, folder])
   return attention
 }
 
@@ -70,11 +64,10 @@ export function RepoPicker(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   // What was opened: recents and this button speak of folders, the list of the repos inside.
   const folder = useApp((s) => (s.repo ? s.workspace?.root ?? s.repo : null))
-  const repos = useApp((s) => (s.workspace ? workspaceRepos(s.workspace).join('\0') : ''))
   const [open, setOpen] = useState(false)
   const [recents, setRecents] = useState<string[]>([])
   const root = useRef<HTMLDivElement>(null)
-  const { waiting, elsewhere } = useAttention(repo, folder, repos)
+  const { waiting, elsewhere } = useAttention(repo, folder)
 
   useEffect(() => {
     if (!open) return

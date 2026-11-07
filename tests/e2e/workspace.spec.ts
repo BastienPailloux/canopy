@@ -137,6 +137,8 @@ test('a remembered base drives the comparison in every worktree of that repo', a
   await remember.check()
   await expect(remember).toBeChecked()
   await expect.poll(() => page.evaluate((r) => window.canopy.repoBase(r), alpha)).toBe('develop')
+  // The sidebar counts against the same base, without waiting for the next poll.
+  await expect(row('alpha · feat-x')).toContainText('1 commit')
 
   await row('alpha · feat-x').click()
   await expect(picker).toHaveValue('develop')
@@ -163,14 +165,26 @@ test('session survives: it goes on in a repo while another is selected', async (
   await send('lent')
   await expect(page.getByTestId('assistant-message')).toContainText('mot1')
 
+  await page.keyboard.press('Control+`')
+  const panel = page.getByRole('region', { name: 'Terminal du worktree' })
+  await expect(panel.locator('.xterm-rows')).toBeVisible({ timeout: 15_000 })
+  await page.locator('.xterm-helper-textarea').click()
+  await page.keyboard.type('echo kept=$((40+2))')
+  await page.keyboard.press('Enter')
+  await expect(panel.locator('.xterm-rows')).toContainText('kept=42', { timeout: 15_000 })
+
   await row('beta').click()
   await expect(page.getByTestId('user-message')).toHaveCount(0)
+  await expect(panel.locator('.xterm-rows')).not.toContainText('kept=42')
   expect(await page.evaluate((p) => window.canopy.sessionActivity(p), alpha)).toBe('working')
+  expect(await page.evaluate((p) => window.canopy.listTerminals(p).then((l) => l.filter((t) => t.running).length), alpha)).toBe(1)
 
   await row('alpha').click()
   await expect(page.getByTestId('user-message')).toHaveText(['lent'])
   await expect(page.getByTestId('assistant-message')).toContainText('mot40', { timeout: 15_000 })
   await expect(page.getByTestId('session-state')).toHaveText('prête')
+  await expect(panel.getByRole('tab')).toHaveCount(1)
+  await expect(panel.locator('.xterm-rows')).toContainText('kept=42')
 })
 
 test('the picker flags a repo of the workspace that waits for an answer, and the folder among recents', async () => {
@@ -190,7 +204,8 @@ test('the picker flags a repo of the workspace that waits for an answer, and the
     await expect(row('beta').getByTestId('worktree-status')).toHaveText('Attend ta réponse')
 
     expect(await page.evaluate((p) => window.canopy.repoNeedsAttention(p), root)).toBe(true)
-    expect(await page.evaluate((p) => window.canopy.repoNeedsAttention(p, true), root)).toBe(false)
+    expect(await page.evaluate(([p, except]) => window.canopy.repoNeedsAttention(p, except), [root, beta])).toBe(false)
+    expect(await page.evaluate(([p, except]) => window.canopy.repoNeedsAttention(p, except), [root, alpha])).toBe(true)
 
     await page.locator('.repo-picker > button').click()
     await page.getByRole('menuitem', { name: /autre/ }).click()
@@ -229,6 +244,97 @@ test('a window focus finds repos that came and went, without an error', async ()
   await expect(row('beta')).toHaveCount(0)
   await expect(row('alpha')).toHaveAttribute('aria-current', 'true')
   await expect(page.locator('.list-error')).toHaveCount(0)
+})
+
+test('a repo deleted under a live session stays reachable, with a notice', async () => {
+  await launchWorkspace()
+  await row('beta').click()
+  await trust(beta)
+  await send('lent')
+  await expect(page.getByTestId('assistant-message')).toContainText('mot1')
+
+  await rm(beta, { recursive: true, force: true })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByTestId('orphan-notice')).toContainText('beta', { timeout: 15_000 })
+  await expect(page.getByTestId('orphan-notice')).toContainText('1 session')
+  await expect(page.getByTestId('worktree-orphan')).toHaveAttribute('aria-current', 'true')
+  await expect(page.getByTestId('user-message')).toHaveText(['lent'])
+  await expect(row('beta')).toHaveCount(0)
+
+  await row('alpha').click()
+  await expect(page.getByTestId('user-message')).toHaveCount(0)
+  await expect(page.getByTestId('worktree-orphan')).toBeVisible()
+
+  await page.getByTestId('worktree-orphan').click()
+  await expect(page.getByTestId('user-message')).toHaveText(['lent'])
+  await expect(page.getByTestId('assistant-message')).toContainText('mot40', { timeout: 15_000 })
+})
+
+test('a repo deleted while another is active keeps its waiting session reachable and flagged', async () => {
+  await launchWorkspace()
+  await row('beta').click()
+  await trust(beta)
+  await send('outil')
+  await expect(page.getByTestId('permission-card')).toBeVisible()
+  await row('alpha').click()
+
+  await rm(beta, { recursive: true, force: true })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByTestId('worktree-orphan')).toBeVisible({ timeout: 15_000 })
+  await expect(row('alpha')).toHaveAttribute('aria-current', 'true')
+  await expect(page.getByTestId('repo-attention')).toBeVisible()
+  expect(await page.evaluate((p) => window.canopy.repoNeedsAttention(p), root)).toBe(true)
+
+  await page.getByTestId('worktree-orphan').click()
+  await expect(page.getByTestId('permission-card')).toBeVisible()
+})
+
+test('the only repo of a folder deleted leaves the folder open, with a message', async () => {
+  const holder = await realpath(await mkdtemp(join(tmpdir(), 'canopy-holder-')))
+  try {
+    const only = await nested(holder, 'seul')
+    await launch([holder])
+    await expect(rows()).toHaveCount(1, { timeout: 20_000 })
+    await rm(only, { recursive: true, force: true })
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByRole('alert')).toContainText('Aucun repo git', { timeout: 15_000 })
+    await expect(page.getByRole('complementary', { name: 'Worktrees' })).toBeVisible()
+    await expect(page.locator('.repo-picker > button .name')).toHaveText(/canopy-holder/)
+  } finally {
+    await closeApp(app!).catch(() => undefined)
+    app = undefined
+    await rm(holder, { recursive: true, force: true })
+  }
+})
+
+test('the base of a clone with no local base branch can be remembered', async () => {
+  const origin = await createRepo({ dirName: 'origine', branch: 'master', remote: true })
+  try {
+    const clone = join(origin.path, '..', 'clone')
+    git(join(origin.path, '..'), 'clone', '-q', join(origin.path, '..', 'remote.git'), clone)
+    git(clone, 'checkout', '-q', '-b', 'travail')
+    git(clone, 'branch', '-q', '-D', 'master')
+    await writeFile(join(clone, 'travail.txt'), 'x\n')
+    git(clone, 'add', '.')
+    git(clone, 'commit', '-q', '-m', 'travail')
+
+    await launch([clone])
+    await expect(rows()).toHaveCount(1, { timeout: 20_000 })
+    await page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: 'Code' }).click()
+    const picker = page.getByLabel('Branche de comparaison')
+    await expect(picker).toHaveValue('origin/master')
+    await page.getByLabel('Mémoriser pour ce repo').check()
+    await expect.poll(() => page.evaluate((r) => window.canopy.repoBase(r), clone)).toBe('origin/master')
+    await expect(page.getByLabel('Mémoriser pour ce repo')).toBeChecked()
+    await expect(picker).toHaveValue('origin/master')
+    await expect(page.getByTestId('base-notice')).toHaveCount(0)
+    await expect(page.getByTestId('code-error')).toHaveCount(0)
+    await expect(page.getByTestId('code-totals')).toContainText('+1')
+  } finally {
+    await closeApp(app!).catch(() => undefined)
+    app = undefined
+    await origin.cleanup()
+  }
 })
 
 test('the plus button creates in the active repo, the parent one included', async () => {

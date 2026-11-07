@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -182,5 +182,50 @@ describe('parseRepoBase', () => {
 
   it('rejects anything else, undefined included', () => {
     for (const bad of [undefined, 3, {}, ['develop']]) expect(() => parseRepoBase(bad)).toThrow('Branche invalide')
+  })
+})
+
+describe('what a scan could not read', () => {
+  it('names a repo whose worktrees cannot be listed', async () => {
+    const a = await mkRepo('a', true)
+    const broken = await mkRepo('broken-list', true)
+    const scan = await scanWorkspace(root)
+    expect(scan.failed).toEqual([broken])
+    expect(scan.entries.map((e) => e.repo)).toEqual([a])
+  })
+
+  it('names a folder git cannot read as a repo', async () => {
+    const bad = join(root, 'bad')
+    await mkdir(bad)
+    await writeFile(join(bad, '.git'), 'not a git link\n')
+    expect((await scanWorkspace(root)).failed).toEqual([bad])
+  })
+
+  it('names a folder it has no right to read', async () => {
+    const locked = join(root, 'locked')
+    await mkdir(locked)
+    await chmod(locked, 0o000)
+    try {
+      expect((await scanWorkspace(root)).failed).toEqual([locked])
+    } finally {
+      await chmod(locked, 0o755)
+    }
+  })
+
+  it('a linked worktree whose repo was deleted is gone, not unread', async () => {
+    const a = await mkRepo('a', true)
+    await git(a, ['worktree', 'add', '-q', '-b', 'x', join(root, 'left')])
+    await rm(a, { recursive: true, force: true })
+    expect(await scanWorkspace(root)).toMatchObject({ entries: [], failed: [] })
+  })
+
+  it('a clean scan has nothing failed', async () => {
+    await mkRepo('a', true)
+    expect((await scanWorkspace(root)).failed).toEqual([])
+  })
+
+  it('a folder that is gone is an empty scan, not an error', async () => {
+    const gone = join(root, 'gone')
+    expect(await scanWorkspace(gone)).toEqual({ root: gone, entries: [], truncated: false, failed: [] })
   })
 })

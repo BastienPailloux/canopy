@@ -44,6 +44,17 @@ export function createOrdering(): { begin: (key: string) => () => boolean } {
   }
 }
 
+/** Says yes at most once per `ms`, the first time included. */
+export function minInterval(ms: number): () => boolean {
+  let last = -Infinity
+  return () => {
+    const now = Date.now()
+    if (now - last < ms) return false
+    last = now
+    return true
+  }
+}
+
 /** Runs `fn` over `items`, at most `limit` at a time: a wide workspace must not start every git at once. */
 export async function eachLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
   let next = 0
