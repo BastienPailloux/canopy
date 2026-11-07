@@ -12,6 +12,8 @@ const api: CanopyApi = {
   createWorktree: (repo, o) => ipcRenderer.invoke('worktree:create', repo, o),
   removalRisks: (repo, path) => ipcRenderer.invoke('worktree:risks', repo, path),
   removeWorktree: (repo, path, force) => ipcRenderer.invoke('worktree:remove', repo, path, force),
+  repoTrust: (repo) => ipcRenderer.invoke('repo:trust', repo),
+  trustRepo: (repo) => ipcRenderer.invoke('repo:trustRepo', repo),
   startSession: (cwd, o) => ipcRenderer.invoke('session:start', cwd, o),
   sendToSession: (localId, content) => ipcRenderer.invoke('session:send', localId, content),
   interruptSession: (localId) => ipcRenderer.invoke('session:interrupt', localId),
@@ -24,6 +26,7 @@ const api: CanopyApi = {
   sessionActivity: (cwd) => ipcRenderer.invoke('session:activity', cwd),
   sessionCommands: (localId) => ipcRenderer.invoke('session:commands', localId),
   sessionModels: (localId) => ipcRenderer.invoke('session:models', localId),
+  pendingPermissions: () => ipcRenderer.invoke('session:pendingPermissions'),
   on(event, cb) {
     const listener = (_e: Electron.IpcRendererEvent, name: string, payload: unknown): void => {
       if (name === event) cb(payload)

@@ -109,3 +109,12 @@ test('loads bundled fonts and raises no CSP violation', async () => {
   expect(fonts).toEqual([true, true, true])
   expect(messages.filter((m) => /Content Security Policy|Refused/.test(m))).toEqual([])
 })
+
+test('trusting a repo covers its worktrees and persists its listed config', async () => {
+  await writeFile(join(repo.path, '.mcp.json'), JSON.stringify({ mcpServers: { db: { command: 'db-mcp' } } }))
+  expect(await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).toEqual({ trusted: false, hooks: [], mcpServers: ['db'], allowRules: [] })
+  await page.evaluate((r) => window.canopy.trustRepo(r), featPath)
+  expect((await page.evaluate((r) => window.canopy.repoTrust(r), repo.path)).trusted).toBe(true)
+  expect((await page.evaluate((r) => window.canopy.repoTrust(r), featPath)).trusted).toBe(true)
+  expect(await page.evaluate(() => window.canopy.pendingPermissions())).toEqual([])
+})

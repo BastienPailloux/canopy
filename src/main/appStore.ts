@@ -5,6 +5,8 @@ const MAX_RECENT = 10
 
 interface State {
   recentRepos: string[]
+  /** Main worktree roots whose project config sessions may load. */
+  trustedRepos: string[]
   ports: Record<string, Record<string, number>>
   prefs: Record<string, unknown>
 }
@@ -14,10 +16,13 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], ports: {}, prefs: {} }
+  const state: State = { recentRepos: [], trustedRepos: [], ports: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
+  }
+  if (Array.isArray(raw.trustedRepos)) {
+    state.trustedRepos = [...new Set(raw.trustedRepos.filter((r): r is string => typeof r === 'string'))]
   }
   if (isRecord(raw.ports)) {
     for (const [wt, services] of Object.entries(raw.ports)) {
@@ -51,6 +56,16 @@ export class AppStore {
 
   addRecentRepo(path: string): void {
     this.state.recentRepos = [path, ...this.state.recentRepos.filter((r) => r !== path)].slice(0, MAX_RECENT)
+    this.save()
+  }
+
+  isRepoTrusted(root: string): boolean {
+    return this.state.trustedRepos.includes(root)
+  }
+
+  trustRepo(root: string): void {
+    if (this.isRepoTrusted(root)) return
+    this.state.trustedRepos.push(root)
     this.save()
   }
 

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -61,5 +62,26 @@ describe('AppStore', () => {
     const s = new AppStore(join(dir, 'sub', 'state.json'))
     s.addRecentRepo('/r/a')
     expect(await readdir(join(dir, 'sub'))).toEqual(['state.json'])
+  })
+
+  it('trusts a repo durably, and nothing else', () => {
+    const a = new AppStore(file)
+    expect(a.isRepoTrusted('/r/one')).toBe(false)
+    a.trustRepo('/r/one')
+    a.trustRepo('/r/one')
+    const b = new AppStore(file)
+    expect(b.isRepoTrusted('/r/one')).toBe(true)
+    expect(b.isRepoTrusted('/r/two')).toBe(false)
+    expect(JSON.parse(readFileSync(file, 'utf8')).trustedRepos).toEqual(['/r/one'])
+  })
+
+  it('sanitizes trustedRepos on its own', async () => {
+    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], trustedRepos: ['/r/ok', 1, null, '/r/ok'] }))
+    const s = new AppStore(file)
+    expect(s.isRepoTrusted('/r/ok')).toBe(true)
+    await writeFile(file, JSON.stringify({ recentRepos: ['/r/one'], trustedRepos: 'all' }))
+    const t = new AppStore(file)
+    expect(t.isRepoTrusted('all')).toBe(false)
+    expect(t.recentRepos).toEqual(['/r/one'])
   })
 })

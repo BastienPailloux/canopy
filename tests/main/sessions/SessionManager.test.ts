@@ -3,7 +3,8 @@ import type {
   CanUseTool, getSessionMessages, listSessions, Options, PermissionResult, PermissionUpdate, Query, SDKMessage,
   SDKSessionInfo, SDKUserMessage, SessionMessage, SlashCommand
 } from '@anthropic-ai/claude-agent-sdk'
-import { SessionManager, type SessionEvents } from '../../../src/main/sessions/SessionManager'
+import { SessionManager } from '../../../src/main/sessions/SessionManager'
+import type { SessionEvents } from '../../../src/shared/api'
 import type { PermissionRequest } from '../../../src/shared/types'
 
 /** A `query` stand-in: the test drives what the session sees. */
@@ -81,7 +82,7 @@ interface Harness {
   getSessionMessages: ReturnType<typeof vi.fn<typeof getSessionMessages>>
 }
 
-function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: string; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
+function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (cwd: string) => boolean | Promise<boolean>; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
   const queries: FakeQuery[] = []
   const states: SessionEvents['state'][] = []
   const permissions: PermissionRequest[] = []
@@ -97,7 +98,8 @@ function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options
     listSessions: list,
     getSessionMessages: messages,
     env: () => o.env ?? { PATH: '/x' },
-    pathToClaudeCodeExecutable: o.executable
+    pathToClaudeCodeExecutable: o.executable,
+    isTrusted: o.isTrusted
   })
   m.on('state', (s) => states.push(s))
   m.on('permission', (p) => permissions.push(p))
@@ -129,6 +131,7 @@ test('sessions are independent: an error in one leaves the other running', async
 test('state: running on send, idle on result, stopped after stop', async () => {
   const h = setup()
   const id = h.m.start('/a', { content: content('hi') })
+  await tick()
   expect(h.stateOf(id)).toBe('running')
   h.queries[0].emit(SUCCESS)
   await tick()
@@ -139,12 +142,32 @@ test('state: running on send, idle on result, stopped after stop', async () => {
   expect(h.stateOf(id)).toBe('stopped')
 })
 
-test('state events carry the sessionId known from start', () => {
+test('state events carry the sessionId known from start', async () => {
   const h = setup()
   h.m.start('/a', { content: content('hi') })
+  await tick()
   const sessionId = h.queries[0].options.sessionId
   expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
   expect(h.states[0].sessionId).toBe(sessionId)
+})
+
+test.each([['with a message', 'hi', 'running'], ['with empty content', '', 'idle']])(
+  'the first state event comes after start returned, %s',
+  async (_name, text, state) => {
+    const h = setup()
+    const id = h.m.start('/a', { content: content(text) })
+    expect(h.states).toEqual([])
+    await tick()
+    expect(h.states).toEqual([{ localId: id, state, sessionId: h.queries[0].options.sessionId }])
+  }
+)
+
+test('stop before the deferred first state reports only stopped', async () => {
+  const h = setup()
+  const id = h.m.start('/a', { content: content('hi') })
+  h.m.stop(id)
+  await tick()
+  expect(h.states.map((s) => s.state)).toEqual(['stopped'])
 })
 
 test('messages are relayed with their localId', async () => {
@@ -294,6 +317,19 @@ test('suppressAlwaysAllowRule forbids a persistent rule even with addRules', asy
   expect(await answer).not.toHaveProperty('updatedPermissions')
 })
 
+test('pendingPermissions lists open requests across sessions, for a reloaded window', async () => {
+  const h = setup()
+  h.m.start('/a', { content: content('one') })
+  h.m.start('/b', { content: content('two') })
+  expect(h.m.pendingPermissions()).toEqual([])
+  const first = h.queries[0].ask('Bash', 'r1')
+  void h.queries[1].ask('Write', 'r2')
+  expect(h.m.pendingPermissions()).toEqual(h.permissions)
+  h.m.resolvePermission('r1', { allow: true })
+  await first
+  expect(h.m.pendingPermissions().map((p) => p.requestId)).toEqual(['r2'])
+})
+
 test('resolvePermission ignores an unknown request', () => {
   const h = setup()
   expect(() => h.m.resolvePermission('nope', { allow: true })).not.toThrow()
@@ -382,20 +418,40 @@ test('interrupted while streaming is idle too', async () => {
   expect(h.stateOf(id)).toBe('idle')
 })
 
-test('connection error (subtype success, is_error true) is error', async () => {
+test('connection error (subtype success, is_error true) is error and keeps its reason', async () => {
   const h = setup()
   const id = h.m.start('/a', { content: content('hi') })
   h.queries[0].emit({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in' })
   await tick()
-  expect(h.stateOf(id)).toBe('error')
+  expect(h.states.at(-1)).toMatchObject({ localId: id, state: 'error', error: 'Not logged in' })
   h.queries[0].fail(new Error('Claude Code process exited with code 1'))
   await tick()
-  expect(h.stateOf(id)).toBe('error')
+  expect(h.states.at(-1)).toMatchObject({ localId: id, state: 'error', error: 'Not logged in' })
+})
+
+test('an error result without text reports its errors', async () => {
+  const h = setup()
+  h.m.start('/a', { content: content('hi') })
+  h.queries[0].emit({ type: 'result', subtype: 'error_max_turns', is_error: true, terminal_reason: 'max_turns', errors: ['one', 'two'] })
+  await tick()
+  expect(h.states.at(-1)).toMatchObject({ state: 'error', error: 'one\ntwo' })
+})
+
+test('a new turn after an error result forgets its reason', async () => {
+  const h = setup()
+  const id = h.m.start('/a', { content: content('hi') })
+  h.queries[0].emit({ type: 'result', subtype: 'success', is_error: true, result: 'Overloaded' })
+  await tick()
+  h.m.send(id, content('retry'))
+  h.queries[0].fail(new Error('process exited'))
+  await tick()
+  expect(h.states.at(-1)).toMatchObject({ state: 'error', error: 'process exited' })
 })
 
 test('a generator that throws after stop stays stopped', async () => {
   const h = setup()
   const id = h.m.start('/a', { content: content('hi') })
+  await tick()
   h.m.stop(id)
   h.queries[0].fail(new Error('Claude Code returned an error result'))
   await tick()
@@ -421,6 +477,7 @@ test('messages arriving after stop are dropped', async () => {
   const seen: unknown[] = []
   h.m.on('message', (e) => seen.push(e))
   const id = h.m.start('/a', { content: content('hi') })
+  await tick()
   h.m.stop(id)
   h.queries[0].emit(SUCCESS)
   await tick()
@@ -463,6 +520,27 @@ test('commands drops terminal commands and internal names', async () => {
   h.queries[0].emit({ type: 'system', subtype: 'init', terminal_slash_commands: ['doctor', 'color'] })
   await tick()
   expect((await h.m.commands(id)).map((c) => c.name)).toEqual(['compact', 'loop'])
+})
+
+test('commandsChanged fires on the first init only, so the UI can refetch', async () => {
+  const h = setup()
+  const seen: SessionEvents['commandsChanged'][] = []
+  h.m.on('commandsChanged', (e) => seen.push(e))
+  const id = h.m.start('/a', { content: content('hi') })
+  h.queries[0].emit({ type: 'system', subtype: 'init', terminal_slash_commands: ['doctor'] })
+  h.queries[0].emit({ type: 'system', subtype: 'init', terminal_slash_commands: ['doctor'] })
+  await tick()
+  expect(seen).toEqual([{ localId: id }])
+})
+
+test('an init without terminal_slash_commands keeps the known ones', async () => {
+  const h = setup()
+  const id = h.m.start('/a', { content: content('hi') })
+  h.queries[0].supportedCommands.mockResolvedValue([{ name: 'doctor', description: '', argumentHint: '' }])
+  h.queries[0].emit({ type: 'system', subtype: 'init', terminal_slash_commands: ['doctor'] })
+  h.queries[0].emit({ type: 'system', subtype: 'init' })
+  await tick()
+  expect(await h.m.commands(id)).toEqual([])
 })
 
 test('commands and models are empty for an unknown session', async () => {
@@ -547,9 +625,16 @@ test('resumeId is passed as options.resume, without sessionId', () => {
   expect(h.queries[0].options).not.toHaveProperty('sessionId')
 })
 
+test('an empty resumeId counts as absent', () => {
+  const h = setup()
+  h.m.start('/a', { content: content('hi'), resumeId: '' })
+  expect(h.queries[0].options).not.toHaveProperty('resume')
+  expect(h.queries[0].options.sessionId).toMatch(/^[0-9a-f-]{36}$/)
+})
+
 test('options for a new session', () => {
   const h = setup()
-  h.m.start('/a', { content: content('hi'), model: 'opus', mode: 'plan' })
+  h.m.start('/a', { content: content('hi'), model: 'opus', mode: 'plan', trusted: true })
   const o = h.queries[0].options
   expect(o).toMatchObject({ cwd: '/a', includePartialMessages: true, permissionMode: 'plan', model: 'opus' })
   expect(typeof o.canUseTool).toBe('function')
@@ -566,9 +651,44 @@ test('permissionMode defaults to default, and model stays unset', () => {
 })
 
 test('pathToClaudeCodeExecutable comes from the constructor', () => {
-  const h = setup({ executable: '/App/app.asar.unpacked/claude' })
+  const h = setup({ executable: () => '/App/app.asar.unpacked/claude' })
   h.m.start('/a', { content: content('hi') })
   expect(h.queries[0].options.pathToClaudeCodeExecutable).toBe('/App/app.asar.unpacked/claude')
+})
+
+test('a failing executable lookup is reported by start, not thrown', async () => {
+  const h = setup({ executable: () => { throw new Error('binary not found') } })
+  const id = h.m.start('/a', { content: content('hi') })
+  await tick()
+  expect(h.states.at(-1)).toMatchObject({ localId: id, state: 'error', error: 'binary not found' })
+  expect(h.queries).toEqual([])
+})
+
+test('an untrusted session loads user settings only', () => {
+  const h = setup()
+  h.m.start('/a', { content: content('hi') })
+  expect(h.queries[0].options.settingSources).toEqual(['user'])
+})
+
+test('a trusted session leaves settingSources undefined', () => {
+  const h = setup()
+  h.m.start('/a', { content: content('hi'), trusted: true })
+  expect(h.queries[0].options).not.toHaveProperty('settingSources')
+})
+
+test('isTrusted defaults to untrusted', async () => {
+  const m = new SessionManager({ query: vi.fn() as never, listSessions: vi.fn(), getSessionMessages: vi.fn(), env: () => ({}) })
+  expect(await m.isTrusted('/a')).toBe(false)
+})
+
+test('isTrusted asks the injected check, sync or async', async () => {
+  expect(await setup({ isTrusted: (cwd) => cwd === '/a' }).m.isTrusted('/a')).toBe(true)
+  expect(await setup({ isTrusted: async () => true }).m.isTrusted('/b')).toBe(true)
+  expect(await setup({ isTrusted: () => false }).m.isTrusted('/a')).toBe(false)
+})
+
+test('isTrusted fails closed', async () => {
+  expect(await setup({ isTrusted: async () => { throw new Error('not a git repo') } }).m.isTrusted('/gone')).toBe(false)
 })
 
 test('env keeps process.env under the login env and drops ELECTRON_RUN_AS_NODE', () => {

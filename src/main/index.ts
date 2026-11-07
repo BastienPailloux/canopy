@@ -5,10 +5,14 @@ import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-ag
 import { AppStore } from './appStore'
 import { loginShellEnv } from './env'
 import { setGitEnv } from './git/exec'
+import { mainWorktreeRoot } from './git/worktrees'
 import { registerIpc } from './ipc'
 import { SessionManager } from './sessions/SessionManager'
 
-/** Undefined in development, where the SDK finds its binary. Packaged, it cannot be run from inside the asar. */
+/**
+ * Undefined in development, where the SDK finds its binary. Packaged, it cannot be run from inside the asar.
+ * Throws if the binary is missing: called per session, so the app still opens and `start` reports it.
+ */
 function claudeExecutablePath(): string | undefined {
   if (!app.isPackaged) return undefined
   const binary = createRequire(__filename).resolve('@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')
@@ -39,15 +43,17 @@ void app.whenReady().then(async () => {
   // Before any git call: git must see the user's login shell env (PATH, config).
   const env = await loginShellEnv()
   setGitEnv({ ...env, GIT_OPTIONAL_LOCKS: '0' })
+  const store = new AppStore(join(app.getPath('userData'), 'state.json'))
   const sessions = new SessionManager({
     query,
     listSessions,
     getSessionMessages,
     env: () => env,
-    pathToClaudeCodeExecutable: claudeExecutablePath()
+    pathToClaudeCodeExecutable: claudeExecutablePath,
+    isTrusted: async (cwd) => store.isRepoTrusted(await mainWorktreeRoot(cwd))
   })
   app.on('before-quit', () => sessions.stopAll())
-  registerIpc(new AppStore(join(app.getPath('userData'), 'state.json')), sessions)
+  registerIpc(store, sessions)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -32,6 +32,13 @@ export async function listWorktrees(repo: string): Promise<Worktree[]> {
   return result
 }
 
+/** Root of the main worktree of the repo holding `dir`, the same from any of its worktrees. */
+export async function mainWorktreeRoot(dir: string): Promise<string> {
+  const main = (await listWorktrees(dir)).find((w) => w.isMain)
+  if (!main) throw new Error(`Dépôt principal introuvable : ${dir}`)
+  return main.path
+}
+
 const EXCLUDE_ENTRY = '.worktrees/'
 
 /** Add `.worktrees/` to the common git dir's info/exclude (never touches tracked files). */

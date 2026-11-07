@@ -1,14 +1,13 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
 import { isAbsolute } from 'node:path'
-import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
-import type { StartSessionOptions } from '../shared/api'
-import type { PermissionDecision, UserContent } from '../shared/types'
 import type { AppStore } from './appStore'
 import { git } from './git/exec'
 import { resolveBaseRef } from './git/refs'
 import { worktreeStats } from './git/diff'
-import { createWorktree, listWorktrees, removalRisks, removeWorktree } from './git/worktrees'
+import { createWorktree, listWorktrees, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
+import { readRepoConfig } from './repoTrust'
 import type { SessionManager } from './sessions/SessionManager'
+import { assertContent, assertId, assertMode, parseDecision, parseStartOptions } from './sessions/validate'
 
 /** Push an event to every renderer (received through `CanopyApi.on`). */
 export function broadcast(event: string, payload?: unknown): void {
@@ -17,18 +16,6 @@ export function broadcast(event: string, payload?: unknown): void {
 
 function assertPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
-}
-
-function assertId(id: unknown): asserts id is string {
-  if (typeof id !== 'string' || id === '') throw new Error('Identifiant invalide')
-}
-
-function assertContent(c: unknown): asserts c is UserContent {
-  const { text, images } = (c ?? {}) as Partial<UserContent>
-  const validImages = images === undefined || (Array.isArray(images) && images.every(
-    (i) => typeof i?.mediaType === 'string' && typeof i.base64 === 'string'
-  ))
-  if (typeof text !== 'string' || !validImages) throw new Error('Message invalide')
 }
 
 /** Top-level directory of the repo containing `dir`, or null if it is not inside a git work tree. */
@@ -44,12 +31,13 @@ function registerSessionIpc(sessions: SessionManager): void {
   sessions.on('message', (e) => broadcast('session:message', e))
   sessions.on('permission', (e) => broadcast('session:permission', e))
   sessions.on('permissionCancelled', (e) => broadcast('session:permissionCancelled', e))
+  sessions.on('commandsChanged', (e) => broadcast('session:commandsChanged', e))
   sessions.on('state', (e) => broadcast('session:state', e))
 
-  ipcMain.handle('session:start', (_e, cwd: unknown, o: StartSessionOptions) => {
+  ipcMain.handle('session:start', async (_e, cwd: unknown, o: unknown) => {
     assertPath(cwd)
-    assertContent(o?.content)
-    return sessions.start(cwd, o)
+    const options = parseStartOptions(o)
+    return sessions.start(cwd, { ...options, trusted: await sessions.isTrusted(cwd) })
   })
 
   ipcMain.handle('session:send', (_e, localId: unknown, content: unknown) => {
@@ -63,8 +51,9 @@ function registerSessionIpc(sessions: SessionManager): void {
     return sessions.interrupt(localId)
   })
 
-  ipcMain.handle('session:setMode', (_e, localId: unknown, mode: PermissionMode) => {
+  ipcMain.handle('session:setMode', (_e, localId: unknown, mode: unknown) => {
     assertId(localId)
+    assertMode(mode)
     return sessions.setMode(localId, mode)
   })
 
@@ -79,10 +68,12 @@ function registerSessionIpc(sessions: SessionManager): void {
     sessions.stop(localId)
   })
 
-  ipcMain.handle('session:resolvePermission', (_e, requestId: unknown, decision: PermissionDecision) => {
+  ipcMain.handle('session:resolvePermission', (_e, requestId: unknown, decision: unknown) => {
     assertId(requestId)
-    sessions.resolvePermission(requestId, decision)
+    sessions.resolvePermission(requestId, parseDecision(decision))
   })
+
+  ipcMain.handle('session:pendingPermissions', () => sessions.pendingPermissions())
 
   ipcMain.handle('session:list', (_e, cwd: unknown) => {
     assertPath(cwd)
@@ -134,6 +125,17 @@ export function registerIpc(store: AppStore, sessions: SessionManager): void {
   })
 
   ipcMain.handle('repo:recent', () => store.recentRepos)
+
+  ipcMain.handle('repo:trust', async (_e, repo: unknown) => {
+    assertPath(repo)
+    const trusted = store.isRepoTrusted(await mainWorktreeRoot(repo))
+    return { trusted, ...(await readRepoConfig(repo)) }
+  })
+
+  ipcMain.handle('repo:trustRepo', async (_e, repo: unknown) => {
+    assertPath(repo)
+    store.trustRepo(await mainWorktreeRoot(repo))
+  })
 
   ipcMain.handle('worktree:list', (_e, repo: unknown) => {
     assertPath(repo)

@@ -2,9 +2,10 @@ import { afterEach, expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRepo, type TestRepo } from '../../helpers/repo'
-import { createWorktree, listWorktrees, removalRisks, removeWorktree } from '../../../src/main/git/worktrees'
+import { createWorktree, listWorktrees, mainWorktreeRoot, removalRisks, removeWorktree } from '../../../src/main/git/worktrees'
 
 let repo: TestRepo | undefined
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
@@ -144,4 +145,15 @@ test('main worktree guard compares realpaths', async () => {
   const link = join(repo.path, '..', 'main-link')
   await symlink(repo.path, link)
   await expect(removeWorktree(repo.path, link, true)).rejects.toThrow(/principal/)
+})
+
+test('mainWorktreeRoot gives the same root from the repo and from a linked worktree', async () => {
+  repo = await createRepo()
+  const wt = await createWorktree(repo.path, { name: 'alpha', branch: 'feat/alpha', base: 'main' })
+  expect(await mainWorktreeRoot(repo.path)).toBe(repo.path)
+  expect(await mainWorktreeRoot(wt.path)).toBe(repo.path)
+})
+
+test('mainWorktreeRoot rejects outside a git repo', async () => {
+  await expect(mainWorktreeRoot(tmpdir())).rejects.toThrow()
 })
