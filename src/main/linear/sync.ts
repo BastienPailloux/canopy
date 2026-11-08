@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { statusGroup, type Departure, type LinearIssue, type LinearListState } from '../../shared/linear'
 import { LinearExpiredError, type LinearClient } from './client'
@@ -20,6 +20,7 @@ export class LinearSync {
   private error: string | null = null
   private expired = false
   private departures: Departure[] = []
+  private generation = 0
   private inflight: Promise<LinearListState> | null = null
   private listeners = new Set<() => void>()
 
@@ -55,6 +56,18 @@ export class LinearSync {
     this.commit()
   }
 
+  /** Wipes memory and disk (disconnect); a refresh already in flight is discarded. */
+  clear(): void {
+    this.generation++
+    this.issues = []
+    this.fetchedAt = null
+    this.error = null
+    this.expired = false
+    this.departures = []
+    try { rmSync(this.file, { force: true }) } catch { /* ignore */ }
+    for (const l of [...this.listeners]) l()
+  }
+
   refresh(): Promise<LinearListState> {
     this.inflight ??= this.run().finally(() => { this.inflight = null })
     return this.inflight
@@ -65,19 +78,23 @@ export class LinearSync {
   }
 
   private async run(): Promise<LinearListState> {
+    const gen = this.generation
     try {
-      await this.sync()
+      await this.sync(gen)
+      if (gen !== this.generation) return this.state()
       this.error = null
       this.expired = false
     } catch (e) {
+      if (gen !== this.generation) return this.state()
       if (e instanceof LinearExpiredError || this.client.connection().state === 'expired') this.expired = true
       this.error = e instanceof Error ? e.message : String(e)
     }
+    if (gen !== this.generation) return this.state()
     this.commit()
     return this.state()
   }
 
-  private async sync(): Promise<void> {
+  private async sync(gen: number): Promise<void> {
     const all = await this.client.listMine()
     const byId = new Map(all.map((i) => [i.id, i]))
     const listed = all.filter((i) => statusGroup(i.status) !== null)
@@ -111,6 +128,7 @@ export class LinearSync {
       if (r !== 'missing' && r !== 'failed') kept.push(r)
     }
 
+    if (gen !== this.generation) return
     const order = new Map([...this.issues].map((i, n) => [i.id, n]))
     this.issues = [...listed, ...kept].sort((a, b) => (order.get(a.id) ?? -1) - (order.get(b.id) ?? -1))
     const back = new Set(this.issues.map((i) => i.id))

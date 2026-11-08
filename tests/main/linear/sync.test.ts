@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -142,5 +142,28 @@ describe('LinearSync', () => {
     expect(s.refresh()).toBe(s.refresh())
     await s.refresh()
     expect(JSON.parse(readFileSync(file, 'utf8')).issues).toHaveLength(1)
+  })
+
+  it('clear wipes memory and disk', async () => {
+    const f = fake(); f.mine = [issue('A-1')]
+    const s = make(f)
+    await s.refresh()
+    let n = 0
+    s.onChange(() => n++)
+    s.clear()
+    expect(s.state()).toEqual({ issues: [], fetchedAt: null, error: null, expired: false, departures: [] })
+    expect(existsSync(file)).toBe(false)
+    expect(n).toBe(1)
+  })
+
+  it('refresh in flight during clear does not resurrect the list', async () => {
+    const f = fake(); f.mine = [issue('A-1')]
+    const s = make(f)
+    const p = s.refresh()
+    s.clear()
+    await p
+    expect(s.state().issues).toEqual([])
+    expect(s.state().fetchedAt).toBeNull()
+    expect(existsSync(file)).toBe(false)
   })
 })
