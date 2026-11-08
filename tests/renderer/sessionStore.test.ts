@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, openSession, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, openSession, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -303,6 +303,59 @@ describe('closeActiveTabIfSafe', () => {
     const id = open({ state: 'idle', draft: { text: 'à finir', images: [] } })
     closeActiveTabIfSafe(CWD)
     expect(useSessions.getState().tabs[id]).toBeDefined()
+  })
+})
+
+describe('documents in the draft', () => {
+  const doc = { name: 'spec.pdf', base64: 'AAAA' }
+
+  it('a draft holding only a document is sent with it, shown and emptied', async () => {
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftDocuments(id, (current) => [...current, doc])
+    await submit(id)
+    expect(api.startSession).toHaveBeenCalledWith(CWD, expect.objectContaining({ content: { text: '', documents: [doc] } }))
+    expect(activeTab().transcript.items.at(-1)).toEqual({ kind: 'user', text: '', images: [], documents: [{ name: 'spec.pdf' }] })
+    expect(activeTab().draft.documents ?? []).toEqual([])
+  })
+
+  it('a document added while the message is being sent stays in the draft', async () => {
+    let trusted!: (t: typeof TRUSTED) => void
+    api.repoTrust.mockImplementationOnce(() => new Promise((r) => { trusted = r }))
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'lis')
+    setDraftDocuments(id, () => [doc])
+    const sending = submit(id)
+    await vi.waitFor(() => expect(api.repoTrust).toHaveBeenCalled())
+    const late = { name: 'late.pdf', base64: 'BBBB' }
+    setDraftDocuments(id, (current) => [...current, late])
+    trusted(TRUSTED)
+    await sending
+    expect(api.startSession).toHaveBeenCalledWith(CWD, expect.objectContaining({ content: { text: 'lis', documents: [doc] } }))
+    expect(activeTab().draft).toEqual({ text: '', images: [], documents: [late] })
+  })
+
+  it('a message that fails to go comes back with what was attached meanwhile', async () => {
+    let started!: (v: unknown) => void
+    api.startSession.mockImplementationOnce(() => new Promise((_r, reject) => { started = reject }))
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftText(id, 'lis')
+    setDraftDocuments(id, () => [doc])
+    const sending = submit(id)
+    await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled())
+    const late = { name: 'late.pdf', base64: 'BBBB' }
+    setDraftDocuments(id, (current) => [...current, late])
+    started(new Error('boom'))
+    await sending
+    expect(activeTab().draft).toEqual({ text: 'lis', images: [], documents: [doc, late] })
+  })
+
+  it('a document alone counts as a draft', () => {
+    ensureTab(CWD)
+    setDraftDocuments(activeTab().id, () => [doc])
+    expect(composerDraftCount()).toBe(1)
   })
 })
 

@@ -59,6 +59,18 @@ describe('stash', () => {
     expect(existsSync(file)).toBe(false)
   })
 
+  it('keeps the documents of a draft', () => {
+    const withDocs = { ...stash, tabs: [{ ...stash.tabs[0], draft: { text: '', images: [], documents: [{ name: 'spec.pdf', base64: 'AAAA' }] } }] }
+    writeStash(file, withDocs)
+    expect(takeStash(file)).toEqual(withDocs)
+  })
+
+  it('a document with no name rejects the whole stash', () => {
+    const bad = { ...stash, tabs: [{ ...stash.tabs[0], draft: { text: '', images: [], documents: [{ base64: 'AAAA' }] } }] }
+    writeFileSync(file, JSON.stringify(bad))
+    expect(takeStash(file)).toBeNull()
+  })
+
   it('an image outside the allowed types rejects the whole stash', () => {
     const bad = { ...stash, tabs: [{ ...stash.tabs[0], draft: { text: '', images: [{ mediaType: 'image/svg+xml', base64: 'AAAA' }] } }] }
     writeFileSync(file, JSON.stringify(bad))

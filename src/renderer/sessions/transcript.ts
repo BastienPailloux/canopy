@@ -1,10 +1,14 @@
 import type { SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
+import { isAttachmentNote } from '../../shared/attachments'
 import type { UserContent } from '../../shared/types'
 
 export type UserImage = NonNullable<UserContent['images']>[number]
 
+/** A document sent, by name: its content stays with Claude. */
+export interface SentDocument { name: string }
+
 export type TranscriptItem =
-  | { kind: 'user'; text: string; images: UserImage[] }
+  | { kind: 'user'; text: string; images: UserImage[]; documents?: SentDocument[] }
   | { kind: 'assistant'; text: string; streaming: boolean }
   | {
     kind: 'tool'
@@ -65,6 +69,7 @@ interface Block {
   content?: unknown
   is_error?: boolean
   source?: { media_type?: string; data?: string }
+  title?: string
 }
 
 export const emptyTranscript = (): Transcript => ({ items: [], blocks: {}, blockCounts: {}, assistantIds: {}, tools: {} })
@@ -162,15 +167,16 @@ function onUser(t: Transcript, msg: LooseMessage): Transcript {
   const blocks = asBlocks(msg.message?.content)
   const next = blocks.filter((b) => b.type === 'tool_result').reduce(completeTool, t)
 
-  const text = blocks.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('\n')
+  const text = blocks.flatMap((b) => (b.type === 'text' && b.text && !isAttachmentNote(b.text) ? [b.text] : [])).join('\n')
   const images = blocks.flatMap((b): UserImage[] =>
     b.type === 'image' && b.source?.data ? [{ mediaType: b.source.media_type ?? 'image/png', base64: b.source.data }] : [])
-  if (text === '' && images.length === 0) return next
+  const documents = blocks.flatMap((b): SentDocument[] => (b.type === 'document' ? [{ name: b.title ?? 'Document PDF' }] : []))
+  if (text === '' && images.length === 0 && documents.length === 0) return next
 
   const notice = hostText(text)
   if (notice !== undefined) return notice === '' ? next : addNotice(next, notice)
   if (msg.isSynthetic || msg.isReplay) return next
-  return append(next, { kind: 'user', text, images })
+  return append(next, { kind: 'user', text, images, ...(documents.length ? { documents } : {}) })
 }
 
 function onSystem(t: Transcript, msg: LooseMessage): Transcript {
@@ -205,7 +211,8 @@ export function reduceTranscript(state: Transcript, msg: SDKMessage | SessionMes
 
 /** The stream does not echo what is sent, so the composer adds it. */
 export function addUser(t: Transcript, content: UserContent): Transcript {
-  return append(t, { kind: 'user', text: content.text, images: content.images ?? [] })
+  const documents = (content.documents ?? []).map((d) => ({ name: d.name }))
+  return append(t, { kind: 'user', text: content.text, images: content.images ?? [], ...(documents.length ? { documents } : {}) })
 }
 
 export function addNotice(t: Transcript, text: string): Transcript {

@@ -1,9 +1,9 @@
 import type { ModelInfo, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { IMAGE_TYPES, SESSION_MODES } from '../../shared/sessionOptions'
+import { SESSION_MODES } from '../../shared/sessionOptions'
+import { ACCEPTED_TYPES, readDocument, readImage, sortFiles } from './attachments'
 import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
-import { interrupt, setDraftImages, setDraftText, setMode, setModel, submit, warmUp, type SessionTab } from './sessionStore'
-import type { UserImage } from './transcript'
+import { interrupt, setDraftDocuments, setDraftImages, setDraftText, setMode, setModel, submit, warmUp, type SessionTab } from './sessionStore'
 
 /** Until a session can list its own models. */
 const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
@@ -12,16 +12,13 @@ const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
   { value: 'haiku', displayName: 'Haiku' }
 ]
 
-interface Suggestion { value: string; label: string; detail?: string }
+const clipIcon = (
+  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6" />
+  </svg>
+)
 
-function readImage(file: File): Promise<UserImage> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve({ mediaType: file.type, base64: String(reader.result).split(',')[1] ?? '' })
-    reader.onerror = () => reject(reader.error ?? new Error('Image illisible'))
-    reader.readAsDataURL(file)
-  })
-}
+interface Suggestion { value: string; label: string; detail?: string }
 
 /** The worktree's files, read again each time a `@` opens the list. */
 function useFiles(cwd: string, wanted: boolean): string[] {
@@ -52,7 +49,10 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const [caret, setCaret] = useState(0)
   const [highlight, setHighlight] = useState(0)
   const [dismissed, setDismissed] = useState(false)
-  const [imageError, setImageError] = useState<string | null>(null)
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
+  const documents = draft.documents ?? []
 
   const trigger = useMemo(() => (dismissed ? null : findTrigger(draft.text, caret)), [dismissed, draft.text, caret])
   const files = useFiles(tab.cwd, trigger?.kind === 'file')
@@ -60,7 +60,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const selected = Math.min(highlight, Math.max(suggestions.length - 1, 0))
   const busy = tab.state === 'running' || tab.state === 'waiting'
   const models = tab.models.length > 0 ? tab.models : MODEL_ALIASES
-  const canSend = draft.text.trim() !== '' || draft.images.length > 0
+  const canSend = draft.text.trim() !== '' || draft.images.length > 0 || documents.length > 0
 
   // Commands come from a running process: the first command name typed starts it.
   const wantsCommands = wantsProcess(trigger) && !tab.localId
@@ -104,23 +104,44 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
     }
   }
 
+  const attach = (files: File[]): void => {
+    if (files.length === 0) return
+    const sorted = sortFiles(files)
+    setAttachError(sorted.error)
+    const failed = (err: unknown): void => setAttachError(err instanceof Error ? err.message : String(err))
+    void Promise.all(sorted.images.map(readImage)).then(
+      (images) => { if (images.length) setDraftImages(tab.id, (current) => [...current, ...images]) }, failed)
+    void Promise.all(sorted.documents.map(readDocument)).then(
+      (docs) => { if (docs.length) setDraftDocuments(tab.id, (current) => [...current, ...docs]) }, failed)
+  }
+
   const onPaste = (e: React.ClipboardEvent): void => {
-    const pasted = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+    const pasted = [...e.clipboardData.files]
     if (pasted.length === 0) return
-    // Text copied along with an image still goes in the box, by the browser's own paste.
+    // Text copied along with a file still goes in the box, by the browser's own paste.
     if (e.clipboardData.getData('text/plain') === '') e.preventDefault()
-    const usable = pasted.filter((f) => IMAGE_TYPES.includes(f.type))
-    setImageError(usable.length < pasted.length ? 'Seules les images PNG, JPEG, GIF et WebP sont acceptées.' : null)
-    void Promise.all(usable.map(readImage)).then(
-      (images) => setDraftImages(tab.id, (current) => [...current, ...images]),
-      (err: unknown) => setImageError(err instanceof Error ? err.message : String(err))
-    )
+    attach(pasted)
+  }
+
+  const hasFiles = (e: React.DragEvent): boolean => e.dataTransfer.types.includes('Files')
+  const onDragOver = (e: React.DragEvent): void => {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDragging(true)
+  }
+  const onDrop = (e: React.DragEvent): void => {
+    setDragging(false)
+    if (e.dataTransfer.files.length === 0) return
+    e.preventDefault()
+    attach([...e.dataTransfer.files])
   }
 
   return (
     <div className="composer-wrap">
       {tab.error && <p className="session-error" role="alert">{tab.error}</p>}
-      <div className="composer">
+      <div className={dragging ? 'composer dragging' : 'composer'} onDragOver={onDragOver}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false) }} onDrop={onDrop}>
         {suggestions.length > 0 && (
           <div className="suggestions" role="listbox" aria-label={trigger?.kind === 'file' ? 'Fichiers' : 'Commandes'}>
             {suggestions.map((s, i) => (
@@ -144,13 +165,29 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
             ))}
           </div>
         )}
-        {imageError && <span className="del">{imageError}</span>}
+        {documents.length > 0 && (
+          <div className="doc-chips">
+            {documents.map((d, i) => (
+              <span key={i} className="doc-chip" title={d.name}>
+                <span className="doc-chip-kind">PDF</span>
+                <span className="doc-chip-name">{d.name}</span>
+                <button type="button" aria-label={`Retirer ${d.name}`}
+                  onClick={() => setDraftDocuments(tab.id, (current) => current.filter((_, j) => j !== i))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {attachError && <span className="del">{attachError}</span>}
         <textarea id="composer" ref={input} rows={2} value={draft.text} spellCheck={false}
           placeholder="Demande une suite, colle une erreur, ou tape / pour une commande"
           onChange={(e) => setText(e.target.value, e.target.selectionStart)}
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={onKeyDown} onPaste={onPaste} />
         <div className="composer-bar">
+          <button type="button" className="icon-btn" aria-label="Joindre un fichier" title="Joindre une image ou un PDF"
+            onClick={() => picker.current?.click()}>{clipIcon}</button>
+          <input ref={picker} type="file" multiple hidden accept={ACCEPTED_TYPES} data-testid="attach-input"
+            onChange={(e) => { attach([...(e.target.files ?? [])]); e.target.value = '' }} />
           <select aria-label="Mode" value={tab.mode} onChange={(e) => setMode(tab.id, e.target.value as PermissionMode)}>
             {SESSION_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>

@@ -54,7 +54,9 @@ export interface PermissionRequest {
   blockedPath?: string
 }
 export type PermissionDecision = { allow: true; always?: boolean; updatedInput?: Record<string, unknown> } | { allow: false; message: string }
-export interface UserContent { text: string; images?: { mediaType: string; base64: string }[] }
+/** A PDF sent with a message. `name` is the file's, shown to the user and to Claude. */
+export interface UserDocument { name: string; base64: string }
+export interface UserContent { text: string; images?: { mediaType: string; base64: string }[]; documents?: UserDocument[] }
 export interface ServiceConfig { name: string; command: string; portEnv: string }
 export interface CanopyConfig { setup: string[]; services: ServiceConfig[] }
 export interface SearchHit { path: string; line: number; column: number; text: string }

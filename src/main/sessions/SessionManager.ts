@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, extname, join } from 'node:path'
 import type {
   CanUseTool, getSessionMessages, listSessions, ModelInfo, Options, PermissionMode, PermissionResult, PermissionUpdate,
   query, Query, SDKMessage, SDKResultMessage, SDKUserMessage, SessionMessage, SlashCommand
 } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvents, StartSessionOptions } from '../../shared/api'
+import { attachmentNote } from '../../shared/attachments'
 import { RepoNotTrustedError } from '../../shared/errors'
-import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent } from '../../shared/types'
+import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
 import { createInputQueue, type InputQueue } from './inputQueue'
 
 export interface SessionManagerDeps {
@@ -19,6 +22,11 @@ export interface SessionManagerDeps {
   pathToClaudeCodeExecutable?: () => string | undefined
   /** Whether sessions may run in this main worktree root. Unset means nothing is trusted. */
   isTrusted?: (repoRoot: string) => boolean
+  /**
+   * Where each session keeps a copy of the documents sent to it, in a folder of its own deleted when it ends.
+   * Emptied at startup: no session outlives the app. Unset, documents are sent with no copy.
+   */
+  attachmentsDir?: string
 }
 
 type EventMap = { [K in keyof SessionEvents]: [SessionEvents[K]] }
@@ -55,7 +63,7 @@ const WITHDRAWN: PermissionResult = { behavior: 'deny', message: 'Demande annulÃ
 const INTERRUPTED: readonly unknown[] = ['aborted_tools', 'aborted_streaming']
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))
-const isEmpty = (c: UserContent): boolean => c.text === '' && !c.images?.length
+const isEmpty = (c: UserContent): boolean => c.text === '' && !c.images?.length && !c.documents?.length
 const currentState = (s: Session): SessionState => (s.pending.size > 0 ? 'waiting' : s.turn)
 
 /** `subtype` says nothing: an interruption is an error result on a usable session, a lost login is a "success". */
@@ -67,13 +75,31 @@ function resultError(result: SDKResultMessage): string {
   return result.subtype === 'success' ? result.result : result.errors.join('\n')
 }
 
-function toUserMessage(c: UserContent): SDKUserMessage {
+/** A name of its own in `dir`, from the file's name with no path in it. */
+function freeName(dir: string, name: string): string {
+  const cleaned = basename(name.replace(/\\/g, '/')).replace(/[\u0000-\u001f]/g, '')
+  const base = cleaned === '' || cleaned === '.' || cleaned === '..' ? 'document.pdf' : cleaned
+  const ext = extname(base)
+  const stem = base.slice(0, base.length - ext.length)
+  let candidate = base
+  for (let n = 2; existsSync(join(dir, candidate)); n++) candidate = `${stem} (${n})${ext}`
+  return candidate
+}
+
+/** `copies` holds the path of each document's copy, in order: their notes come last. */
+function toUserMessage(c: UserContent, copies: string[] = []): SDKUserMessage {
   const text = c.text === '' ? [] : [{ type: 'text' as const, text: c.text }]
   const images = (c.images ?? []).map((i) => ({
     type: 'image' as const,
     source: { type: 'base64' as const, media_type: i.mediaType as 'image/png', data: i.base64 }
   }))
-  return { type: 'user', message: { role: 'user', content: [...text, ...images] }, parent_tool_use_id: null }
+  const documents = (c.documents ?? []).map((d) => ({
+    type: 'document' as const,
+    source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: d.base64 },
+    title: d.name
+  }))
+  const notes = copies.map((path, i) => ({ type: 'text' as const, text: attachmentNote(c.documents?.[i]?.name ?? '', path) }))
+  return { type: 'user', message: { role: 'user', content: [...text, ...images, ...documents, ...notes] }, parent_tool_use_id: null }
 }
 
 /** Runs concurrent Agent SDK sessions. Each one lives until `stop` or its own failure, whatever the UI does. */
@@ -82,6 +108,10 @@ export class SessionManager extends EventEmitter<EventMap> {
 
   constructor(private readonly deps: SessionManagerDeps) {
     super()
+    if (deps.attachmentsDir) {
+      rmSync(deps.attachmentsDir, { recursive: true, force: true })
+      mkdirSync(deps.attachmentsDir, { recursive: true })
+    }
   }
 
   /**
@@ -109,7 +139,7 @@ export class SessionManager extends EventEmitter<EventMap> {
 
     let q: Query
     try {
-      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool) })
+      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.copiesDir(localId)) })
     } catch (err) {
       input.close()
       // Deferred so that the caller holds the localId before hearing about it.
@@ -248,7 +278,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     cwd: string,
     sessionId: string,
     o: StartSessionOptions,
-    canUseTool: CanUseTool
+    canUseTool: CanUseTool,
+    copiesDir: string | undefined
   ): Options {
     // The injected env alone: it already holds the login shell env (USER included) and never ELECTRON_RUN_AS_NODE.
     const env = { ...this.deps.env() }
@@ -262,13 +293,36 @@ export class SessionManager extends EventEmitter<EventMap> {
       permissionMode: o.mode ?? 'default',
       ...(o.resumeId ? { resume: o.resumeId } : { sessionId }),
       ...(o.model ? { model: o.model } : {}),
+      // Claude reads the copies there with no permission prompt.
+      ...(copiesDir ? { additionalDirectories: [copiesDir] } : {}),
       ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {})
+    }
+  }
+
+  private copiesDir(localId: string): string | undefined {
+    return this.deps.attachmentsDir ? join(this.deps.attachmentsDir, localId) : undefined
+  }
+
+  /** Copies each document into the session's folder. No copy at all if one fails: the message still goes. */
+  private keepCopies(s: Session, documents: UserDocument[]): string[] {
+    const dir = this.copiesDir(s.localId)
+    if (!dir || documents.length === 0) return []
+    try {
+      mkdirSync(dir, { recursive: true })
+      return documents.map((d) => {
+        const path = join(dir, freeName(dir, d.name))
+        writeFileSync(path, Buffer.from(d.base64, 'base64'))
+        return path
+      })
+    } catch (err) {
+      console.error('SessionManager: could not copy a document', err)
+      return []
     }
   }
 
   private deliver(s: Session, content: UserContent): void {
     if (isEmpty(content)) return
-    s.input.push(toUserMessage(content))
+    s.input.push(toUserMessage(content, this.keepCopies(s, content.documents ?? [])))
     this.setTurn(s, 'running')
   }
 
@@ -364,6 +418,8 @@ export class SessionManager extends EventEmitter<EventMap> {
       // The process is already gone.
     }
     for (const requestId of [...s.pending.keys()]) this.withdraw(s, requestId)
+    const copies = this.copiesDir(s.localId)
+    if (copies) rmSync(copies, { recursive: true, force: true })
     this.notify('state', { localId: s.localId, state, sessionId: s.sessionId, error })
   }
 

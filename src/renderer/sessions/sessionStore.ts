@@ -2,8 +2,8 @@ import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/clau
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
 import { isRepoNotTrusted } from '../../shared/errors'
-import type { StashedTab } from '../../shared/update'
-import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent } from '../../shared/types'
+import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
+import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
 
 export type TabState = SessionState | 'draft'
@@ -22,7 +22,7 @@ export interface SessionTab {
   error?: string
   transcript: Transcript
   /** What the composer holds. */
-  draft: { text: string; images: UserImage[] }
+  draft: Draft
   mode: PermissionMode
   model?: string
   commands: SlashCommand[]
@@ -65,7 +65,8 @@ const tabsOf = (cwd: string): SessionTab[] => Object.values(useSessions.getState
 const tabOfProcess = (localId: string): SessionTab | undefined =>
   Object.values(useSessions.getState().tabs).find((t) => t.localId === localId)
 
-const shortTitle = (c: UserContent): string => c.text.trim().split('\n')[0].slice(0, TITLE_LENGTH) || 'Image'
+const shortTitle = (c: UserContent): string =>
+  c.text.trim().split('\n')[0].slice(0, TITLE_LENGTH) || (c.images?.length ? 'Image' : c.documents?.[0]?.name ?? 'Image')
 
 function patchTab(id: string, patch: Partial<SessionTab> | ((tab: SessionTab) => Partial<SessionTab>)): void {
   useSessions.setState((s) => {
@@ -123,7 +124,7 @@ export function closeTab(id: string): void {
   ensureTab(tab.cwd)
 }
 
-export const hasDraft = (t: SessionTab): boolean => t.draft.text.trim() !== '' || t.draft.images.length > 0
+export const hasDraft = (t: SessionTab): boolean => !isDraftEmpty(t.draft, true)
 
 /** ⌘W: closes the selected tab unless that would stop a turn or lose a draft. Then nothing happens. */
 export function closeActiveTabIfSafe(cwd: string): void {
@@ -153,6 +154,10 @@ function omit<T>(record: Record<string, T>, key: string): Record<string, T> {
 
 export function setDraftText(id: string, text: string): void {
   patchTab(id, (t) => ({ draft: { ...t.draft, text } }))
+}
+
+export function setDraftDocuments(id: string, change: (documents: UserDocument[]) => UserDocument[]): void {
+  patchTab(id, (t) => ({ draft: { ...t.draft, documents: change(t.draft.documents ?? []) } }))
 }
 
 export function setDraftImages(id: string, change: (images: UserImage[]) => UserImage[]): void {
@@ -240,6 +245,24 @@ function startError(e: unknown): string {
   return isRepoNotTrusted(e) ? "Ce dépôt n'est pas approuvé : la session n'a pas démarré." : errorText(e)
 }
 
+/** What is left once `sent` went: the trust check and file reads are async, so the draft may have grown meanwhile. */
+function withoutSent(draft: Draft, sent: Draft): Draft {
+  return {
+    text: draft.text === sent.text ? '' : draft.text,
+    images: draft.images.filter((i) => !sent.images.includes(i)),
+    documents: (draft.documents ?? []).filter((d) => !sent.documents?.includes(d))
+  }
+}
+
+/** `sent` back in the composer, with what was added since. Text typed meanwhile wins over the sent one. */
+function withSentBack(draft: Draft, sent: Draft): Draft {
+  return {
+    text: draft.text === '' ? sent.text : draft.text,
+    images: [...sent.images, ...draft.images],
+    documents: [...(sent.documents ?? []), ...(draft.documents ?? [])]
+  }
+}
+
 /** Sends the tab's draft, starting or resuming its session if needed. */
 export async function submit(id: string): Promise<void> {
   if (submitting.has(id)) return
@@ -255,9 +278,9 @@ export async function submit(id: string): Promise<void> {
 async function send(id: string): Promise<void> {
   const tab = tabOf(id)
   if (!tab) return
-  const { text, images } = tab.draft
-  if (text.trim() === '' && images.length === 0) return
-  const content: UserContent = { text: text.trim(), ...(images.length ? { images } : {}) }
+  const { text, images, documents = [] } = tab.draft
+  if (isDraftEmpty(tab.draft, true)) return
+  const content: UserContent = { text: text.trim(), ...(images.length ? { images } : {}), ...(documents.length ? { documents } : {}) }
 
   try {
     if (!tab.localId && !(await confirmTrust(tab.cwd))) return
@@ -270,7 +293,7 @@ async function send(id: string): Promise<void> {
   const sent = transcript.items.at(-1)
   patchTab(id, (t) => ({
     transcript,
-    draft: { text: '', images: [] },
+    draft: withoutSent(t.draft, tab.draft),
     state: 'running',
     error: undefined,
     title: t.title === NEW_SESSION_TITLE ? shortTitle(content) : t.title
@@ -279,7 +302,7 @@ async function send(id: string): Promise<void> {
   const takeBack = (fields: Partial<SessionTab>): void => patchTab(id, (t) => ({
     ...fields,
     transcript: dropLast(t.transcript, sent),
-    draft: t.draft.text === '' && t.draft.images.length === 0 ? tab.draft : t.draft
+    draft: withSentBack(t.draft, tab.draft)
   }))
   try {
     if (!(await deliver(tab, content))) takeBack({ state: tab.state, title: tab.title })
@@ -309,7 +332,7 @@ async function deliver(tab: SessionTab, content: UserContent): Promise<boolean> 
  */
 export function askClaude(cwd: string, text: string): string {
   const current = tabOf(useSessions.getState().active[cwd])
-  const id = current && current.draft.text === '' && current.draft.images.length === 0 ? current.id : newTab(cwd)
+  const id = current && isDraftEmpty(current.draft) ? current.id : newTab(cwd)
   setDraftText(id, text)
   void submit(id)
   return id
@@ -361,7 +384,7 @@ async function loadHistory(cwd: string, s: SessionSummary): Promise<{ transcript
 }
 
 /** An empty placeholder tab: nothing typed, nothing running. */
-const isUntouched = (t: SessionTab): boolean => t.state === 'draft' && !t.localId && t.draft.text === '' && t.draft.images.length === 0
+const isUntouched = (t: SessionTab): boolean => t.state === 'draft' && !t.localId && isDraftEmpty(t.draft)
 
 function dropTabs(gone: SessionTab[]): void {
   useSessions.setState((state) => ({

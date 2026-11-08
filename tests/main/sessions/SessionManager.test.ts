@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
 import type {
   CanUseTool, getSessionMessages, listSessions, Options, PermissionResult, PermissionUpdate, Query, SDKMessage,
@@ -6,6 +9,7 @@ import type {
 import { SessionManager } from '../../../src/main/sessions/SessionManager'
 import type { SessionEvents } from '../../../src/shared/api'
 import { isRepoNotTrusted, REPO_NOT_TRUSTED, RepoNotTrustedError } from '../../../src/shared/errors'
+import { isAttachmentNote } from '../../../src/shared/attachments'
 import type { PermissionRequest } from '../../../src/shared/types'
 
 /** A `query` stand-in: the test drives what the session sees. */
@@ -83,7 +87,7 @@ interface Harness {
   getSessionMessages: ReturnType<typeof vi.fn<typeof getSessionMessages>>
 }
 
-function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (root: string) => boolean; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
+function setup(o: { attachmentsDir?: string; query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (root: string) => boolean; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
   const queries: FakeQuery[] = []
   const states: SessionEvents['state'][] = []
   const permissions: PermissionRequest[] = []
@@ -100,7 +104,8 @@ function setup(o: { query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options
     getSessionMessages: messages,
     env: () => o.env ?? { PATH: '/x' },
     pathToClaudeCodeExecutable: o.executable,
-    isTrusted: o.isTrusted ?? (() => true)
+    isTrusted: o.isTrusted ?? (() => true),
+    attachmentsDir: o.attachmentsDir
   })
   m.on('state', (s) => states.push(s))
   m.on('permission', (p) => permissions.push(p))
@@ -602,6 +607,96 @@ test('images follow the text as base64 blocks', async () => {
       ]
     }
   })
+})
+
+const PDF = { name: 'doc.pdf', base64: Buffer.from('%PDF-1.4').toString('base64') }
+const pdfBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: PDF.base64 }, title: 'doc.pdf' }
+const tmpDir = (): string => mkdtempSync(join(tmpdir(), 'canopy-attach-'))
+
+test('documents follow the images as titled PDF blocks', async () => {
+  const h = setup()
+  h.m.start('/a', { content: { text: 'lis', images: [{ mediaType: 'image/png', base64: 'AAAA' }], documents: [PDF] } })
+  await tick()
+  expect(h.queries[0].inputs[0].message.content).toMatchObject([
+    { type: 'text', text: 'lis' },
+    { type: 'image' },
+    pdfBlock
+  ])
+})
+
+test('a document is copied into the session folder, which Claude is told of and may read', async () => {
+  const dir = tmpDir()
+  const h = setup({ attachmentsDir: dir })
+  const id = h.m.start('/a', { content: { text: 'lis', documents: [PDF] } })
+  await tick()
+  const copy = join(dir, id, 'doc.pdf')
+  expect(readFileSync(copy, 'utf8')).toBe('%PDF-1.4')
+  const blocks = h.queries[0].inputs[0].message.content as { type: string; text?: string }[]
+  const note = blocks.at(-1)
+  expect(note?.type).toBe('text')
+  expect(isAttachmentNote(note?.text ?? '')).toBe(true)
+  expect(note?.text).toContain(copy)
+  expect(h.queries[0].options.additionalDirectories).toEqual([join(dir, id)])
+})
+
+test('a second document with the same name keeps the first copy', async () => {
+  const dir = tmpDir()
+  const h = setup({ attachmentsDir: dir })
+  const id = h.m.start('/a', { content: { text: '', documents: [PDF] } })
+  h.m.send(id, { text: '', documents: [{ name: 'doc.pdf', base64: Buffer.from('autre').toString('base64') }] })
+  await tick()
+  expect(readFileSync(join(dir, id, 'doc.pdf'), 'utf8')).toBe('%PDF-1.4')
+  expect(readFileSync(join(dir, id, 'doc (2).pdf'), 'utf8')).toBe('autre')
+})
+
+test('a document name cannot leave the session folder', async () => {
+  const dir = tmpDir()
+  const h = setup({ attachmentsDir: dir })
+  const id = h.m.start('/a', { content: { text: '', documents: [{ ...PDF, name: '../../evil.pdf' }] } })
+  await tick()
+  expect(readdirSync(join(dir, id))).toEqual(['evil.pdf'])
+  expect(existsSync(join(dir, 'evil.pdf'))).toBe(false)
+})
+
+test('a document named after a folder gets a plain name', async () => {
+  const dir = tmpDir()
+  const h = setup({ attachmentsDir: dir })
+  const id = h.m.start('/a', { content: { text: '', documents: [{ ...PDF, name: '..' }] } })
+  await tick()
+  expect(readdirSync(join(dir, id))).toEqual(['document.pdf'])
+})
+
+test('stopping a session deletes its copies', async () => {
+  const dir = tmpDir()
+  const h = setup({ attachmentsDir: dir })
+  const id = h.m.start('/a', { content: { text: '', documents: [PDF] } })
+  await tick()
+  h.m.stop(id)
+  expect(existsSync(join(dir, id))).toBe(false)
+})
+
+test('copies left by an earlier run are deleted at startup', () => {
+  const dir = tmpDir()
+  mkdirSync(join(dir, 'old-session'))
+  writeFileSync(join(dir, 'old-session', 'doc.pdf'), 'x')
+  setup({ attachmentsDir: dir })
+  expect(readdirSync(dir)).toEqual([])
+})
+
+test('without a copies folder, a document is sent with no note', async () => {
+  const h = setup()
+  h.m.start('/a', { content: { text: '', documents: [PDF] } })
+  await tick()
+  expect(h.queries[0].inputs[0].message.content).toEqual([pdfBlock])
+  expect(h.queries[0].options.additionalDirectories).toBeUndefined()
+})
+
+test('a document with no text or image is still sent', async () => {
+  const h = setup()
+  const id = h.m.start('/a', { content: { text: '', documents: [PDF] } })
+  await tick()
+  expect(h.queries[0].inputs).toHaveLength(1)
+  expect(h.stateOf(id)).toBe('running')
 })
 
 test('an image with no text sends no empty text block', async () => {

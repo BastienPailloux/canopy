@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeApp } from '../helpers/closeApp'
@@ -356,6 +356,42 @@ test('pasting text along with an image keeps the text', async () => {
   })
   expect(prevented).toBe(false) // the browser inserts the text
   await expect(page.getByAltText('Image 1')).toBeVisible()
+})
+
+const PDF_BYTES = '%PDF-1.4\n%%EOF\n'
+
+test('a PDF chosen with the attach button is sent and shown by name, its copy kept for the session', async () => {
+  await launch(true)
+  await page.getByRole('button', { name: 'Joindre un fichier' }).click({ trial: true })
+  await page.getByTestId('attach-input').setInputFiles({ name: 'spec.pdf', mimeType: 'application/pdf', buffer: Buffer.from(PDF_BYTES) })
+  await expect(page.getByRole('button', { name: 'Retirer spec.pdf' })).toBeVisible()
+  await send('lis la spec')
+  await expect(page.getByTestId('user-message').getByText('spec.pdf')).toBeVisible()
+  await expect(page.getByTestId('user-message')).not.toContainText('attachment-copy')
+  await expect.poll(() => readdir(join(userData, 'attachments')).then((d) => d.length)).toBe(1)
+})
+
+test('a PDF dropped on the composer is attached, an unknown file refused', async () => {
+  await launch(true)
+  const drop = (name: string, type: string): Promise<void> => composer().evaluate((el, f) => {
+    const data = new DataTransfer()
+    data.items.add(new File(['%PDF-1.4'], f.name, { type: f.type }))
+    el.closest('.composer')?.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
+  }, { name, type })
+  await drop('spec.pdf', 'application/pdf')
+  await expect(page.getByRole('button', { name: 'Retirer spec.pdf' })).toBeVisible()
+  await drop('notes.txt', 'text/plain')
+  await expect(page.getByText('Seuls les PDF et les images PNG, JPEG, GIF et WebP sont acceptés.')).toBeVisible()
+})
+
+test('a pasted PDF is attached', async () => {
+  await launch(true)
+  await composer().evaluate((el) => {
+    const data = new DataTransfer()
+    data.items.add(new File(['%PDF-1.4'], 'spec.pdf', { type: 'application/pdf' }))
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await expect(page.getByRole('button', { name: 'Retirer spec.pdf' })).toBeVisible()
 })
 
 test('pasting a path starts no session', async () => {

@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { MAX_DOCUMENT_BASE64 } from '../../../src/shared/sessionOptions'
 import { assertContent, assertMode, parseDecision, parseStartOptions } from '../../../src/main/sessions/validate'
 
 const content = { text: 'hi' }
@@ -30,13 +31,21 @@ test('assertContent accepts the allowed image types', () => {
   }
 })
 
+test('assertContent accepts PDF documents', () => {
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: 'AAAA' }] })).not.toThrow()
+})
+
 test.each([
   ['null', null],
   ['a missing text', {}],
   ['images that are no array', { text: '', images: 'x' }],
   ['a null image', { text: '', images: [null] }],
   ['an unknown image type', { text: '', images: [{ mediaType: 'image/svg+xml', base64: 'AAAA' }] }],
-  ['a missing base64', { text: '', images: [{ mediaType: 'image/png' }] }]
+  ['a missing base64', { text: '', images: [{ mediaType: 'image/png' }] }],
+  ['documents that are no array', { text: '', documents: 'x' }],
+  ['a document with no name', { text: '', documents: [{ base64: 'AAAA' }] }],
+  ['a document with no base64', { text: '', documents: [{ name: 'doc.pdf' }] }],
+  ['a document over the size limit', { text: '', documents: [{ name: 'doc.pdf', base64: 'A'.repeat(MAX_DOCUMENT_BASE64 + 4) }] }]
 ])('assertContent rejects %s', (_name, c) => {
   expect(() => assertContent(c)).toThrow()
 })
@@ -52,6 +61,10 @@ test('parseDecision keeps known fields only', () => {
   expect(parseDecision({ allow: true, always: true, updatedInput, x: 1 })).toEqual({ allow: true, always: true, updatedInput })
   expect(parseDecision({ allow: true })).toEqual({ allow: true })
   expect(parseDecision({ allow: false, message: 'Non', always: true })).toEqual({ allow: false, message: 'Non' })
+})
+
+test('assertContent accepts PDF documents', () => {
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: 'AAAA' }] })).not.toThrow()
 })
 
 test.each([
