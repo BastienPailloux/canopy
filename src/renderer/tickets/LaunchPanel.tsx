@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { BRANCH_TYPES, PRIORITY_LABEL, ticketKey, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
+import { useMockups } from '../mockups/mockupStore'
 import { basename, useApp } from '../store'
 import { linearBranchName, type LinearIssue } from '../../shared/linear'
 import { defaultBranchName, runLaunch, runLinearLaunch } from './launchFlow'
@@ -40,6 +41,10 @@ export function LaunchPanel(props: { repo: string; ticket?: Ticket; issue?: Line
   const [baseEdit, setBaseEdit] = useState<string | null>(null)
   const [name, setName] = useState(() => (props.issue ? linearBranchName(props.issue) : defaultBranchName(ticket as Ticket)))
   const [startClaude, setStartClaude] = useState(true)
+  const allMockups = useMockups((s) => s.list)
+  // A mockup links a local ticket by its ID only: a Linear issue may carry the same ID (CAN-7), so it gets none.
+  const mockups = useMemo(() => (isLinear ? [] : allMockups.filter((m) => m.ticket === ticket.id)), [allMockups, isLinear, ticket.id])
+  const [joinMockups, setJoinMockups] = useState(true)
   const [inProgress, setInProgress] = useState(props.ticket !== undefined && props.ticket.status !== 'in_progress' && props.ticket.status !== 'in_review')
   const [candidates, setCandidates] = useState<Candidates | null>(null)
   const [candidatesError, setCandidatesError] = useState<string | null>(null)
@@ -80,7 +85,7 @@ export function LaunchPanel(props: { repo: string; ticket?: Ticket; issue?: Line
     setError(null)
     try {
       if (isLinear) await runLinearLaunch(repo, { id: ticket.id, branch, target }, { startClaude })
-      else await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude })
+      else await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude, mockups: joinMockups ? mockups : [] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)
@@ -202,6 +207,12 @@ export function LaunchPanel(props: { repo: string; ticket?: Ticket; issue?: Line
           <input type="checkbox" checked={startClaude} onChange={(e) => setStartClaude(e.target.checked)} />
           Démarrer Claude Code avec la description du ticket
         </label>
+        {mockups.length > 0 && (
+          <label className="check">
+            <input type="checkbox" checked={joinMockups && startClaude} disabled={!startClaude} onChange={(e) => setJoinMockups(e.target.checked)} />
+            Joindre les maquettes liées ({mockups.length})
+          </label>
+        )}
         {!isLinear && <label className="check">
           <input type="checkbox" checked={inProgress} onChange={(e) => setInProgress(e.target.checked)} />
           Passer le ticket « En cours »

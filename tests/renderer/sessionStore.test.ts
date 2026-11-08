@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, openSession, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -23,7 +23,11 @@ const REQUEST = { requestId: 'r1', localId: 'local-1', toolName: 'Bash', input: 
 const tabs = (): SessionTab[] => Object.values(useSessions.getState().tabs)
 const activeTab = (): SessionTab => useSessions.getState().tabs[useSessions.getState().active[CWD]]
 
+let storage: Map<string, string>
+
 beforeEach(() => {
+  storage = new Map()
+  vi.stubGlobal('localStorage', { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v) } })
   useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null })
   api = {
     repoTrust: vi.fn(async () => TRUSTED),
@@ -419,6 +423,48 @@ describe('composerDraftCount', () => {
     expect(composerDraftCount()).toBe(1)
     setDraftText(activeTab().id, '   ')
     expect(composerDraftCount()).toBe(0)
+  })
+})
+
+describe('session mode', () => {
+  it('starts a new tab in auto mode', () => {
+    ensureTab(CWD)
+    expect(activeTab().mode).toBe('auto')
+  })
+
+  it('starts every new tab in the mode last chosen', () => {
+    ensureTab(CWD)
+    setMode(activeTab().id, 'plan')
+    newTab(CWD)
+    expect(activeTab().mode).toBe('plan')
+    expect(tabs()).toHaveLength(2)
+  })
+
+  it('applies the choice to the tabs not started yet, and not to a running one', async () => {
+    ensureTab(CWD)
+    const running = activeTab().id
+    setDraftText(running, 'salut')
+    await submit(running)
+    ensureTab('/other')
+    const waiting = useSessions.getState().active['/other']
+    setMode(newTab(CWD), 'plan')
+    expect(useSessions.getState().tabs[waiting].mode).toBe('plan')
+    expect(useSessions.getState().tabs[running].mode).toBe('auto')
+  })
+
+  it('applies the choice to a past session reopened but not restarted yet', async () => {
+    await openSession(CWD, PAST)
+    const resumed = activeTab().id
+    setMode(newTab(CWD), 'plan')
+    expect(useSessions.getState().tabs[resumed].mode).toBe('plan')
+  })
+
+  it('sends the chosen mode with the first message', async () => {
+    ensureTab(CWD)
+    setMode(activeTab().id, 'acceptEdits')
+    setDraftText(activeTab().id, 'salut')
+    await submit(activeTab().id)
+    expect(api.startSession).toHaveBeenCalledWith(CWD, expect.objectContaining({ mode: 'acceptEdits' }))
   })
 })
 

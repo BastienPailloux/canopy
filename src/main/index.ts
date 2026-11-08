@@ -16,6 +16,7 @@ import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
 import { selectLinearOpener } from './linear/replay'
 import { LinearSync } from './linear/sync'
+import { MockupStore } from './mockups/store'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { createCrashReload } from './crashReload'
@@ -184,7 +185,7 @@ void app.whenReady().then(async () => {
   const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets)
+    tickets, new MockupStore())
   const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,

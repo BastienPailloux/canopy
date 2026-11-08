@@ -97,6 +97,15 @@ describe('workspace', () => {
     expect(useApp.getState()).toMatchObject({ repo: '/ws/b', openTicket: null, selectedTicket: null })
   })
 
+  it('another repo closes the open mockup and clears the selected and pending ones; the same repo keeps them', () => {
+    useApp.getState().setWorkspace(ws(a, aFeat, b))
+    useApp.setState({ openMockup: 'new', selectedMockup: 'M1', pendingMockupTicket: 'A-1' })
+    useApp.getState().selectEntry(aFeat)
+    expect(useApp.getState()).toMatchObject({ openMockup: 'new', selectedMockup: 'M1', pendingMockupTicket: 'A-1' })
+    useApp.getState().selectEntry(b)
+    expect(useApp.getState()).toMatchObject({ openMockup: null, selectedMockup: null, pendingMockupTicket: null })
+  })
+
   it('selectEntry leaves the per-worktree state of other repos alone', () => {
     useApp.getState().setWorkspace(ws(a, b))
     useApp.getState().setBase('/ws/a', 'develop')

@@ -7,6 +7,7 @@ import {
 import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
 import { closeSaver, createSaver, createVersionFilter, draftToCreate, mergeDisk, notifySavers, trackSaver, type Saver } from './editorSave'
+import { LinkedMockups } from './LinkedMockups'
 import { useTickets } from './ticketStore'
 import { linkedWorktree, useRepoRefs } from './TicketsScreen'
 
@@ -224,6 +225,8 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
           <Description value={ticket.description} focus={focus('description')} onChange={(description) => update({ description })} />
 
           <Subtasks items={ticket.subtasks} focus={focus('subtasks')} onChange={(subtasks) => update({ subtasks })} />
+
+          {id && <LinkedMockups repo={repo} ticket={id} />}
         </div>
       </div>
 

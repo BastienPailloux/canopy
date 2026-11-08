@@ -6,7 +6,7 @@ import { defaultEntry, mergeScan, repoWorktrees, worktreeLabel } from './shell/w
 
 export { worktreeLabel }
 
-export type View = 'sessions' | 'code' | 'tickets'
+export type View = 'sessions' | 'code' | 'tickets' | 'mockups'
 
 /** A file the Code view must open as soon as it shows. */
 export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; /** 1-based line to reveal. */ line?: number; /** 1-based column of `line` for the cursor. */ column?: number; seq: number }
@@ -28,6 +28,12 @@ interface AppState {
   openTicket: TicketKey | 'new' | null
   /** Ticket highlighted in the list. */
   selectedTicket: TicketKey | null
+  /** Mockup open in the edit screen (4b); `'new'`: one Claude is to create; null: the gallery. */
+  openMockup: string | null
+  /** Mockup highlighted in the gallery. */
+  selectedMockup: string | null
+  /** The local ticket (its ID) the mockup being created (`openMockup: 'new'`) is to be linked to once published. */
+  pendingMockupTicket: string | null
   /** Branch each worktree is compared against when the user picked one; absent: the default branch. */
   bases: Record<string, string>
   codeRequest: CodeRequest | null
@@ -55,6 +61,9 @@ interface AppState {
   setView: (view: View) => void
   setOpenTicket: (key: TicketKey | 'new' | null) => void
   setSelectedTicket: (key: TicketKey | null) => void
+  setOpenMockup: (id: string | null) => void
+  setSelectedMockup: (id: string | null) => void
+  setPendingMockupTicket: (id: string | null) => void
   setBase: (cwd: string, base: string | undefined) => void
 }
 
@@ -62,13 +71,17 @@ let requestCount = 0
 
 const noRepoMessage = (root: string): string => `Aucun repo git dans ${root}`
 
-type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees' | 'openTicket' | 'selectedTicket'>
+type Selection = Pick<AppState,
+  'repo' | 'worktree' | 'worktrees' | 'openTicket' | 'selectedTicket' | 'openMockup' | 'selectedMockup' | 'pendingMockupTicket'>
 
-/** Another repo has other tickets: the one open or selected would point at a ticket of the repo left. */
+/** Another repo has other tickets and mockups: the ones open or selected would point at the repo left. */
 function selection(s: Selection, workspace: Workspace, repo: string, worktree: string): Partial<Selection> {
   return repo === s.repo
     ? { worktree }
-    : { repo, worktree, worktrees: repoWorktrees(workspace, repo), openTicket: null, selectedTicket: null }
+    : {
+        repo, worktree, worktrees: repoWorktrees(workspace, repo), openTicket: null, selectedTicket: null,
+        openMockup: null, selectedMockup: null, pendingMockupTicket: null
+      }
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -81,6 +94,9 @@ export const useApp = create<AppState>((set) => ({
   view: 'sessions',
   openTicket: null,
   selectedTicket: null,
+  openMockup: null,
+  selectedMockup: null,
+  pendingMockupTicket: null,
   bases: {},
   codeRequest: null,
   openInCode: (cwd, path, mode, line, column) =>
@@ -118,6 +134,9 @@ export const useApp = create<AppState>((set) => ({
   setView: (view) => set({ view }),
   setOpenTicket: (openTicket) => set({ openTicket }),
   setSelectedTicket: (selectedTicket) => set({ selectedTicket }),
+  setOpenMockup: (openMockup) => set({ openMockup }),
+  setSelectedMockup: (selectedMockup) => set({ selectedMockup }),
+  setPendingMockupTicket: (pendingMockupTicket) => set({ pendingMockupTicket }),
   setBase: (cwd, base) => set((s) => {
     const { [cwd]: _old, ...rest } = s.bases
     return { bases: base === undefined ? rest : { ...rest, [cwd]: base } }

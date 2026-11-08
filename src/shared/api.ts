@@ -8,6 +8,7 @@ import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
   LinearListState, LinearStatus, LinearUser, PendingEdit, SaveResult
 } from './linear'
+import type { Mockup, MockupChanges, MockupFields, MockupList, MockupViewBounds } from './mockups'
 
 export interface RemovalRisks {
   dirty: number
@@ -270,6 +271,25 @@ export interface CanopyApi {
   linearLaunch(repo: string, req: LinearLaunchRequest): Promise<{ worktree: string; issue: LinearIssue }>
   /** Launched Linear issues of `repo`'s main checkout, by issue id. */
   linearLinks(repo: string): Promise<Record<string, LinearLink>>
+  /** Mockups of the repo whose main checkout holds `repo`; an unreadable registry is reported, never rewritten. */
+  listMockups(repo: string): Promise<MockupList>
+  /** Registers the claude.ai artifact at `url`. Already there: returns it, linked to `fields.ticket` if it had no ticket. */
+  addMockup(repo: string, url: string, fields?: Partial<MockupFields>): Promise<Mockup>
+  /** `ticket: null` removes the link; a `title` sets `titleSet` unless given. */
+  patchMockup(repo: string, id: string, changes: MockupChanges): Promise<Mockup>
+  /** Forgets the mockup in Canopy; it stays on claude.ai. */
+  removeMockup(repo: string, id: string): Promise<void>
+  /** Watches the mockups of `repo` for this window, and no other repo: emits `mockups:changed` `{ repo }` (main root). */
+  watchMockups(repo: string): Promise<void>
+  /**
+   * Shows the claude.ai view of this window over `bounds` (window content pixels), loading `url` unless it is already
+   * the one shown. Hide it before any modal: the native view is drawn above the page.
+   * Emits `mockups:title` (`MockupTitleEvent`) and `mockups:viewError` (`MockupViewErrorEvent`) on `on(...)`.
+   */
+  showMockupView(url: string, bounds: MockupViewBounds): Promise<void>
+  setMockupViewBounds(bounds: MockupViewBounds): Promise<void>
+  hideMockupView(): Promise<void>
+  reloadMockupView(): Promise<void>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */
