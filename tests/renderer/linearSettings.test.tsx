@@ -13,6 +13,17 @@ describe('LinearSettings', () => {
     expect(out).not.toContain('Connecter Linear')
   })
 
+  it('expired offers Reconnecter and Déconnecter', () => {
+    const out = html({ state: 'expired', missingTools: [] })
+    expect(out).toContain('Reconnecter')
+    expect(out).toContain('>Déconnecter<')
+  })
+
+  it('missing tools and parameters: the new text', () => {
+    const out = html({ state: 'connected', workspace: 'w', email: 'e', missingTools: ['save_comment', 'save_issue.patch'] })
+    expect(out).toContain('Linear a changé : outils manquants (save_comment, save_issue.patch). Certaines fonctions peuvent échouer.')
+  })
+
   it('disconnected offers « Connecter Linear »', () => {
     expect(html({ state: 'disconnected', missingTools: [] })).toContain('Connecter Linear')
   })

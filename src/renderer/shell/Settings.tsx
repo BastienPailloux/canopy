@@ -59,7 +59,7 @@ export function LinearSettingsView({ connection }: { connection: LinearConnectio
       {state === 'expired' && <span className="linear-hint">Connexion Linear expirée.</span>}
       {/* Tokens are stored: Canopy tries them again on every refresh, nothing to connect. */}
       {state === 'offline' && <span className="linear-hint" role="status">{connection.error ?? 'Linear injoignable.'} Nouvel essai au prochain rafraîchissement.</span>}
-      {(state === 'connected' || state === 'offline') && !confirming && (
+      {state !== 'disconnected' && !confirming && (
         <button type="button" className="secondary" onClick={() => void disconnect()}>Déconnecter</button>
       )}
       {(state === 'disconnected' || state === 'expired') && (
@@ -77,7 +77,7 @@ export function LinearSettingsView({ connection }: { connection: LinearConnectio
       )}
       {missingTools.length > 0 && (
         <span role="status" className="linear-warn">
-          Linear a changé : outils manquants ({missingTools.join(', ')}). Certaines fonctions sont désactivées.
+          Linear a changé : outils manquants ({missingTools.join(', ')}). Certaines fonctions peuvent échouer.
         </span>
       )}
       {error && <p className="error" role="alert">{error}</p>}
