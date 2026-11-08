@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Error: Patch failed, nothing was saved. Operation 2 (replace): `old_string` not found in the current content. Fetch the latest content and copy the text exactly."
+    }
+  ],
+  "isError": true
+}

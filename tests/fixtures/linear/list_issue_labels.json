@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"labels\":[{\"id\":\"ff2e4191-e1ef-455a-b525-9f6a62b1a49b\",\"name\":\"Improvement\",\"color\":\"#4EA7FC\",\"description\":null,\"archivedAt\":null},{\"id\":\"dc8cf97b-07f9-4adb-a62a-14d950b3a858\",\"name\":\"Feature\",\"color\":\"#BB87FC\",\"description\":null,\"archivedAt\":null},{\"id\":\"5017b098-a276-4b03-a441-8b28a1bb96b3\",\"name\":\"Bug\",\"color\":\"#EB5757\",\"description\":null,\"archivedAt\":null}],\"hasNextPage\":false}"
+    }
+  ]
+}

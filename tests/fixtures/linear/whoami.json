@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"user\":{\"id\":\"5d215785-3c9b-44ff-aa4c-f00a2c2229ee\",\"name\":\"Bastien\",\"email\":\"bastien.pailloux@hotmail.fr\",\"displayName\":\"bastien.pailloux\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true},\"workspace\":{\"id\":\"8ef0242b-d8f9-4ec6-af6b-992bedcb55fe\",\"name\":\"canopy\",\"url\":\"https://linear.app/bpailloux-canopy\"},\"connection\":{\"client\":\"Canopy (capture)\",\"access\":\"all\"}}"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[{\"id\":\"5ce0420c-c7ba-4603-a06b-6f8777a4bd4a\",\"type\":\"started\",\"name\":\"In Review\"},{\"id\":\"c5a0180f-aa18-4778-9794-32c1930274fe\",\"type\":\"completed\",\"name\":\"Done\"},{\"id\":\"82bdca9e-3f5a-4fc7-b3f7-70203849afaf\",\"type\":\"canceled\",\"name\":\"Canceled\"},{\"id\":\"65d36428-f47c-4f20-a820-43d226fb0577\",\"type\":\"started\",\"name\":\"In Progress\"},{\"id\":\"2dadbe3f-ba74-4c3d-af57-8e01466b083a\",\"type\":\"unstarted\",\"name\":\"Todo\"},{\"id\":\"18a8edde-8884-4e80-b4d8-203dedbf6817\",\"type\":\"duplicate\",\"name\":\"Duplicate\"},{\"id\":\"0578985e-3641-4aeb-b3c7-3519f6097fa2\",\"type\":\"backlog\",\"name\":\"Backlog\"}]"
+    }
+  ]
+}

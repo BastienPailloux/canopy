@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Error: Patch failed, nothing was saved. Operation 1 (replace): `old_string` matches 2 locations:\n1. \"…UNIQUE-1 PROBE-UNIQUE-2\\n\\n«PROBE-DUP» PROBE-DUP…\"\n2. \"…ROBE-UNIQUE-2\\n\\nPROBE-DUP «PROBE-DUP»…\"\nAdd surrounding text to make it unique, or set replace_all to replace every occurrence."
+    }
+  ],
+  "isError": true
+}
