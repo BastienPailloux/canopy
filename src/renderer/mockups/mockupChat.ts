@@ -49,18 +49,28 @@ export function resetChats(): void {
 
 /**
  * Opens the creation screen for a new mockup to link to `ticket` (null: none). A creation already asked of Claude and
- * still waiting for its publish keeps its own conversation and ticket; the screen starts a fresh one.
+ * still waiting for its publish keeps its own conversation and ticket; the screen starts a fresh one. A creation whose
+ * tab is open but nothing was asked yet (its first send failed) is reused, now for `ticket`.
  */
 export function startCreation(ticket: string | null): void {
   const app = useApp.getState()
   const cwd = app.worktrees.find((w) => w.isMain)?.path
   const key = cwd ? chatKey(cwd, 'new') : null
   const waiting = key ? chats.get(key) : undefined
-  if (key && waiting && useSessions.getState().tabs[waiting.tab]?.transcript.items.some((i) => i.kind === 'user')) {
-    chats.delete(key)
-    chats.set(chatKey(waiting.cwd, `pending:${waiting.tab}`), waiting)
+  const tab = waiting ? useSessions.getState().tabs[waiting.tab] : undefined
+  let pending = ticket
+  if (key && waiting && tab) {
+    if (tab.transcript.items.some((i) => i.kind === 'user')) {
+      chats.delete(key)
+      chats.set(chatKey(waiting.cwd, `pending:${waiting.tab}`), waiting)
+    } else {
+      // The next send goes to this conversation: it takes the ticket now, none is left pending.
+      if (ticket) waiting.ticket = ticket
+      else delete waiting.ticket
+      pending = null
+    }
   }
-  app.setPendingMockupTicket(ticket)
+  app.setPendingMockupTicket(pending)
   app.setOpenMockup('new')
   app.setView('mockups')
 }

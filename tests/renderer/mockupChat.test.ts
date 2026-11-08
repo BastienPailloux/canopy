@@ -224,6 +224,39 @@ describe('publishes of a creation', () => {
     expect(addMockup).toHaveBeenCalledWith('/r', url(OTHER), { kind: 'web', ticket: 'B-1' })
   })
 
+  it('a creation whose first send failed takes the ticket of the next creation, or none', async () => {
+    const startSession = window.canopy.startSession
+    window.canopy.startSession = async () => { throw new Error('hors ligne') }
+    startCreation('REP-1')
+    const failed = await sendEdit('/r', '/r', null, 'Crée', false)
+    expect(failed.sent).toBe(false)
+    window.canopy.startSession = startSession
+
+    startCreation('REP-2')
+    expect(useApp.getState().pendingMockupTicket).toBeNull()
+    const { tab } = await sendEdit('/r', '/r', null, 'Crée', false)
+    expect(tab).toBe(failed.tab)
+    addItem(tab, published('p1', OTHER))
+    await flush()
+    expect(addMockup).toHaveBeenLastCalledWith('/r', url(OTHER), { kind: 'web', ticket: 'REP-2' })
+  })
+
+  it('from the gallery, a creation whose first send failed is linked to no ticket', async () => {
+    const startSession = window.canopy.startSession
+    window.canopy.startSession = async () => { throw new Error('hors ligne') }
+    startCreation('REP-1')
+    const failed = await sendEdit('/r', '/r', null, 'Crée', false)
+    expect(failed.sent).toBe(false)
+    window.canopy.startSession = startSession
+
+    startCreation(null)
+    const { tab } = await sendEdit('/r', '/r', null, 'Crée', false)
+    expect(tab).toBe(failed.tab)
+    addItem(tab, published('p1', OTHER))
+    await flush()
+    expect(addMockup).toHaveBeenLastCalledWith('/r', url(OTHER), { kind: 'web' })
+  })
+
   it('a registration that fails is reported', async () => {
     addMockup.mockRejectedValueOnce(new Error('disque plein'))
     const { tab } = await sendEdit('/r', '/r', null, 'Crée', false)
