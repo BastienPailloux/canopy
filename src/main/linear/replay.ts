@@ -130,7 +130,8 @@ export function replayLinear(opts: ReplayOptions = {}): McpCaller {
     }
     const limit = Math.min(typeof args.limit === 'number' ? args.limit : 50, opts.pageSize ?? Infinity)
     const start = typeof args.cursor === 'string' ? Number(args.cursor.replace(/^replay-/, '')) || 0 : 0
-    const page = found.slice(start, start + limit)
+    const fields = Array.isArray(args.fields) && args.fields.length > 0 ? ['id', ...(args.fields as string[])] : null
+    const page = found.slice(start, start + limit).map((i) => (fields ? Object.fromEntries(fields.map((f) => [f, i[f] ?? null])) : i))
     const more = start + limit < found.length
     return answer({ issues: page, hasNextPage: more, ...(more ? { cursor: `replay-${start + limit}` } : {}) })
   }

@@ -189,6 +189,45 @@ describe('LinearClient reads', () => {
     expect(typeof calls[1].cursor).toBe('string')
   })
 
+  it('listMine asks 250 per page and no description: the list never needs one', async () => {
+    const { client, fake } = await connected()
+    const issues = await client.listMine()
+    const [args] = pages(fake.calls, 'list_issues')
+    expect(args).toMatchObject({ assignee: 'me', limit: 250 })
+    expect(args.fields).toEqual(expect.arrayContaining(['id', 'title', 'status', 'statusType', 'labels', 'assignee', 'assigneeId', 'team', 'teamId', 'url']))
+    expect(args.fields).not.toContain('description')
+    expect(issues.length).toBeGreaterThan(0)
+    expect(issues.every((i) => i.description === '')).toBe(true)
+  })
+
+  it('one refresh of 300 assigned issues takes two list calls', async () => {
+    const row = (n: number) => ({
+      id: `CAN-${n}`, uuid: `u${n}`, title: `T${n}`, priority: { value: 0, name: 'No priority' }, url: 'https://x',
+      updatedAt: '2026-11-08T00:00:00.000Z', status: 'Todo', statusType: 'unstarted', labels: [], assignee: null, assigneeId: null,
+      team: 'Canopy', teamId: TEAM,
+    })
+    const all = Array.from({ length: 300 }, (_, n) => row(n + 1))
+    const { client, fake } = await connected({
+      mutate: (tool, args) => {
+        if (tool !== 'list_issues') return undefined
+        const start = typeof args.cursor === 'string' ? Number(args.cursor) : 0
+        const limit = Math.min(Number(args.limit ?? 50), 250)
+        const more = start + limit < all.length
+        return { issues: all.slice(start, start + limit), hasNextPage: more, ...(more ? { cursor: String(start + limit) } : {}) }
+      },
+    })
+    expect(await client.listMine()).toHaveLength(300)
+    expect(pages(fake.calls, 'list_issues')).toHaveLength(2)
+  })
+
+  it('the description is read with the issue, never from the list', async () => {
+    const { client } = await connected()
+    const listed = (await client.listMine()).find((i) => i.id === 'CAN-3')
+    const brief = await client.issueBrief('CAN-3')
+    expect(listed?.description).toBe('')
+    expect(brief.description).not.toBe('')
+  })
+
   it('a cursor that does not move is an error, not a loop', async () => {
     const { client } = await connected({
       mutate: (tool) => (tool === 'list_issues' ? { issues: [], hasNextPage: true, cursor: 'same' } : undefined),

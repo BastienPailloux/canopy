@@ -24,6 +24,9 @@ export const ISSUE_FIELDS: string[] = [
   'labels', 'assignee', 'assigneeId', 'parentId', 'team', 'teamId', 'cycleId', 'project',
 ]
 
+/** A list row: the issue without its description, which only the editor and the launch read (`get_issue`). */
+export const LIST_FIELDS: string[] = ISSUE_FIELDS.filter((f) => f !== 'description')
+
 const STATUS_TYPES: LinearStatusType[] = ['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled', 'duplicate']
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)

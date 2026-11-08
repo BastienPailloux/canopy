@@ -5,7 +5,7 @@ import type { LinearComment, LinearConnection, LinearIssue, LinearIssueDetail, L
 import type { AppStore } from '../appStore'
 import { LinearAuthProvider, waitForCallback } from './auth'
 import {
-  ISSUE_FIELDS, LinearError, LinearFormatError, parseComments, parseIssue, parseIssueList, parseLabels, parseStatuses, parseUsers,
+  ISSUE_FIELDS, LIST_FIELDS, LinearError, LinearFormatError, parseComments, parseIssue, parseIssueList, parseLabels, parseStatuses, parseUsers,
   parseWhoami, toolJson, type CallToolResult,
 } from './parse'
 
@@ -70,7 +70,8 @@ const isUnauthorized = (e: unknown): boolean =>
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-const PAGE = 50
+/** Linear's own maximum: Bastien's list takes one call up to 250 issues. */
+const PAGE = 250
 
 /** Connection to the official Linear MCP server, and the calls Canopy makes. */
 export class LinearClient {
@@ -200,9 +201,9 @@ export class LinearClient {
     }
   }
 
-  /** Issues assigned to Bastien, every page. */
+  /** Issues assigned to Bastien, every page, without their description (`description: ''`): read it with `issueBrief`. */
   listMine(): Promise<LinearIssue[]> {
-    return this.all('list_issues', { assignee: 'me', limit: PAGE }, (v) => parseIssueList(v).issues)
+    return this.all('list_issues', { assignee: 'me', limit: PAGE, fields: LIST_FIELDS }, (v) => parseIssueList(v).issues)
   }
 
   issueBrief(id: string): Promise<LinearIssue> {
@@ -213,7 +214,7 @@ export class LinearClient {
   async issue(id: string): Promise<LinearIssueDetail> {
     const issue = await this.issueBrief(id)
     const [children, comments] = await Promise.all([
-      this.all('list_issues', { parentId: issue.id, limit: PAGE }, (v) =>
+      this.all('list_issues', { parentId: issue.id, limit: PAGE, fields: LIST_FIELDS }, (v) =>
         parseIssueList(v).issues.map(({ id: childId, title, status }) => ({ id: childId, title, status }))),
       this.all('list_comments', { issueId: issue.id }, parseComments),
     ])
