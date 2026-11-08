@@ -419,6 +419,20 @@ input:focus-visible {
 .wt-switch:hover {
   color: var(--fg);
 }
+.wt-ticket {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--selected);
+  color: var(--fg-2);
+  font-size: 10.5px;
+}
+.wt-ticket:hover {
+  color: var(--fg);
+}
 .wt-remove:hover {
   color: var(--del);
 }

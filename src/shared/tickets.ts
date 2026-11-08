@@ -74,6 +74,9 @@ export function branchSlug(title: string): string {
   return words.join('-') || 'ticket'
 }
 
+/** A ticket ID prefix: capitals and digits, 10 at most, starting with a letter. Checked in main on every write and by the settings field. */
+export const PREFIX_RE = /^[A-Z][A-Z0-9]{0,9}$/
+
 /** First three ASCII letters of the repo folder name, uppercased. */
 export function defaultPrefix(repoName: string): string {
   const letters = repoName.replace(/[^A-Za-z]/g, '').slice(0, 3)

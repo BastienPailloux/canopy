@@ -1,14 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join, sep } from 'node:path'
-import { defaultPrefix } from '../../shared/tickets'
+import { defaultPrefix, PREFIX_RE } from '../../shared/tickets'
 import type { Ticket, TicketFields, TicketListEntry } from '../../shared/tickets'
 import { git } from '../git/exec'
 import { ensureExcluded, mainWorktreeRoot } from '../git/worktrees'
 import { parseTicket, serializeTicket, unknownFields } from './format'
 
 const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
-const PREFIX_RE = /^[A-Z][A-Z0-9]{0,9}$/
 const EXCLUDE_ENTRY = '/.tickets/'
 
 interface Config { prefix: string; next: number }

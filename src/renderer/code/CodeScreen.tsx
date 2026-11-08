@@ -6,6 +6,7 @@ import type { Navigate, Reveal } from './Editors'
 import { getShown, setShown } from './drafts'
 import { FileTree } from './FileTree'
 import { ResultsPanel, SearchPanel, type Found } from './SearchPanel'
+import { useBranchBase } from './useBranchBase'
 import { useCodeData } from './useCodeData'
 import './code.css'
 
@@ -13,6 +14,8 @@ const UNKNOWN_BASE = 'Branche de comparaison inconnue'
 const SLOW_MS = 400
 
 const baseGone = (branch: string): string => `La branche « ${branch} » est introuvable : retour à la branche par défaut.`
+
+const baseLost = (branch: string): string => `La base « ${branch} » n'existe plus : retour à la branche par défaut.`
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
@@ -135,6 +138,9 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
     }
   }, [pickedBase, data.error])
 
+  const stacked = useBranchBase(cwd, props.branch)
+  useEffect(() => { if (stacked.lost !== null) setBaseNotice(baseLost(stacked.lost)) }, [stacked.lost])
+
   const lostBase = data.base?.lostBase
   useEffect(() => { if (lostBase !== undefined) setBaseNotice(baseGone(lostBase)) }, [lostBase])
 
@@ -149,6 +155,7 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
     if (data.base) names.add(data.base.ref)
     return [...names].sort()
   }, [data.branches, data.base])
+  const otherOptions = branchOptions.filter((b) => b !== stacked.base)
 
   return (
     <div className="code-screen">
@@ -156,7 +163,7 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         <span className="mono">{props.branch}</span>
         <span className="muted">comparé à</span>
         <select aria-label="Branche de comparaison" className="ctl-select mono" value={pickedBase ?? data.base?.ref ?? ''}
-          disabled={branchOptions.length === 0}
+          disabled={branchOptions.length === 0 && stacked.base === null}
           onChange={(e) => {
             setBaseNotice(null)
             setPickedBase(e.target.value)
@@ -164,7 +171,12 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
           }}>
           {/* No default branch was found: picking one is the way out. */}
           {pickedBase === undefined && !data.base && <option value="" disabled>Choisir une branche…</option>}
-          {branchOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+          {stacked.base !== null && (
+            <optgroup label="Base de la branche"><option value={stacked.base}>{stacked.base}</option></optgroup>
+          )}
+          {stacked.base !== null
+            ? <optgroup label="Autres branches">{otherOptions.map((b) => <option key={b} value={b}>{b}</option>)}</optgroup>
+            : otherOptions.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         <label className="remember-base muted">
           <input type="checkbox" checked={isRemembered} disabled={compared === undefined} onChange={(e) => remember(e.target.checked ? compared ?? null : null)} />

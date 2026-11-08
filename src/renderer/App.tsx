@@ -95,7 +95,7 @@ function Main(): React.JSX.Element {
           <div className="main-row">
             <SessionsView cwd={shown.path} worktreeLabel={worktreeLabel(shown)} />
             {worktree && <SidePanelEdge />}
-            {worktree && <SidePanel cwd={worktree.path} />}
+            {worktree && <SidePanel cwd={worktree.path} branch={worktreeLabel(worktree)} />}
           </div>
         )
         : worktree
