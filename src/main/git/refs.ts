@@ -1,5 +1,6 @@
 import type { BaseRef } from '../../shared/types'
 import { git, GitError } from './exec'
+import { listWorktrees } from './worktrees'
 
 async function exists(repo: string, ref: string): Promise<boolean> {
   try {
@@ -65,4 +66,20 @@ export async function listBranches(repo: string): Promise<string[]> {
     return []
   })
   return [...new Set(names)].sort()
+}
+
+/**
+ * Among the branches open in the repo's other worktrees, the one with most commits not in `defaultRef`.
+ * A tie goes to the latest commit. Null when none is ahead.
+ */
+export async function mostAdvancedBranch(repo: string, defaultRef: string): Promise<{ branch: string; ahead: number } | null> {
+  let best: { branch: string; ahead: number; time: number } | null = null
+  for (const w of await listWorktrees(repo)) {
+    if (w.isMain || w.branch === null) continue
+    const ahead = await aheadCount(w.path, defaultRef)
+    if (ahead <= 0) continue
+    const time = parseInt((await git(w.path, ['log', '-1', '--format=%ct', 'HEAD'])).trim(), 10)
+    if (best === null || ahead > best.ahead || (ahead === best.ahead && time > best.time)) best = { branch: w.branch, ahead, time }
+  }
+  return best && { branch: best.branch, ahead: best.ahead }
 }
