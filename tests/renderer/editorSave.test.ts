@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TicketFields } from '../../src/shared/tickets'
-import { createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
+import { closeSaver, createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
 
 type Changes = Partial<TicketFields>
 
@@ -202,5 +202,62 @@ describe('draftToCreate', () => {
     expect(draftToCreate(draft)).toBeNull()
     expect(draftToCreate({ ...draft, title: '   ' })).toBeNull()
     expect(draftToCreate({ ...draft, title: 'T' })).toEqual({ ...draft, title: 'T' })
+  })
+})
+
+describe('closeSaver', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('untracks at once when the last flush works', async () => {
+    const s = createSaver(async () => {}, 500, { onPending: notifySavers })
+    trackSaver(s)
+    s.change({ title: 'A' })
+    await closeSaver(s, () => true)
+    expect(unsavedTickets()).toBe(0)
+    s.change({ title: 'B' })
+    expect(unsavedTickets()).toBe(0)
+    s.dispose()
+  })
+
+  it('a failed flush on close stays counted and retried with backoff; a later success untracks it', async () => {
+    let fail = true
+    const save = vi.fn(async (_c: Changes) => { if (fail) throw new Error('x') })
+    const s = createSaver(save, 500, { onPending: notifySavers, onError: () => {}, retryMs: 3000 })
+    trackSaver(s)
+    s.change({ title: 'A' })
+    void closeSaver(s, () => true, { firstMs: 1000, maxMs: 4000 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(unsavedTickets()).toBe(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(save).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(save).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(save).toHaveBeenCalledTimes(4)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(save).toHaveBeenCalledTimes(5)
+    expect(unsavedTickets()).toBe(1)
+    fail = false
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(save).toHaveBeenCalledTimes(6)
+    expect(unsavedTickets()).toBe(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(save).toHaveBeenCalledTimes(6)
+  })
+
+  it('stops when the editor came back (StrictMode remount): the saver stays its own', async () => {
+    const save = vi.fn(async (_c: Changes) => { throw new Error('x') })
+    const s = createSaver(save, 500, { onPending: notifySavers, onError: () => {}, retryMs: 3000 })
+    const untrack = trackSaver(s)
+    s.change({ title: 'A' })
+    await closeSaver(s, () => false)
+    expect(unsavedTickets()).toBe(1)
+    // Its own retry timer still runs.
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(save).toHaveBeenCalledTimes(2)
+    untrack()
+    s.dispose()
   })
 })

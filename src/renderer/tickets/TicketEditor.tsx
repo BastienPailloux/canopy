@@ -5,7 +5,7 @@ import {
 } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
-import { createSaver, createVersionFilter, draftToCreate, mergeDisk, notifySavers, trackSaver, type Saver } from './editorSave'
+import { closeSaver, createSaver, createVersionFilter, draftToCreate, mergeDisk, notifySavers, trackSaver, type Saver } from './editorSave'
 import { useTickets } from './ticketStore'
 import { linkedWorktree, useRepoRefs } from './TicketsScreen'
 
@@ -91,14 +91,14 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     onPending: notifySavers
   })
 
-  // Counted by what quitting would lose while it holds changes; once closed, it writes them, then stops.
+  // Counted by what quitting would lose while it holds changes; once closed, it writes them, then stops being counted.
   useEffect(() => {
     live.current = true
     const s = saver.current
-    const untrack = trackSaver(s)
+    trackSaver(s)
     return () => {
       live.current = false
-      void s.flush().then(() => { if (!live.current) { s.dispose(); untrack() } })
+      void closeSaver(s, () => !live.current)
     }
   }, [])
 

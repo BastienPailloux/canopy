@@ -99,6 +99,26 @@ export function onSaversChange(l: () => void): () => void {
   return () => { listeners.delete(l) }
 }
 
+/**
+ * The editor of `s` closed: writes what it holds, then stops counting it. A failed write stays counted (quit asks) and is
+ * tried again with a growing pause, up to `maxMs`, until it works. `closed` false after the write: the editor came back
+ * (StrictMode remount) and keeps its saver as it was.
+ */
+export async function closeSaver(s: Saver, closed: () => boolean, backoff = { firstMs: 3000, maxMs: 60_000 }): Promise<void> {
+  let ok = await s.flush()
+  if (!closed()) return
+  // Its own retry stops: this loop takes over, with a pause that grows.
+  s.dispose()
+  let wait = backoff.firstMs
+  while (!ok) {
+    await new Promise((resolve) => setTimeout(resolve, wait))
+    wait = Math.min(wait * 2, backoff.maxMs)
+    ok = await s.flush()
+  }
+  open.delete(s)
+  notifySavers()
+}
+
 /** Writes what every open editor holds; true if nothing is left pending. */
 export async function flushSavers(): Promise<boolean> {
   return (await Promise.all([...open].map((s) => s.flush()))).every(Boolean)

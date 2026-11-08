@@ -48,7 +48,12 @@ export function updateDetail(counts: RunningCounts): string {
   const running = runningList(counts)
   return [
     ...(running.length > 0 ? [`Redémarrer arrêtera : ${running.join(', ')}.`] : []),
-    'Les fichiers non enregistrés et les brouillons seront conservés.'
+    'Les fichiers non enregistrés et les brouillons seront conservés.',
+    ...(counts.tickets === 1
+      ? ['1 ticket pas encore enregistré le sera avant le redémarrage ; en cas d’échec, ses modifications seront perdues.']
+      : counts.tickets > 1
+        ? [`${counts.tickets} tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.`]
+        : [])
   ].join(' ')
 }
 

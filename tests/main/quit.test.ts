@@ -82,8 +82,15 @@ test('finish stops everything and hands over without asking', () => {
   expect(h.flow.quitting).toBe(true)
 })
 test('update detail says what stops and that edits are kept', () => {
-  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1, tickets: 1 })).toBe(
+  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1, tickets: 0 })).toBe(
     'Redémarrer arrêtera : 2 sessions Claude en cours, 1 terminal actif. Les fichiers non enregistrés et les brouillons seront conservés.')
+})
+
+test('update detail says unwritten ticket edits are written first, and lost if that fails', () => {
+  expect(updateDetail({ ...NONE, tickets: 1 })).toBe(
+    'Les fichiers non enregistrés et les brouillons seront conservés. 1 ticket pas encore enregistré le sera avant le redémarrage ; en cas d’échec, ses modifications seront perdues.')
+  expect(updateDetail({ ...NONE, tickets: 2 })).toBe(
+    'Les fichiers non enregistrés et les brouillons seront conservés. 2 tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.')
 })
 
 test('finish while the quit question is open: a later confirm does not stop or quit again', async () => {
