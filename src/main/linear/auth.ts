@@ -1,4 +1,6 @@
-import { createServer, type Server } from 'node:http'
+import { randomBytes } from 'node:crypto'
+import { createServer, type RequestListener, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { AppStore, LinearAuthState } from '../appStore'
@@ -7,12 +9,19 @@ type AuthStore = Pick<AppStore, 'linearAuth' | 'saveLinearAuth'>
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-/** OAuth state of the Linear MCP connection, kept encrypted in the app store. Opens the browser only through `openExternal`. */
+/**
+ * OAuth state of the Linear MCP connection, kept encrypted in the app store. Opens the browser through `openExternal`,
+ * and only while `interactive`. Outside an interactive connect, credentials the SDK wants to drop are kept and the state
+ * is marked `expired` instead, so a restart still reads « expirée » and not « déconnectée ».
+ */
 export class LinearAuthProvider implements OAuthClientProvider {
+  private flow: string | undefined
+
   constructor(
     private readonly store: AuthStore,
     private readonly redirect: string,
     private readonly openExternal: (url: string) => void,
+    public interactive = true,
   ) {}
 
   get redirectUrl(): string { return this.redirect }
@@ -28,12 +37,24 @@ export class LinearAuthProvider implements OAuthClientProvider {
     }
   }
 
+  /** The `state` of the authorization in progress (memory only), for the callback to check. */
+  get expectedState(): string | undefined { return this.flow }
+
+  state(): string {
+    this.flow = randomBytes(16).toString('base64url')
+    return this.flow
+  }
+
   private stored(): LinearAuthState { return this.store.linearAuth() ?? {} }
 
   private update(patch: Partial<Record<keyof LinearAuthState, unknown>>): void {
     const next: Record<string, unknown> = { ...this.stored(), ...patch }
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k]
     this.store.saveLinearAuth(Object.keys(next).length > 0 ? (next as LinearAuthState) : null)
+  }
+
+  private markExpired(): void {
+    if (this.stored().expired !== true) this.update({ expired: true })
   }
 
   /** A client registered for another redirect URL (another port) is dropped, with the tokens issued to it: the SDK registers again. */
@@ -49,14 +70,20 @@ export class LinearAuthProvider implements OAuthClientProvider {
 
   saveClientInformation(info: OAuthClientInformationMixed): void { this.update({ client: info }) }
 
+  /** Expired tokens are not offered: the SDK then asks for a new authorization instead of retrying a refused refresh. */
   tokens(): OAuthTokens | undefined {
-    const t = this.stored().tokens
-    return isRecord(t) && typeof t.access_token === 'string' ? (t as unknown as OAuthTokens) : undefined
+    const s = this.stored()
+    if (s.expired === true) return undefined
+    return isRecord(s.tokens) && typeof s.tokens.access_token === 'string' ? (s.tokens as unknown as OAuthTokens) : undefined
   }
 
-  saveTokens(tokens: OAuthTokens): void { this.update({ tokens }) }
+  saveTokens(tokens: OAuthTokens): void { this.update({ tokens, expired: undefined }) }
 
-  redirectToAuthorization(url: URL): void { this.openExternal(url.href) }
+  /** Outside an interactive connect, needing the browser means the connection expired. */
+  redirectToAuthorization(url: URL): void {
+    if (this.interactive) this.openExternal(url.href)
+    else this.markExpired()
+  }
 
   saveCodeVerifier(verifier: string): void { this.update({ verifier }) }
 
@@ -67,10 +94,12 @@ export class LinearAuthProvider implements OAuthClientProvider {
   }
 
   invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+    if (scope === 'discovery') return
+    if (scope === 'verifier') { this.update({ verifier: undefined }); return }
+    if (!this.interactive) { this.markExpired(); return }
     if (scope === 'all') this.store.saveLinearAuth(null)
     else if (scope === 'client') this.update({ client: undefined })
-    else if (scope === 'tokens') this.update({ tokens: undefined })
-    else if (scope === 'verifier') this.update({ verifier: undefined })
+    else this.update({ tokens: undefined })
   }
 }
 
@@ -82,52 +111,99 @@ const page = (title: string, body: string): string =>
   `<body style="font-family: -apple-system, sans-serif; text-align: center; padding-top: 4em">` +
   `<h2>${title}</h2><p>${body}</p></body></html>`
 
-/** Waits for the OAuth redirect on `http://localhost:<port>/callback`. Listens without host: dual stack, `localhost` may be ::1 or 127.0.0.1. */
-export function waitForCallback(port: number, timeoutMs = 300_000): { url: string; code: Promise<string>; close(): void } {
-  const url = `http://localhost:${port}/callback`
-  let server: Server | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const close = (): void => {
-    clearTimeout(timer)
-    server?.closeAllConnections()
-    server?.close()
-  }
-  const code = new Promise<string>((resolve, reject) => {
-    server = createServer((req, res) => {
-      const u = new URL(req.url ?? '/', url)
-      const c = u.searchParams.get('code')
-      const err = u.searchParams.get('error')
-      if (u.pathname !== '/callback' || (!c && !err)) { res.writeHead(404).end(); return }
-      res.writeHead(c ? 200 : 400, { 'content-type': 'text/html; charset=utf-8' })
-      const html = c
-        ? page('Canopy est connecté à Linear', 'Tu peux fermer cet onglet et revenir dans Canopy.')
-        : page('La connexion à Linear a échoué', `Linear a répondu : ${escapeHtml(err ?? '')}. Tu peux fermer cet onglet et réessayer depuis Canopy.`)
-      res.end(html, () => {
-        if (c) resolve(c)
-        else reject(new Error(`Linear a refusé la connexion : ${err}`))
-        close()
-      })
-    })
-    server.on('error', reject)
-    server.listen(port)
-    timer = setTimeout(() => {
-      reject(new Error(`Connexion Linear abandonnée : pas de réponse du navigateur après ${Math.round(timeoutMs / 1000)} s.`))
-      close()
-    }, timeoutMs)
+type ListenResult = 'ok' | 'busy' | 'unavailable'
+
+function listenOn(server: Server, port: number, host: string): Promise<ListenResult> {
+  return new Promise((resolve, reject) => {
+    const onError = (e: NodeJS.ErrnoException): void => {
+      server.off('listening', onListening)
+      if (e.code === 'EADDRINUSE') resolve('busy')
+      else if (e.code === 'EADDRNOTAVAIL' || e.code === 'EAFNOSUPPORT') resolve('unavailable')
+      else reject(new Error(`Connexion Linear : impossible d'attendre le retour du navigateur (${e.code ?? e.message}).`))
+    }
+    const onListening = (): void => {
+      server.off('error', onError)
+      resolve('ok')
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen(port, host)
   })
-  code.catch(() => {}) // a rejection nobody awaits (connection authorized without the browser) is not unhandled
-  return { url, code, close }
 }
 
-/** First port from `start` upward that can be listened on (no host, like `waitForCallback`). */
-export async function freePort(start: number, tries = 20): Promise<number> {
-  for (let port = start; port < start + tries; port++) {
-    const ok = await new Promise<boolean>((resolve) => {
-      const s = createServer()
-      s.once('error', () => resolve(false))
-      s.listen(port, () => s.close(() => resolve(true)))
+export interface CallbackWait {
+  /** The redirect URL to register: `http://localhost:<port>/callback`. */
+  url: string
+  port: number
+  /** Loopback addresses listened on: 127.0.0.1, and ::1 when the machine has it. */
+  hosts: string[]
+  code: Promise<string>
+  close(): void
+}
+
+/**
+ * Waits for the OAuth redirect on `http://localhost:<port>/callback`, on the loopback addresses only (127.0.0.1 and ::1:
+ * `localhost` may be either), from `port` upward to the first port free on both. Only an answer carrying the `state` of
+ * the authorization in progress ends the wait; anything else gets a 404.
+ */
+export async function waitForCallback(opts: {
+  port: number
+  state: () => string | undefined
+  timeoutMs?: number
+  tries?: number
+}): Promise<CallbackWait> {
+  const { port: start, state, timeoutMs = 300_000, tries = 20 } = opts
+  let resolveCode!: (c: string) => void
+  let rejectCode!: (e: Error) => void
+  const code = new Promise<string>((resolve, reject) => { resolveCode = resolve; rejectCode = reject })
+  code.catch(() => {}) // a rejection nobody awaits (connection authorized without the browser) is not unhandled
+  const servers: Server[] = []
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let answered = false
+  const close = (): void => {
+    clearTimeout(timer)
+    for (const s of servers) { s.closeAllConnections(); s.close() }
+  }
+  const fail = (e: Error): void => { answered = true; rejectCode(e); close() }
+
+  const handler: RequestListener = (req, res) => {
+    const u = new URL(req.url ?? '/', 'http://localhost')
+    const expected = state()
+    const c = u.searchParams.get('code')
+    const err = u.searchParams.get('error')
+    if (answered || u.pathname !== '/callback' || !expected || u.searchParams.get('state') !== expected || (!c && !err)) {
+      res.writeHead(404).end()
+      return
+    }
+    answered = true
+    res.writeHead(c ? 200 : 400, { 'content-type': 'text/html; charset=utf-8' })
+    const html = c
+      ? page('Canopy est connecté à Linear', 'Tu peux fermer cet onglet et revenir dans Canopy.')
+      : page('La connexion à Linear a échoué', `Linear a répondu : ${escapeHtml(err ?? '')}. Tu peux fermer cet onglet et réessayer depuis Canopy.`)
+    res.end(html, () => {
+      if (c) resolveCode(c)
+      else rejectCode(new Error(`Linear a refusé la connexion : ${err}`))
+      close()
     })
-    if (ok) return port
+  }
+
+  for (let port = start; port < start + tries; port++) {
+    const v4 = createServer(handler)
+    const r4 = await listenOn(v4, port, '127.0.0.1')
+    if (r4 === 'busy') continue
+    if (r4 === 'unavailable') throw new Error("Connexion Linear : l'adresse locale 127.0.0.1 n'est pas disponible.")
+    const v6 = createServer(handler)
+    let r6: ListenResult
+    try { r6 = await listenOn(v6, port, '::1') } catch (e) { v4.close(); throw e }
+    if (r6 === 'busy') { v4.close(); continue }
+    servers.push(v4)
+    if (r6 === 'ok') servers.push(v6) // no IPv6 loopback on this machine: IPv4 alone
+    for (const s of servers) s.on('error', (e) => fail(e))
+    timer = setTimeout(() => {
+      fail(new Error(`Connexion Linear abandonnée : pas de réponse du navigateur après ${Math.round(timeoutMs / 1000)} s.`))
+    }, timeoutMs)
+    const hosts = servers.map((s) => (s.address() as AddressInfo).address)
+    return { url: `http://localhost:${port}/callback`, port, hosts, code, close }
   }
   throw new Error(`Connexion Linear : aucun port libre entre ${start} et ${start + tries - 1}.`)
 }

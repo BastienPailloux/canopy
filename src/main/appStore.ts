@@ -18,8 +18,8 @@ export class EncryptionUnavailableError extends Error {
   }
 }
 
-/** The OAuth state of the Linear connection (SDK client registration, tokens, PKCE verifier). */
-export interface LinearAuthState { client?: unknown; tokens?: unknown; verifier?: string }
+/** The OAuth state of the Linear connection (SDK client registration, tokens, PKCE verifier); `expired`: Linear refused the tokens. */
+export interface LinearAuthState { client?: unknown; tokens?: unknown; verifier?: string; expired?: boolean }
 
 interface State {
   recentRepos: string[]
@@ -234,6 +234,7 @@ export class AppStore {
         ...(v.client !== undefined ? { client: v.client } : {}),
         ...(v.tokens !== undefined ? { tokens: v.tokens } : {}),
         ...(typeof v.verifier === 'string' ? { verifier: v.verifier } : {}),
+        ...(v.expired === true ? { expired: true } : {}),
       }
     } catch {
       return null

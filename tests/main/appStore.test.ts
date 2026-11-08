@@ -187,6 +187,11 @@ describe('AppStore Linear auth', () => {
     expect(new AppStore(file, cipher()).linearAuth()).toEqual(state)
   })
 
+  it('keeps the expired mark of linear auth', () => {
+    new AppStore(file, cipher()).saveLinearAuth({ ...state, expired: true })
+    expect(new AppStore(file, cipher()).linearAuth()).toEqual({ ...state, expired: true })
+  })
+
   it('unreadable linear auth reads as null', async () => {
     new AppStore(file, cipher()).saveLinearAuth(state)
     const broken = { ...cipher(), decryptString: () => { throw new Error('keychain locked') } }

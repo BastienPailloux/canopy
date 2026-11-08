@@ -231,4 +231,20 @@ describe('linearOpener', () => {
       expect(fetchSpy).not.toHaveBeenCalled()
     } finally { fetchSpy.mockRestore() }
   })
+
+  it('a stored state marked expired resumes as expired, without the browser or the network', async () => {
+    const openExternal = vi.fn()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    try {
+      const state = { client: { client_id: 'cid', redirect_uris: ['http://localhost:33418/callback'] }, tokens: { access_token: 'at', token_type: 'Bearer' }, expired: true }
+      const store = { linearAuth: () => state, saveLinearAuth: vi.fn() }
+      const open = linearOpener({ store, openExternal, version: '0.0.0' })
+      await expect(open(false)).rejects.toBeInstanceOf(LinearExpiredError)
+      const client = new LinearClient(open, store)
+      await expect(client.resume()).resolves.toEqual({ state: 'expired', missingTools: [] })
+      expect(openExternal).not.toHaveBeenCalled()
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(store.saveLinearAuth).not.toHaveBeenCalled()
+    } finally { fetchSpy.mockRestore() }
+  })
 })

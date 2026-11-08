@@ -3,7 +3,7 @@ import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { LinearComment, LinearIssue, LinearIssueDetail, LinearStatus, LinearUser } from '../../shared/linear'
 import type { AppStore } from '../appStore'
-import { LinearAuthProvider, freePort, waitForCallback } from './auth'
+import { LinearAuthProvider, waitForCallback } from './auth'
 import {
   ISSUE_FIELDS, LinearError, LinearFormatError, parseComments, parseIssue, parseIssueList, parseLabels, parseStatuses, parseUsers,
   parseWhoami, toolJson, type CallToolResult,
@@ -233,7 +233,8 @@ const toCaller = (client: Client): McpCaller => ({
 /**
  * The real `open` of `LinearClient`: an MCP client on `LINEAR_MCP_URL`, authenticated with the stored OAuth state.
  * Interactive: on `UnauthorizedError`, waits for the browser callback, finishes the auth and reconnects with a fresh
- * transport. The browser can only open during that interactive connect, never later from a refresh in the background.
+ * transport. The browser can only open during that interactive connect, never later from a refresh in the background:
+ * a refused refresh then marks the stored state `expired` (see `LinearAuthProvider`), which `resume()` reports.
  */
 export function linearOpener(deps: {
   store: Pick<AppStore, 'linearAuth' | 'saveLinearAuth'>
@@ -243,14 +244,14 @@ export function linearOpener(deps: {
   return async (interactive) => {
     const stored = deps.store.linearAuth()
     if (!interactive && !isRecord(stored?.tokens)) throw new LinearNotConnectedError()
-    const port = interactive ? await freePort(CALLBACK_PORT) : (registeredPort(stored?.client) ?? CALLBACK_PORT)
-    let browser = interactive
-    const provider = new LinearAuthProvider(deps.store, `http://localhost:${port}/callback`, (url) => {
-      if (browser) deps.openExternal(url)
-    })
-    const callback = interactive ? waitForCallback(port) : null
+    if (!interactive && stored?.expired === true) throw new LinearExpiredError()
+    let provider: LinearAuthProvider | undefined
+    const callback = interactive ? await waitForCallback({ port: CALLBACK_PORT, state: () => provider?.expectedState }) : null
+    const port = callback?.port ?? registeredPort(stored?.client) ?? CALLBACK_PORT
+    const auth = new LinearAuthProvider(deps.store, `http://localhost:${port}/callback`, deps.openExternal, interactive)
+    provider = auth
     const fresh = () => ({
-      transport: new StreamableHTTPClientTransport(new URL(LINEAR_MCP_URL), { authProvider: provider }),
+      transport: new StreamableHTTPClientTransport(new URL(LINEAR_MCP_URL), { authProvider: auth }),
       client: new Client({ name: 'canopy', version: deps.version }),
     })
     try {
@@ -267,7 +268,7 @@ export function linearOpener(deps: {
       }
       return toCaller(c.client)
     } finally {
-      browser = false
+      auth.interactive = false // a later refresh in the background never opens the browser
       callback?.close()
     }
   }
