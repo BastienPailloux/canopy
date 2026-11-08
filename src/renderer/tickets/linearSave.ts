@@ -1,4 +1,4 @@
-import { UNCERTAIN_REASON, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'
+import { UNCERTAIN_REASON, sameDescription, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'
 
 export type TextKey = 'title' | 'description'
 
@@ -42,12 +42,6 @@ export interface LinearSaver {
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 const KEYS: TextKey[] = ['title', 'description']
-
-/** Trailing spaces per line and trailing blank lines do not make a different text. */
-export const sameText = (a: string, b: string): boolean => {
-  const n = (x: string): string => x.split('\n').map((l) => l.trimEnd()).join('\n').trimEnd()
-  return n(a) === n(b)
-}
 
 /**
  * Title and description of a Linear editor: kept while typed, sent on commit. The description goes as `{ base, text }`,
@@ -205,7 +199,7 @@ export function createLinearSaver(
       conflict = p?.description && (pending?.held.description !== undefined || pending?.uncertain)
         ? { remote: answer.description, mine: p.description.text }
         : null
-      if (conflict && sameText(conflict.mine, conflict.remote)) {
+      if (conflict && sameDescription(conflict.mine, conflict.remote)) {
         cur.description = committed.description = base = answer.description
         held.description = false
         conflict = null

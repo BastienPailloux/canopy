@@ -321,3 +321,18 @@ describe('comment drafts', () => {
     expect(commentDraft('ENG-5')).toBe('')
   })
 })
+
+describe('one normalisation with main', () => {
+  it('reset compares with the shared sameDescription: a trailing no-break space is a real difference', () => {
+    // Linear does not strip U+00A0: the held text is not Linear's, so it must not be discarded as "same"
+    const saver = createLinearSaver('ENG-1', ISSUE, async () => ({ kind: 'sent', issue: ISSUE }))
+    const p: PendingEdit = { id: 'ENG-1', change: { description: { base: 'A', text: 'A\u00a0' } }, error: '', held: { description: 'Conflit' }, uncertain: false }
+    expect(saver.reset(answer({ description: 'A' }), p)).toBe('applied')
+    expect(saver.conflict()).toEqual({ remote: 'A', mine: 'A\u00a0' })
+  })
+  it('trailing spaces and newlines, and CRLF, are the same text', () => {
+    const saver = createLinearSaver('ENG-1', ISSUE, async () => ({ kind: 'sent', issue: ISSUE }))
+    const p: PendingEdit = { id: 'ENG-1', change: { description: { base: 'A', text: 'A  \r\nB\n\n' } }, error: '', held: { description: 'Conflit' }, uncertain: false }
+    expect(saver.reset(answer({ description: 'A\nB' }), p)).toBe('same')
+  })
+})

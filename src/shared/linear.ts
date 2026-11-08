@@ -184,6 +184,18 @@ export interface PendingEdit {
   uncertain: boolean
 }
 
+/**
+ * The text as Linear stores it after a save, as far as Canopy can predict: `\r\n` -> `\n`, no trailing spaces or tabs
+ * on a line, no trailing newlines. Linear normalises more (e.g. merges adjacent links), so equal here means "same text",
+ * different does not prove a different text. The one rule of main (patch, rebase) and the renderer (editor).
+ */
+export function normalizeDescription(s: string): string {
+  return s.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n+$/, '')
+}
+
+/** `a` and `b` are the same description once Linear has normalised them. */
+export const sameDescription = (a: string, b: string): boolean => a === b || normalizeDescription(a) === normalizeDescription(b)
+
 /** Linear's own limits (not the local tickets' ones). */
 export const LINEAR_MAX_TITLE = 1000
 export const LINEAR_MAX_LABELS = 100

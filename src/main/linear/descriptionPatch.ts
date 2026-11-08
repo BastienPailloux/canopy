@@ -4,6 +4,10 @@
  * Anchors are always whole lines of Linear's own text, and include the neighbouring newlines when there are
  * some, so a substring match in an interior position is a whole-line match.
  */
+import { sameDescription } from '../../shared/linear'
+
+export { normalizeDescription, sameDescription } from '../../shared/linear'
+
 export type PatchOp =
   | { op: 'replace'; old_string: string; new_string: string }
   | { op: 'insert_before' | 'insert_after'; anchor: string; text: string }
@@ -89,18 +93,6 @@ function anchoredOnce(text: string, anchor: string): boolean {
   const endOk = j === text.length || text[j] === '\n' || anchor.endsWith('\n')
   return startOk && endOk
 }
-
-/**
- * The text as Linear stores it after a save, as far as Canopy can predict: `\r\n` -> `\n`, no trailing spaces or tabs
- * on a line, no trailing newlines. Linear normalises more (e.g. merges adjacent links), so equal here means "same text",
- * different does not prove a different text.
- */
-export function normalizeDescription(s: string): string {
-  return s.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n+$/, '')
-}
-
-/** `a` and `b` are the same description once Linear has normalised them. */
-export const sameDescription = (a: string, b: string): boolean => a === b || normalizeDescription(a) === normalizeDescription(b)
 
 /**
  * Bastien's edit (`base` -> `mine`) replayed on Linear's current text `remote`. Clean when `remote` is still `base`,
