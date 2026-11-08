@@ -166,4 +166,26 @@ describe('LinearSync', () => {
     expect(s.state().fetchedAt).toBeNull()
     expect(existsSync(file)).toBe(false)
   })
+
+  it('a refresh after clear starts fresh', async () => {
+    const f = fake()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let calls = 0
+    f.listMine = async () => {
+      calls++
+      if (calls === 1) { await gate; return [issue('OLD-1')] }
+      return [issue('NEW-1')]
+    }
+    const s = make(f)
+    const old = s.refresh()
+    s.clear()
+    const st = await s.refresh()
+    expect(calls).toBe(2)
+    expect(st.issues.map((i) => i.id)).toEqual(['NEW-1'])
+    release()
+    await old
+    expect(s.state().issues.map((i) => i.id)).toEqual(['NEW-1'])
+    expect(JSON.parse(readFileSync(file, 'utf8')).issues.map((i: LinearIssue) => i.id)).toEqual(['NEW-1'])
+  })
 })

@@ -59,18 +59,21 @@ export class LinearSync {
   /** Wipes memory and disk (disconnect); a refresh already in flight is discarded. */
   clear(): void {
     this.generation++
+    this.inflight = null
     this.issues = []
     this.fetchedAt = null
     this.error = null
     this.expired = false
     this.departures = []
-    try { rmSync(this.file, { force: true }) } catch { /* ignore */ }
+    try { rmSync(this.file, { force: true }) } catch (e) { console.error('linear cache removal failed', e) }
     for (const l of [...this.listeners]) l()
   }
 
   refresh(): Promise<LinearListState> {
-    this.inflight ??= this.run().finally(() => { this.inflight = null })
-    return this.inflight
+    if (this.inflight) return this.inflight
+    const p: Promise<LinearListState> = this.run().finally(() => { if (this.inflight === p) this.inflight = null })
+    this.inflight = p
+    return p
   }
 
   private launched(): Set<string> {
