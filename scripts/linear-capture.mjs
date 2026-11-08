@@ -122,15 +122,10 @@ async function call(name, args, file) {
   }
 }
 
-const ID_RE = new RegExp(`\\b${TEAM}-\\d+\\b`, 'g')
-const idsIn = (s) => [...new Set(s.match(ID_RE) ?? [])]
 const tryJson = (s) => { try { return JSON.parse(s) } catch { return undefined } }
-function findCursor(r) {
-  const j = tryJson(text(r))
-  if (j && typeof j === 'object' && (j.cursor || j.nextCursor)) return j.cursor ?? j.nextCursor
-  const m = text(r).match(/"?(?:next)?[cC]ursor"?\s*[:=]\s*"?([^"\s,}]+)"?/)
-  return m && m[1] !== 'null' ? m[1] : undefined
-}
+const json = (r) => tryJson(text(r))
+const idsOf = (r) => [...new Set((json(r)?.issues ?? []).map((i) => i.id).filter(Boolean))]
+const cursorOf = (r) => { const j = json(r); return j?.hasNextPage ? j.cursor : undefined }
 
 const GET_FIELDS = ['id', 'uuid', 'title', 'description', 'priority', 'url', 'updatedAt', 'status', 'statusType',
   'labels', 'assignee', 'assigneeId', 'parentId', 'team', 'teamId', 'cycleId', 'project']
@@ -148,20 +143,19 @@ async function capture() {
 
   const mine = await call('list_issues', { assignee: 'me', limit: 50 }, 'list_issues_me.json')
   const p1 = await call('list_issues', { assignee: 'me', limit: 2 }, 'list_issues_me_page1.json')
-  const cursor = findCursor(p1)
+  const cursor = cursorOf(p1)
   if (cursor) await call('list_issues', { assignee: 'me', limit: 2, cursor }, 'list_issues_me_page2.json')
   else console.log('no cursor found in page 1 (no page 2 saved)')
 
-  const ids = idsIn(text(mine))
+  const ids = idsOf(mine)
   console.log('issues:', ids.join(', ') || '(none)')
   let commentsDone = 0
   for (const id of ids) {
-    const full = await call('get_issue', { id, fields: GET_FIELDS }, `get_issue_${id}.json`)
+    await call('get_issue', { id, fields: GET_FIELDS }, `get_issue_${id}.json`)
     await call('get_issue', { id }, `get_issue_${id}_default.json`)
     // list_comments for issues; keep every one (cheap) so the commented one is surely covered.
     await call('list_comments', { issueId: id }, `list_comments_${id}.json`)
     commentsDone++
-    void full
   }
   await call('get_issue', { id: `${TEAM}-9999` }, 'get_issue_unknown.json')
 
@@ -190,58 +184,61 @@ async function capture() {
 async function patchProbes(id) {
   const { tools } = await client.listTools()
   const si = tools.find((t) => t.name === 'save_issue')
-  if (!si) throw new Error('save_issue not found')
-  const patchSchema = si.inputSchema?.properties?.patch
-  console.log('save_issue.patch schema:', JSON.stringify(patchSchema ?? '(no patch param)', null, 2))
+  const patchSchema = si?.inputSchema?.properties?.patch
+  console.log('save_issue.patch schema:', JSON.stringify(patchSchema ?? '(no patch param)'))
   if (!patchSchema) throw new Error('save_issue has no `patch` param; aborting before any write')
 
   const readDesc = async () => {
     const r = await client.callTool({ name: 'get_issue', arguments: { id, fields: ['id', 'description'] } })
-    const j = tryJson(text(r))
-    return { raw: r, desc: typeof j?.description === 'string' ? j.description : undefined }
+    const d = json(r)?.description
+    return { raw: r, desc: typeof d === 'string' ? d : undefined }
   }
   const before = await readDesc()
-  if (before.desc === undefined) throw new Error('could not read description as JSON; aborting before any write')
+  if (before.desc === undefined) throw new Error('could not read description from get_issue JSON; aborting before any write')
   const original = before.desc
   dump('patch-original.json', before.raw)
   console.log(`original description: ${original.length} chars`)
 
-  // Anchors come from the real text: first word-ish chunk (>=4 chars) for unique/duplicate probes.
-  const words = original.match(/[A-Za-zÀ-ÿ]{4,}/g) ?? []
-  const counts = new Map(); for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1)
-  const uniq = [...counts].find(([, n]) => n === 1)?.[0]
-  const dup = [...counts].find(([, n]) => n >= 2)?.[0]
-  console.log(`anchors: unique=${uniq} duplicate=${dup}`)
-
-  // Op shape is read from the schema above; defaults below follow the plan's naming and may need a tweak
-  // (set LINEAR_PATCH_SHAPE='{"op":"type","anchor":"find"...}' is not supported: edit op() if the logged schema differs).
-  const op = (type, anchor, extra) => ({ op: type, find: anchor, ...extra })
-  const probes = []
-  if (uniq) probes.push(['replace-unique', [op('replace', uniq, { replace: `${uniq}-PROBE` })]])
-  if (dup) probes.push(['replace-duplicate', [op('replace', dup, { replace: `${dup}-PROBE` })]])
-  probes.push(['replace-missing', [op('replace', 'ZZ-NO-SUCH-ANCHOR-ZZ', { replace: 'x' })]])
-  if (uniq) {
-    probes.push(['insert-before', [{ op: 'insert_before', find: uniq, insert: 'BEFORE-PROBE ' }]])
-    probes.push(['insert-after', [{ op: 'insert_after', find: uniq, insert: ' AFTER-PROBE' }]])
-    probes.push(['two-ops-one-failing', [op('replace', uniq, { replace: `${uniq}-OK` }), op('replace', 'ZZ-NO-SUCH-ANCHOR-ZZ', { replace: 'x' })]])
-  }
-
+  // patch is a top-level arg of save_issue (never together with `description`); atomic; anchors must match exactly once.
+  const patch = (name, ops) => call('save_issue', { id, patch: ops }, name && `patch-${name}.json`)
+  const U1 = 'PROBE-UNIQUE-1', U2 = 'PROBE-UNIQUE-2', DUP = 'PROBE-DUP', MISSING = 'PROBE-NO-SUCH-ANCHOR'
+  let base = original
   try {
+    // Setup: append our own known text so probes do not depend on the real description.
+    await patch('setup-append', [{ op: 'append', text: `\n\n${U1} ${U2}\n\n${DUP} ${DUP}\n` }])
+    base = (await readDesc()).desc
+    console.log(`setup: ${base === original ? 'NOT applied' : 'applied'}`)
+    if (base === original) throw new Error('setup append did not change the description; stopping')
+
+    const probes = [
+      ['replace-unique', [{ op: 'replace', old_string: U1, new_string: `${U1}-EDITED` }]],
+      ['replace-duplicate-anchor', [{ op: 'replace', old_string: DUP, new_string: `${DUP}-X` }]],
+      ['replace-missing-anchor', [{ op: 'replace', old_string: MISSING, new_string: 'x' }]],
+      ['insert-before', [{ op: 'insert_before', anchor: U2, text: 'BEFORE-PROBE ' }]],
+      ['insert-after', [{ op: 'insert_after', anchor: U2, text: ' AFTER-PROBE' }]],
+      ['two-ops-one-failing', [
+        { op: 'replace', old_string: U1, new_string: `${U1}-OK` },
+        { op: 'replace', old_string: MISSING, new_string: 'x' },
+      ]],
+      ['replace-all', [{ op: 'replace', old_string: DUP, new_string: `${DUP}-ALL`, replace_all: true }]],
+    ]
     for (const [name, ops] of probes) {
-      await call('save_issue', { id, patch: { description: ops } }, `patch-${name}.json`)
+      await patch(name, ops)
       const now = await readDesc()
-      console.log(`  after ${name}: ${now.desc === original ? 'unchanged' : 'CHANGED'}`)
       dump(`patch-${name}-after.json`, now.raw)
-      if (now.desc !== original) await call('save_issue', { id, description: original }, null) // reset between probes
+      console.log(`  after ${name}: ${now.desc === base ? 'unchanged' : 'CHANGED'}`)
+      if (now.desc !== base) await call('save_issue', { id, description: base }, null) // reset to base between probes
     }
   } finally {
     await call('save_issue', { id, description: original }, 'patch-restore.json')
     const end = await readDesc()
-    console.log(end.desc === original ? 'RESTORED: description identical to original' : 'WARNING: description differs from original, fix by hand')
     dump('patch-restore-after.json', end.raw)
+    if (end.desc === original) console.log('RESTORED: description identical to original')
+    else { console.error('WARNING: description differs from original, fix by hand'); exitCodeOverride = 1 }
   }
 }
 
+let exitCodeOverride = 0
 let exitCode = 0
 try {
   client = await connect()
@@ -255,4 +252,4 @@ try {
 } finally {
   rmSync(STATE_DIR, { recursive: true, force: true })
 }
-process.exit(exitCode)
+process.exit(exitCode || exitCodeOverride)
