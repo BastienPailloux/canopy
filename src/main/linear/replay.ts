@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { McpCaller } from './client'
 import type { CallToolResult } from './parse'
@@ -10,6 +10,12 @@ export interface ReplayOptions {
   failWith?: Error
   /** Answers a call instead of the replay when it returns something: a `CallToolResult` as is, anything else as its JSON text. */
   mutate?: (tool: string, args: Record<string, unknown>) => unknown
+  /** e2e: while this file exists, every call rejects (checked on each call). */
+  failFile?: string
+  /** e2e: every call that goes through is appended to this file as one JSON line `{ tool, args }`. */
+  logFile?: string
+  /** e2e: a colleague's edit. A JSON `{ id, description }` file, applied to the in-memory issue before the next call, then deleted. */
+  colleagueFile?: string
   /** Caps `list_issues` pages (Linear's own `limit` still applies). */
   pageSize?: number
 }
@@ -196,13 +202,27 @@ export function replayLinear(opts: ReplayOptions = {}): McpCaller {
     return answer(c)
   }
 
+  const down = (): void => {
+    if (opts.failWith) throw opts.failWith
+    if (opts.failFile && existsSync(opts.failFile)) throw new Error('fetch failed: fake Linear is down')
+  }
+  const colleague = (): void => {
+    if (!opts.colleagueFile || !existsSync(opts.colleagueFile)) return
+    const edit = JSON.parse(readFileSync(opts.colleagueFile, 'utf8')) as { id: string; description: string }
+    unlinkSync(opts.colleagueFile)
+    const issue = find(edit.id)
+    if (issue) Object.assign(issue, { description: edit.description, updatedAt: new Date().toISOString() })
+  }
+
   return {
     async listTools() {
-      if (opts.failWith) throw opts.failWith
+      down()
       return structuredClone(tools)
     },
     async callTool(name, args) {
-      if (opts.failWith) throw opts.failWith
+      down()
+      colleague()
+      if (opts.logFile) appendFileSync(opts.logFile, `${JSON.stringify({ tool: name, args })}\n`)
       const m = opts.mutate?.(name, args)
       if (m !== undefined) return isResult(m) ? m : answer(m)
       switch (name) {
@@ -227,7 +247,8 @@ export function replayLinear(opts: ReplayOptions = {}): McpCaller {
 
 /**
  * Test-only, like `CANOPY_FAKE_QUERY`: unpackaged with `CANOPY_FAKE_LINEAR=<fixtures dir>`, every connection replays
- * that directory (one shared replay, so writes survive a reconnect). Never touches the network nor the browser, and
+ * that directory (one shared replay, so writes survive a reconnect). `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` and `_COLLEAGUE`
+ * are file paths for the e2e tests (fail while the file exists, log the calls, apply a colleague's edit), same gate. Never touches the network nor the browser, and
  * `resume()` connects at once.
  */
 export function selectLinearOpener(
@@ -237,5 +258,8 @@ export function selectLinearOpener(
   const dir = o.isPackaged ? undefined : o.env.CANOPY_FAKE_LINEAR
   if (!dir) return real
   let caller: McpCaller | null = null
-  return async () => (caller ??= replayLinear({ fixtures: resolve(dir) }))
+  const e = o.env
+  return async () => (caller ??= replayLinear({
+    fixtures: resolve(dir), failFile: e.CANOPY_FAKE_LINEAR_FAIL, logFile: e.CANOPY_FAKE_LINEAR_LOG, colleagueFile: e.CANOPY_FAKE_LINEAR_COLLEAGUE,
+  }))
 }
