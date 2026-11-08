@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import { createQuitFlow, linearCounts, parseUnsaved, quitDetail, updateDetail, type RunningCounts } from '../../src/main/quit'
 
-const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0, linear: 0, linearHeld: 0 }
+const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0, comments: 0, linear: 0, linearHeld: 0 }
 
 function setup(partial: Partial<RunningCounts>, answer = true) {
   const counts = { ...NONE, ...partial }
@@ -93,6 +93,13 @@ test('update detail says unwritten ticket edits are written first, and lost if t
     'Les fichiers non enregistrés et les brouillons seront conservés. 2 tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.')
 })
 
+test('update detail says Linear comments being typed are lost, and does not count them as tickets written first', () => {
+  expect(updateDetail({ ...NONE, tickets: 1, comments: 1 })).toBe(
+    'Les fichiers non enregistrés et les brouillons seront conservés. 1 commentaire Linear non envoyé sera perdu.')
+  expect(updateDetail({ ...NONE, tickets: 3, comments: 2 })).toBe(
+    'Les fichiers non enregistrés et les brouillons seront conservés. 1 ticket pas encore enregistré le sera avant le redémarrage ; en cas d’échec, ses modifications seront perdues. 2 commentaires Linear non envoyés seront perdus.')
+})
+
 test('finish while the quit question is open: a later confirm does not stop or quit again', async () => {
   const counts = { ...NONE, sessions: 1 }
   const calls: string[] = []
@@ -122,8 +129,10 @@ test('update detail with nothing running keeps only the sentence about edits', (
 })
 
 test('parseUnsaved takes the ticket count and refuses a bad one', () => {
-  expect(parseUnsaved({ buffers: 1, drafts: 0, tickets: 2 })).toEqual({ buffers: 1, drafts: 0, tickets: 2 })
-  expect(() => parseUnsaved({ buffers: 1, drafts: 0, tickets: -1 })).toThrow()
+  expect(parseUnsaved({ buffers: 1, drafts: 0, tickets: 2, comments: 1 })).toEqual({ buffers: 1, drafts: 0, tickets: 2, comments: 1 })
+  expect(() => parseUnsaved({ buffers: 1, drafts: 0, tickets: -1, comments: 0 })).toThrow()
+  expect(() => parseUnsaved({ buffers: 1, drafts: 0, tickets: 1, comments: 2 })).toThrow()
+  expect(() => parseUnsaved({ buffers: 1, drafts: 0, tickets: 1 })).toThrow()
   expect(() => parseUnsaved({ buffers: 1, drafts: 0 })).toThrow()
 })
 

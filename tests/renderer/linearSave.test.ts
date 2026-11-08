@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { LinearChange, LinearIssue, LinearIssueDetail, PendingEdit, SaveResult } from '../../src/shared/linear'
 import {
-  closeLinearSaver, commentDraft, conflictHint, createLinearSaver, openLinearSaver, setCommentDraft, unsavedLinear
+  closeLinearSaver, commentDraft, conflictHint, createLinearSaver, flushLinearSavers, openLinearSaver, setCommentDraft, unsavedLinear,
+  unsavedLinearComments
 } from '../../src/renderer/tickets/linearSave'
 
 const ISSUE: LinearIssueDetail = {
@@ -308,12 +309,45 @@ describe('stranded savers', () => {
   })
 })
 
+describe('flushLinearSavers', () => {
+  it('hands the text of an open editor and of a stranded one to main, once each', async () => {
+    const sends: LinearChange[] = []
+    let fail = true
+    const send = async (c: LinearChange): Promise<SaveResult> => {
+      if (fail) throw new Error('IPC')
+      sends.push(c)
+      return { kind: 'pending', reason: 'Linear injoignable' }
+    }
+    const stranded = openLinearSaver('ENG-6', () => createLinearSaver('ENG-6', ISSUE, send))
+    stranded.text('title', 'Titre tapé')
+    await closeLinearSaver('ENG-6', stranded, () => true)
+    const open = openLinearSaver('ENG-7', () => createLinearSaver('ENG-7', ISSUE, send))
+    open.text('description', 'Tapé avant la mise à jour')
+    fail = false
+    expect(await flushLinearSavers()).toBe(true)
+    expect(sends).toEqual([{ title: 'Titre tapé' }, { description: { base: ISSUE.description, text: 'Tapé avant la mise à jour' } }])
+    expect(await flushLinearSavers()).toBe(true)
+    expect(sends).toHaveLength(2)
+    await closeLinearSaver('ENG-6', stranded, () => true)
+    await closeLinearSaver('ENG-7', open, () => true)
+  })
+
+  it('false while a text could not be handed over', async () => {
+    const s = openLinearSaver('ENG-10', () => createLinearSaver('ENG-10', ISSUE, async () => { throw new Error('IPC') }))
+    s.text('title', 'Bloqué')
+    expect(await flushLinearSavers()).toBe(false)
+    s.text('title', ISSUE.title)
+    await closeLinearSaver('ENG-10', s, () => true)
+  })
+})
+
 describe('comment drafts', () => {
   it('a comment being typed counts as unsaved and is kept for the next editor of the issue', () => {
     const before = unsavedLinear()
     expect(commentDraft('ENG-5')).toBe('')
     setCommentDraft('ENG-5', 'Mon commentaire')
     expect(unsavedLinear()).toBe(before + 1)
+    expect(unsavedLinearComments()).toBe(1)
     expect(commentDraft('ENG-5')).toBe('Mon commentaire')
     setCommentDraft('ENG-5', '   ')
     expect(unsavedLinear()).toBe(before)

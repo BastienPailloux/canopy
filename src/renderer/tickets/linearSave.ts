@@ -294,9 +294,23 @@ export function setCommentDraft(id: string, text: string): void {
   notifyLinearSavers()
 }
 
+/**
+ * Hands the title and description typed in every Linear editor, open or closed with unsent text, to main (sent, or kept
+ * in its on-disk queue); true when nothing is left. Comments are not posted: posting is Bastien's explicit action.
+ */
+export async function flushLinearSavers(): Promise<boolean> {
+  const all = new Set([...open, ...[...stranded.values()].flat()])
+  await Promise.all([...all].map((s) => s.commit().catch(() => null)))
+  notifyLinearSavers()
+  return [...all].every((s) => !s.unsent())
+}
+
+/** Comments typed and not posted: no automatic save keeps them. */
+export const unsavedLinearComments = (): number => [...comments.values()].filter((t) => t.trim() !== '').length
+
 /** Linear editors' text not handed over, and comments typed and not posted. */
 export const unsavedLinear = (): number =>
-  [...open].filter((s) => s.unsent()).length + [...comments.values()].filter((t) => t.trim() !== '').length
+  [...open].filter((s) => s.unsent()).length + unsavedLinearComments()
 
 export function onLinearSaversChange(l: () => void): () => void {
   watchers.add(l)

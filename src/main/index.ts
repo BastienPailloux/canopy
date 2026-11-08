@@ -156,7 +156,7 @@ void app.whenReady().then(async () => {
   const linearLinked = new LinkedIssues(store, localBranches)
   const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
     () => linearEdits.pending().map((p) => p.id))
-  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0 }
+  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }
   const running = (): RunningCounts => ({
     sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
   })
@@ -239,7 +239,7 @@ void app.whenReady().then(async () => {
   const open = (): void => {
     // The new page asks for its folder when it loads; a folder asked meanwhile waits for it.
     openFolders.reset()
-    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0 }; openFolders.reset() })
+    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }; openFolders.reset() })
   }
   showWindow = () => {
     const [win] = BrowserWindow.getAllWindows()

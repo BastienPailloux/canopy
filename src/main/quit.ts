@@ -1,6 +1,9 @@
 /** What the page holds and quitting would lose. Only the renderer knows: it reports it. */
-/** `tickets`: ticket editors with changes not written yet. */
-export interface UnsavedCounts { buffers: number; drafts: number; tickets: number }
+/**
+ * `tickets`: ticket editors with changes not written yet, Linear comments being typed included. `comments`: those
+ * comments, which an update restart cannot save (they are only posted on Bastien's action).
+ */
+export interface UnsavedCounts { buffers: number; drafts: number; tickets: number; comments: number }
 import type { LinearField, PendingEdit } from '../shared/linear'
 
 /**
@@ -21,9 +24,9 @@ export function linearCounts(pending: PendingEdit[]): Pick<RunningCounts, 'linea
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
 
 export function parseUnsaved(raw: unknown): UnsavedCounts {
-  const { buffers, drafts, tickets } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-  if (!isCount(buffers) || !isCount(drafts) || !isCount(tickets)) throw new Error('Compte invalide')
-  return { buffers, drafts, tickets }
+  const { buffers, drafts, tickets, comments } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  if (!isCount(buffers) || !isCount(drafts) || !isCount(tickets) || !isCount(comments) || comments > tickets) throw new Error('Compte invalide')
+  return { buffers, drafts, tickets, comments }
 }
 
 export interface QuitDeps {
@@ -65,14 +68,18 @@ export function quitDetail(counts: RunningCounts): string {
 /** What an update restart says before it stops things: what stops, and what survives it. */
 export function updateDetail(counts: RunningCounts): string {
   const running = runningList(counts)
+  const tickets = counts.tickets - counts.comments
   return [
     ...(running.length > 0 ? [`Redémarrer arrêtera : ${running.join(', ')}.`] : []),
     'Les fichiers non enregistrés et les brouillons seront conservés.',
-    ...(counts.tickets === 1
+    ...(tickets === 1
       ? ['1 ticket pas encore enregistré le sera avant le redémarrage ; en cas d’échec, ses modifications seront perdues.']
-      : counts.tickets > 1
-        ? [`${counts.tickets} tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.`]
-        : [])
+      : tickets > 1
+        ? [`${tickets} tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.`]
+        : []),
+    ...(counts.comments === 1
+      ? ['1 commentaire Linear non envoyé sera perdu.']
+      : counts.comments > 1 ? [`${counts.comments} commentaires Linear non envoyés seront perdus.`] : [])
   ].join(' ')
 }
 

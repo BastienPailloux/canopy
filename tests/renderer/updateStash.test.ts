@@ -3,6 +3,7 @@ import { dropDraft, dropDrafts, getDraft, setDraft } from '../../src/renderer/co
 import { useSessions, type SessionTab } from '../../src/renderer/sessions/sessionStore'
 import { collectStash, connectUpdateStash, restoreStash, stillUnsaved, useRestoredFiles } from '../../src/renderer/update/stash'
 import { createSaver, trackSaver } from '../../src/renderer/tickets/editorSave'
+import { closeLinearSaver, createLinearSaver, openLinearSaver } from '../../src/renderer/tickets/linearSave'
 import { keepOverMissing } from '../../src/renderer/code/draftOverMissing'
 import type { Stash } from '../../src/shared/update'
 
@@ -80,6 +81,25 @@ describe('stash', () => {
     expect(order).toEqual(['ticket', 'stash'])
     untrack()
     saver.dispose()
+  })
+
+  it('hands the text typed in a Linear editor to main before answering', async () => {
+    const order: string[] = []
+    const on = vi.fn(() => () => undefined)
+    const submitStash = vi.fn(() => { order.push('stash') })
+    vi.stubGlobal('window', { canopy: { on, submitStash } })
+    const issue = { title: 'T', description: '' }
+    const saver = openLinearSaver('ENG-1', () => createLinearSaver('ENG-1', issue, async (c) => {
+      order.push(`linear:${c.description?.text}`)
+      return { kind: 'pending', reason: 'Linear injoignable' }
+    }))
+    saver.text('description', 'tapé')
+    connectUpdateStash()
+    const cb = (on.mock.calls[0] as unknown as [string, () => void])[1]
+    cb()
+    await vi.waitFor(() => expect(submitStash).toHaveBeenCalled())
+    expect(order).toEqual(['linear:tapé', 'stash'])
+    await closeLinearSaver('ENG-1', saver, () => true)
   })
 
   it('a non-interrupted tab gets no notice', async () => {
