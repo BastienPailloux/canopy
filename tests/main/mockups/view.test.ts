@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { allowedInView, clampBounds, MockupViewManager, mockupViewOverride, navigationAction, parseBounds } from '../../../src/main/mockups/view'
+import {
+  allowedInView, clampBounds, fromMainFrame, MockupViewManager, mockupViewOverride, navigationAction, needsLoad, onViewDownload,
+  parseBounds, rateLimiter
+} from '../../../src/main/mockups/view'
 
 const SHORT = 'WcXTxNhxSWaDL28ttqjZye'
 
@@ -51,7 +54,7 @@ describe('MockupViewManager.accepts', () => {
 describe('allowedInView', () => {
   it('keeps claude.ai and its login pages, over https only', () => {
     for (const u of ['https://claude.ai/artifact/x', 'https://www.claude.ai/', 'https://console.anthropic.com/',
-      'https://a.claudeusercontent.com/f', 'https://accounts.google.com/o/oauth2', 'https://appleid.apple.com/auth', 'https://CLAUDE.AI/']) {
+      'https://accounts.google.com/o/oauth2', 'https://appleid.apple.com/auth', 'https://CLAUDE.AI/']) {
       expect(allowedInView(u), u).toBe(true)
     }
   })
@@ -59,7 +62,9 @@ describe('allowedInView', () => {
   it('sends the rest to the browser', () => {
     for (const u of ['http://claude.ai/', 'https://claude.ai.evil.com/', 'https://evilclaude.ai/', 'https://anthropic.com.evil.com/',
       'https://evilanthropic.com/', 'https://google.com/', 'https://x.accounts.google.com/', 'https://user:pw@claude.ai/',
-      'file:///etc/passwd', 'javascript:alert(1)', 'about:blank', 'not a url']) {
+      'file:///etc/passwd', 'javascript:alert(1)', 'about:blank', 'not a url',
+      // Artifact content renders in subframes; as a main frame it could pass for claude.ai.
+      'https://a.claudeusercontent.com/f', 'https://claudeusercontent.com/']) {
       expect(allowedInView(u), u).toBe(false)
     }
   })
@@ -83,5 +88,77 @@ describe('navigationAction', () => {
   it('subframes are left alone', () => {
     expect(navigationAction({ kind: 'navigate', isMainFrame: false, url: away })).toBe('allow')
     expect(navigationAction({ kind: 'redirect', isMainFrame: false, url: away })).toBe('allow')
+  })
+})
+
+describe('fromMainFrame', () => {
+  const main = `https://claude.ai/artifact/${SHORT}`
+
+  it('trusts a referrer of the main frame origin only', () => {
+    expect(fromMainFrame('https://claude.ai/chat/1', main)).toBe(true)
+    expect(fromMainFrame('https://a.claudeusercontent.com/f', main)).toBe(false)
+    expect(fromMainFrame('https://claude.ai.evil.com/', main)).toBe(false)
+    expect(fromMainFrame('', main)).toBe(false)
+    expect(fromMainFrame('about:blank', 'about:blank')).toBe(false)
+    expect(fromMainFrame('https://claude.ai/', '')).toBe(false)
+  })
+})
+
+describe('rateLimiter', () => {
+  it('lets one call through per interval and drops the rest', () => {
+    let t = 0
+    const gate = rateLimiter(1000, () => t)
+    expect(gate()).toBe(true)
+    t = 10
+    expect(gate()).toBe(false)
+    t = 999
+    expect(gate()).toBe(false)
+    t = 1000
+    expect(gate()).toBe(true)
+    t = 1500
+    expect(gate()).toBe(false)
+    t = 2001
+    expect(gate()).toBe(true)
+  })
+})
+
+describe('needsLoad', () => {
+  const url = `https://claude.ai/artifact/${SHORT}`
+  const base = { last: url, requested: url, failed: false, override: false, currentUrl: url }
+
+  it('loads a new url, and nothing for the same one still shown', () => {
+    expect(needsLoad({ ...base, last: null })).toBe(true)
+    expect(needsLoad({ ...base, requested: 'https://claude.ai/artifact/OtherOtherOtherOther12' })).toBe(true)
+    expect(needsLoad(base)).toBe(false)
+    expect(needsLoad({ ...base, currentUrl: `https://claude.ai/artifact/x-${SHORT}?a=1` })).toBe(false)
+  })
+
+  it('loads the same url again after a failure or once the view went elsewhere', () => {
+    expect(needsLoad({ ...base, failed: true })).toBe(true)
+    expect(needsLoad({ ...base, currentUrl: 'https://claude.ai/new' })).toBe(true)
+    expect(needsLoad({ ...base, currentUrl: '' })).toBe(true)
+  })
+
+  it('with the e2e page, only a failure reloads the same url', () => {
+    const e2e = { last: 'about:blank', requested: 'about:blank', failed: false, override: true, currentUrl: 'about:blank' }
+    expect(needsLoad(e2e)).toBe(false)
+    expect(needsLoad({ ...e2e, currentUrl: 'https://claude.ai/new' })).toBe(false)
+    expect(needsLoad({ ...e2e, failed: true })).toBe(true)
+  })
+})
+
+describe('onViewDownload', () => {
+  const run = (url: string): { cancelled: boolean; opened: string[] } => {
+    const r = { cancelled: false, opened: [] as string[] }
+    onViewDownload({ cancel: () => { r.cancelled = true }, getURL: () => url }, (u) => { r.opened.push(u) })
+    return r
+  }
+
+  it('cancels every download and opens only http(s) ones in the browser', () => {
+    expect(run('https://claude.ai/file.zip')).toEqual({ cancelled: true, opened: ['https://claude.ai/file.zip'] })
+    expect(run('http://example.com/a')).toEqual({ cancelled: true, opened: ['http://example.com/a'] })
+    for (const u of ['blob:https://claude.ai/123', 'data:text/plain,hi', 'file:///etc/passwd', 'not a url']) {
+      expect(run(u), u).toEqual({ cancelled: true, opened: [] })
+    }
   })
 })
