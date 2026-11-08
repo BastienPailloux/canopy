@@ -5,7 +5,7 @@ import { defaultEntry, mergeScan, repoWorktrees, worktreeLabel } from './shell/w
 
 export { worktreeLabel }
 
-export type View = 'sessions' | 'code'
+export type View = 'sessions' | 'code' | 'tickets'
 
 /** A file the Code view must open as soon as it shows. */
 export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; /** 1-based line to reveal. */ line?: number; /** 1-based column of `line` for the cursor. */ column?: number; seq: number }
@@ -23,6 +23,10 @@ interface AppState {
   /** Worktrees of the workspace deleted from outside, kept reachable for what still runs in them. */
   orphans: OrphanedWorktree[]
   view: View
+  /** Ticket open in the editor of the Tickets view; null: the list. */
+  openTicket: string | null
+  /** Ticket highlighted in the list. */
+  selectedTicket: string | null
   /** Branch each worktree is compared against when the user picked one; absent: the default branch. */
   bases: Record<string, string>
   codeRequest: CodeRequest | null
@@ -48,6 +52,8 @@ interface AppState {
   setOrphans: (list: OrphanedWorktree[]) => void
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
+  setOpenTicket: (id: string | null) => void
+  setSelectedTicket: (id: string | null) => void
   setBase: (cwd: string, base: string | undefined) => void
 }
 
@@ -55,10 +61,13 @@ let requestCount = 0
 
 const noRepoMessage = (root: string): string => `Aucun repo git dans ${root}`
 
-type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees'>
+type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees' | 'openTicket' | 'selectedTicket'>
 
+/** Another repo has other tickets: the one open or selected would point at a ticket of the repo left. */
 function selection(s: Selection, workspace: Workspace, repo: string, worktree: string): Partial<Selection> {
-  return repo === s.repo ? { worktree } : { repo, worktree, worktrees: repoWorktrees(workspace, repo) }
+  return repo === s.repo
+    ? { worktree }
+    : { repo, worktree, worktrees: repoWorktrees(workspace, repo), openTicket: null, selectedTicket: null }
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -69,6 +78,8 @@ export const useApp = create<AppState>((set) => ({
   worktrees: [],
   orphans: [],
   view: 'sessions',
+  openTicket: null,
+  selectedTicket: null,
   bases: {},
   codeRequest: null,
   openInCode: (cwd, path, mode, line, column) =>
@@ -104,6 +115,8 @@ export const useApp = create<AppState>((set) => ({
     })),
   setWorktree: (worktree) => set({ worktree }),
   setView: (view) => set({ view }),
+  setOpenTicket: (openTicket) => set({ openTicket }),
+  setSelectedTicket: (selectedTicket) => set({ selectedTicket }),
   setBase: (cwd, base) => set((s) => {
     const { [cwd]: _old, ...rest } = s.bases
     return { bases: base === undefined ? rest : { ...rest, [cwd]: base } }

@@ -50,15 +50,15 @@ export async function mainWorktreeRoot(dir: string): Promise<string> {
 
 const EXCLUDE_ENTRY = '.worktrees/'
 
-/** Add `.worktrees/` to the common git dir's info/exclude (never touches tracked files). */
-async function ensureExcluded(repo: string): Promise<void> {
+/** Add `entry` to the common git dir's info/exclude (never touches tracked files). */
+export async function ensureExcluded(repo: string, entry: string): Promise<void> {
   const common = (await git(repo, ['rev-parse', '--git-common-dir'])).trim()
   const infoDir = join(isAbsolute(common) ? common : resolve(repo, common), 'info')
   const file = join(infoDir, 'exclude')
   const current = await readFile(file, 'utf8').catch(() => '')
-  if (current.split('\n').some((l) => l.trim() === EXCLUDE_ENTRY)) return
+  if (current.split('\n').some((l) => l.trim() === entry)) return
   await mkdir(infoDir, { recursive: true })
-  await appendFile(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${EXCLUDE_ENTRY}\n`)
+  await appendFile(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${entry}\n`)
 }
 
 export const hasRef = (repo: string, ref: string): Promise<boolean> =>
@@ -115,7 +115,7 @@ export async function createWorktree(
   if (existsSync(path)) throw new Error(`Le dossier du worktree "${o.name}" existe déjà : ${path}`)
   const args = o.existing ? await existingBranchArgs(repo, o.branch, path) : await newBranchArgs(repo, o.branch, o.base, path)
 
-  if (o.parentDir === undefined) await ensureExcluded(repo)
+  if (o.parentDir === undefined) await ensureExcluded(repo, EXCLUDE_ENTRY)
   await git(repo, ['worktree', 'add', ...args], { trusted: o.trusted === true })
   let created: Worktree | undefined
   for (const w of await listWorktrees(repo)) {

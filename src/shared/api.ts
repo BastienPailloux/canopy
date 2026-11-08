@@ -2,6 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
+import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 
 export interface RemovalRisks {
@@ -157,8 +158,8 @@ export interface CanopyApi {
   switchBranch(path: string, branch: string): Promise<{ conflict: boolean }>
   /** Worktrees of the repos of the folder `root` that vanished from outside with sessions or terminals still alive. */
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
-  /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts. */
-  reportUnsaved(counts: { buffers: number; drafts: number }): Promise<void>
+  /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts, ticket edits not written. */
+  reportUnsaved(counts: { buffers: number; drafts: number; tickets: number }): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
@@ -208,6 +209,30 @@ export interface CanopyApi {
   writeFile(cwd: string, path: string, content: string, expectedVersion?: string): Promise<string>
   /** Watches the worktrees `repo` lists now, and no other: emits `code:changed` `{ cwd }` after changes. */
   watchWorktrees(repo: string): Promise<void>
+  /** Tickets of the repo whose main checkout holds `repo` (any worktree path works). */
+  listTickets(repo: string): Promise<TicketListEntry[]>
+  getTicket(repo: string, id: string): Promise<Ticket>
+  createTicket(repo: string, fields: TicketFields): Promise<Ticket>
+  patchTicket(repo: string, id: string, changes: Partial<TicketFields>): Promise<Ticket>
+  duplicateTicket(repo: string, id: string): Promise<Ticket>
+  archiveTicket(repo: string, id: string): Promise<void>
+  ticketConfig(repo: string): Promise<{ prefix: string; next: number }>
+  setTicketPrefix(repo: string, prefix: string): Promise<void>
+  ticketLabels(repo: string): Promise<string[]>
+  /** Worktrees of `repo` a launch could use, and the branch most ahead of the default one (null: none ahead). */
+  launchCandidates(repo: string): Promise<{ worktrees: LaunchCandidate[]; advanced: { branch: string; ahead: number } | null }>
+  /**
+   * Creates the ticket's branch in a new worktree, or in a free existing one, and links the ticket to it.
+   * A failed launch writes nothing in the ticket. A relaunch replaces the linked branch.
+   */
+  launchTicket(repo: string, req: LaunchRequest): Promise<{ worktree: string; ticket: Ticket }>
+  /** Watches the tickets of `repo` for this window, and no other repo: emits `tickets:changed` `{ repo }` (main root). */
+  watchTickets(repo: string): Promise<void>
+  /**
+   * The base remembered for the branch checked out at `cwd`. `lost`: that base no longer exists locally,
+   * and is forgotten after this answer. Null: none.
+   */
+  branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */

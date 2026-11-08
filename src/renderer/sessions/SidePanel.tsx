@@ -3,7 +3,9 @@ import type { BaseRef, ChangedFile } from '../../shared/types'
 import { createOrdering, poll, POLL_DEGRADED_MS, POLL_HEALTHY_MS } from '../shell/polling'
 import { useLayout } from '../shell/layoutStore'
 import { useApp } from '../store'
-import { PR_PROMPT, rebasePrompt } from './panelPrompts'
+import { baseLost } from '../code/baseText'
+import { useBranchBase } from '../code/useBranchBase'
+import { prPrompt, rebasePrompt } from './panelPrompts'
 import { askClaude, useSessions } from './sessionStore'
 
 const KIND_COLOR: Record<ChangedFile['kind'], string> = { A: 'var(--add)', M: 'var(--warn)', D: 'var(--del)', R: 'var(--accent)' }
@@ -38,9 +40,10 @@ function useChanges(cwd: string, picked: string | undefined): { base: BaseRef | 
 }
 
 /** Right panel of the Sessions view: what the branch changes, and the two actions Claude carries out. */
-export function SidePanel({ cwd }: { cwd: string }): React.JSX.Element {
+export function SidePanel({ cwd, branch }: { cwd: string; branch: string }): React.JSX.Element {
   const picked = useApp((s) => s.bases[cwd])
   const { base, files, error } = useChanges(cwd, picked)
+  const { base: stacked, lost } = useBranchBase(cwd, branch)
   const activeState = useSessions((s) => {
     const id = s.active[cwd]
     return id ? s.tabs[id]?.state : undefined
@@ -77,8 +80,10 @@ export function SidePanel({ cwd }: { cwd: string }): React.JSX.Element {
         </div>
       </section>
       <div className="actions">
+        {stacked !== null && <p className="muted mono" data-testid="pr-target">Cible : {stacked}</p>}
         <button className="primary" disabled={busy} title={busy ? 'Claude travaille sur cette session' : undefined}
-          onClick={() => askClaude(cwd, PR_PROMPT)}>Créer la PR</button>
+          onClick={() => askClaude(cwd, prPrompt(stacked ?? undefined))}>Créer la PR</button>
+        {lost !== null && <p className="warn" role="status" data-testid="pr-base-lost">{baseLost(lost)}</p>}
         <button className="secondary" disabled={busy || !base} title={busy ? 'Claude travaille sur cette session' : undefined}
           onClick={() => { if (base) askClaude(cwd, rebasePrompt(base.ref)) }}>
           Rebaser{base ? ` sur ${base.name}` : ''}

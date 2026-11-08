@@ -5,7 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 import { createWorktree } from '../../../src/main/git/worktrees'
-import { hasSetAsideChanges, switchableBranches, switchBranch } from '../../../src/main/git/switchBranch'
+import { hasSetAsideChanges, startBranchIn, switchableBranches, switchBranch } from '../../../src/main/git/switchBranch'
 
 let repo: TestRepo | undefined
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
@@ -187,4 +187,62 @@ describe('the repo\'s own filters and hooks', () => {
     expect(await readFile(join(repo.path, 'a.txt'), 'utf8')).toBe('A\n')
     expect([existsSync(smudged), existsSync(hooked)]).toEqual([true, true])
   })
+})
+
+test('startBranchIn sets dirty files aside', async () => {
+  repo = await createRepo()
+  g(repo.path, 'switch', '-c', 'feat/a')
+  await writeFile(join(repo.path, 'README.md'), 'edited\n')
+  await writeFile(join(repo.path, 'new.txt'), 'new\n')
+
+  await startBranchIn(repo.path, 'feat/b', 'main')
+  expect(current(repo.path)).toBe('feat/b')
+  expect(g(repo.path, 'status', '--porcelain')).toBe('')
+
+  await switchBranch(repo.path, 'feat/a')
+  expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('edited\n')
+  expect(await readFile(join(repo.path, 'new.txt'), 'utf8')).toBe('new\n')
+})
+
+test('startBranchIn refuses an existing branch', async () => {
+  repo = await createRepo()
+  g(repo.path, 'branch', 'taken')
+  await writeFile(join(repo.path, 'README.md'), 'edited\n')
+  await expect(startBranchIn(repo.path, 'taken', 'main')).rejects.toThrow()
+  expect(current(repo.path)).toBe('main')
+  expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('edited\n')
+  expect(stashes(repo.path)).toBe('')
+})
+
+test('startBranchIn rejects a base or branch starting with a dash', async () => {
+  repo = await createRepo()
+  await expect(startBranchIn(repo.path, 'x', '--orphan')).rejects.toThrow()
+  await expect(startBranchIn(repo.path, '-x', 'main')).rejects.toThrow()
+})
+
+test('startBranchIn from a remote branch sets no upstream', async () => {
+  repo = await createRepo({ remote: true })
+  await startBranchIn(repo.path, 'feat/r', 'origin/main')
+  expect(current(repo.path)).toBe('feat/r')
+  expect(() => g(repo!.path, 'rev-parse', '--abbrev-ref', 'feat/r@{upstream}')).toThrow()
+})
+
+test('startBranchIn with a missing base leaves files and stash alone', async () => {
+  repo = await createRepo()
+  await writeFile(join(repo.path, 'README.md'), 'edited\n')
+  await expect(startBranchIn(repo.path, 'feat/b', 'nope')).rejects.toThrow()
+  expect(current(repo.path)).toBe('main')
+  expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('edited\n')
+  expect(stashes(repo.path)).toBe('')
+})
+
+test('startBranchIn puts changes back when the switch fails after setting them aside', async () => {
+  repo = await createRepo()
+  await writeFile(join(repo.path, 'README.md'), 'edited\n')
+  await writeFile(join(repo.path, 'new.txt'), 'new\n')
+  await expect(startBranchIn(repo.path, 'feat/bad..name', 'main')).rejects.toThrow()
+  expect(current(repo.path)).toBe('main')
+  expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('edited\n')
+  expect(await readFile(join(repo.path, 'new.txt'), 'utf8')).toBe('new\n')
+  expect(stashes(repo.path)).toBe('')
 })

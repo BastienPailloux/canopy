@@ -25,6 +25,8 @@ interface State {
   ports: Record<string, Record<string, number>>
   /** Base branch picked for a repo, by main worktree root. */
   repoBases: Record<string, string>
+  /** Base of a stacked branch, by main worktree root then branch. */
+  branchBases: Record<string, Record<string, string>>
   /** Worktree last selected in each recent folder. */
   lastEntries: Record<string, string>
   prefs: Record<string, unknown>
@@ -39,7 +41,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -59,6 +61,13 @@ function sanitize(raw: unknown): State {
   }
   if (isRecord(raw.repoBases)) {
     for (const [repo, base] of Object.entries(raw.repoBases)) if (typeof base === 'string' && base !== '') state.repoBases[repo] = base
+  }
+  if (isRecord(raw.branchBases)) {
+    for (const [root, branches] of Object.entries(raw.branchBases)) {
+      if (!isRecord(branches)) continue
+      const clean = Object.entries(branches).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1] !== '')
+      if (clean.length > 0) state.branchBases[root] = Object.fromEntries(clean)
+    }
   }
   if (isRecord(raw.lastEntries)) {
     for (const [folder, path] of Object.entries(raw.lastEntries)) if (typeof path === 'string' && path !== '') state.lastEntries[folder] = path
@@ -129,6 +138,32 @@ export class AppStore {
   setRepoBase(repo: string, branch: string | null): void {
     if (branch === null) delete this.state.repoBases[repo]
     else this.state.repoBases[repo] = branch
+    this.save()
+  }
+
+  branchBase(root: string, branch: string): string | undefined {
+    const bases = this.state.branchBases[root]
+    return bases !== undefined && Object.hasOwn(bases, branch) ? bases[branch] : undefined
+  }
+
+  /** Remembers what `branch` was stacked on, or forgets it with null. */
+  setBranchBase(root: string, branch: string, base: string | null): void {
+    const bases = new Map(Object.entries(this.state.branchBases[root] ?? {}))
+    if (base === null) bases.delete(branch)
+    else bases.set(branch, base)
+    if (bases.size === 0) delete this.state.branchBases[root]
+    else this.state.branchBases[root] = Object.fromEntries(bases)
+    this.save()
+  }
+
+  /** Forgets the bases of branches that no longer exist. */
+  pruneBranchBases(root: string, existing: string[]): void {
+    const bases = this.state.branchBases[root]
+    if (bases === undefined) return
+    const keep = Object.entries(bases).filter(([b]) => existing.includes(b))
+    if (keep.length === Object.keys(bases).length) return
+    if (keep.length === 0) delete this.state.branchBases[root]
+    else this.state.branchBases[root] = Object.fromEntries(keep)
     this.save()
   }
 

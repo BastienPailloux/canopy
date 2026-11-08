@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { PREFIX_RE } from '../../shared/tickets'
+import { useApp } from '../store'
 import { ACCOUNT_CHANGED } from './AccountFooter'
 import { useModal } from './useModal'
 
@@ -15,6 +17,36 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
   const [notice, setNotice] = useState<string | null>(null)
 
   const [trusted, setTrusted] = useState<string[]>([])
+
+  const repo = useApp((st) => st.repo)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [prefix, setPrefix] = useState('')
+  const [prefixNotice, setPrefixNotice] = useState<string | null>(null)
+  useEffect(() => {
+    setSaved(null)
+    setPrefix('')
+    setPrefixNotice(null)
+    if (!repo) return
+    let current = true
+    window.canopy.ticketConfig(repo).then(
+      (c) => { if (current) { setSaved(c.prefix); setPrefix(c.prefix) } },
+      (e: unknown) => { if (current) setError(errorText(e)) }
+    )
+    return () => { current = false }
+  }, [repo])
+  const prefixValid = PREFIX_RE.test(prefix)
+  const savePrefix = async (): Promise<void> => {
+    if (!repo || !prefixValid || prefix === saved) return
+    setError(null)
+    setPrefixNotice(null)
+    try {
+      await window.canopy.setTicketPrefix(repo, prefix)
+      setSaved(prefix)
+      setPrefixNotice('Préfixe enregistré.')
+    } catch (e) {
+      setError(errorText(e))
+    }
+  }
 
   useEffect(() => {
     window.canopy.apiKeyStatus().then(setStatus, (e: unknown) => setError(errorText(e)))
@@ -93,6 +125,23 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
                 <button type="button" className="secondary" aria-label={`Révoquer ${root}`} onClick={() => void revoke(root)}>Révoquer</button>
               </span>
             ))}
+          </div>
+        )}
+        {repo && (
+          <div className="tickets-settings" data-testid="tickets-settings">
+            <span className="title">Tickets</span>
+            <label>
+              Préfixe des tickets
+              <input value={prefix} spellCheck={false} aria-invalid={!prefixValid} data-testid="ticket-prefix"
+                onChange={(e) => { setPrefix(e.target.value.toUpperCase()); setPrefixNotice(null) }}
+                onBlur={() => void savePrefix()}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void savePrefix() } }} />
+            </label>
+            {!prefixValid && saved !== null && (
+              <p className="error" role="alert">Lettres majuscules et chiffres, 10 au plus, commençant par une lettre</p>
+            )}
+            <span style={{ color: 'var(--fg-3)', fontSize: 12, lineHeight: 1.5 }}>S'applique aux nouveaux tickets.</span>
+            {prefixNotice && <span role="status" style={{ color: 'var(--add)', fontSize: 12 }}>{prefixNotice}</span>}
           </div>
         )}
         {error && <p className="error" role="alert">{error}</p>}

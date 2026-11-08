@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useApp, type View } from '../store'
+import { openCount, useTickets } from '../tickets/ticketStore'
 import { RepoPicker } from './RepoPicker'
 import { Settings } from './Settings'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'sessions', label: 'Sessions' },
-  { id: 'code', label: 'Code' }
+  { id: 'code', label: 'Code' },
+  { id: 'tickets', label: 'Tickets' }
 ]
 
 function Logo(): React.JSX.Element {
@@ -24,6 +26,7 @@ function Logo(): React.JSX.Element {
 export function Header(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
+  const open = useTickets((s) => openCount(s.entries))
   const [settings, setSettings] = useState(false)
   return (
     <header className="header">
@@ -36,6 +39,7 @@ export function Header(): React.JSX.Element {
         {VIEWS.map((v) => (
           <button key={v.id} aria-current={view === v.id ? 'page' : undefined} onClick={() => setView(v.id)}>
             {v.label}
+            {v.id === 'tickets' && open > 0 && <span className="count">{open}</span>}
           </button>
         ))}
       </nav>

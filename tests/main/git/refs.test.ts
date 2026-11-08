@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from 'vitest'
 import { execFileSync } from 'node:child_process'
+import { createWorktree } from '../../../src/main/git/worktrees'
 import { createRepo, type TestRepo } from '../../helpers/repo'
-import { aheadCount, listBranches, mergeBase, resolveBaseRef, resolveCompareRef } from '../../../src/main/git/refs'
+import { aheadCount, listBranches, mergeBase, mostAdvancedBranch, resolveBaseRef, resolveCompareRef } from '../../../src/main/git/refs'
 
 let repo: TestRepo | undefined
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
@@ -97,4 +98,26 @@ test('the only remote branch is the base, whatever its name', async () => {
   execFileSync('git', ['remote', 'set-head', 'origin', '--delete'], { cwd: repo.path })
   expect(await resolveBaseRef(repo.path)).toEqual({ name: 'release', ref: 'origin/release' })
   await repo.cleanup()
+})
+
+const commitAt = (cwd: string, file: string, date: string): void => {
+  const env = { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+  execFileSync('git', ['commit', '--allow-empty', '-m', file], { cwd, env, stdio: 'pipe' })
+}
+
+test('mostAdvancedBranch picks most commits ahead, then most recent', async () => {
+  repo = await createRepo()
+  const c = await createWorktree(repo.path, { name: 'c', branch: 'feat/c', base: 'main' })
+  const b = await createWorktree(repo.path, { name: 'b', branch: 'feat/b', base: 'main' })
+  const a = await createWorktree(repo.path, { name: 'a', branch: 'feat/a', base: 'main' })
+  for (let i = 0; i < 3; i++) commitAt(c.path, `c${i}`, '2030-01-03T00:00:00Z')
+  for (let i = 0; i < 3; i++) commitAt(b.path, `b${i}`, '2030-01-02T00:00:00Z')
+  for (let i = 0; i < 2; i++) commitAt(a.path, `a${i}`, '2030-01-04T00:00:00Z')
+  expect(await mostAdvancedBranch(repo.path, 'main')).toEqual({ branch: 'feat/c', ahead: 3 })
+})
+
+test('mostAdvancedBranch returns null when nothing is ahead', async () => {
+  repo = await createRepo()
+  await createWorktree(repo.path, { name: 'a', branch: 'feat/a', base: 'main' })
+  expect(await mostAdvancedBranch(repo.path, 'main')).toBeNull()
 })

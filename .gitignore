@@ -7,3 +7,7 @@ dist
 test-results
 dist-notes
 .canopy/dev-user-data
+
+# Local design references and Playwright artifacts
+docs/mockups/
+.playwright-mcp/

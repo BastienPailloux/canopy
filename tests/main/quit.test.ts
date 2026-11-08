@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
-import { createQuitFlow, quitDetail, updateDetail, type RunningCounts } from '../../src/main/quit'
+import { createQuitFlow, parseUnsaved, quitDetail, updateDetail, type RunningCounts } from '../../src/main/quit'
 
-const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0 }
+const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0 }
 
 function setup(partial: Partial<RunningCounts>, answer = true) {
   const counts = { ...NONE, ...partial }
@@ -60,7 +60,7 @@ test('the question lists the counts', () => {
 })
 
 test('unsaved work alone asks before quitting', async () => {
-  for (const unsaved of [{ buffers: 1 }, { drafts: 1 }]) {
+  for (const unsaved of [{ buffers: 1 }, { drafts: 1 }, { tickets: 1 }]) {
     const h = setup(unsaved, false)
     await h.flow.request()
     expect(h.confirm).toHaveBeenCalledOnce()
@@ -70,7 +70,9 @@ test('unsaved work alone asks before quitting', async () => {
 
 test('the question says what stops and what is lost', () => {
   expect(quitDetail({ ...NONE, buffers: 2, drafts: 1 })).toBe('Seront perdus : 2 fichiers non enregistrés, 1 brouillon de message.')
-  expect(quitDetail({ sessions: 1, terminals: 0, buffers: 1, drafts: 0 })).toBe('Quitter arrêtera : 1 session Claude en cours. Sera perdu : 1 fichier non enregistré.')
+  expect(quitDetail({ ...NONE, tickets: 1 })).toBe('Sera perdu : 1 ticket pas encore enregistré.')
+  expect(quitDetail({ ...NONE, buffers: 1, tickets: 2 })).toBe('Seront perdus : 1 fichier non enregistré, 2 tickets pas encore enregistrés.')
+  expect(quitDetail({ sessions: 1, terminals: 0, buffers: 1, drafts: 0, tickets: 0 })).toBe('Quitter arrêtera : 1 session Claude en cours. Sera perdu : 1 fichier non enregistré.')
 })
 
 test('finish stops everything and hands over without asking', () => {
@@ -80,8 +82,15 @@ test('finish stops everything and hands over without asking', () => {
   expect(h.flow.quitting).toBe(true)
 })
 test('update detail says what stops and that edits are kept', () => {
-  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1 })).toBe(
+  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1, tickets: 0 })).toBe(
     'Redémarrer arrêtera : 2 sessions Claude en cours, 1 terminal actif. Les fichiers non enregistrés et les brouillons seront conservés.')
+})
+
+test('update detail says unwritten ticket edits are written first, and lost if that fails', () => {
+  expect(updateDetail({ ...NONE, tickets: 1 })).toBe(
+    'Les fichiers non enregistrés et les brouillons seront conservés. 1 ticket pas encore enregistré le sera avant le redémarrage ; en cas d’échec, ses modifications seront perdues.')
+  expect(updateDetail({ ...NONE, tickets: 2 })).toBe(
+    'Les fichiers non enregistrés et les brouillons seront conservés. 2 tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.')
 })
 
 test('finish while the quit question is open: a later confirm does not stop or quit again', async () => {
@@ -110,4 +119,10 @@ test('finish twice stops and hands over once', () => {
 
 test('update detail with nothing running keeps only the sentence about edits', () => {
   expect(updateDetail(NONE)).toBe('Les fichiers non enregistrés et les brouillons seront conservés.')
+})
+
+test('parseUnsaved takes the ticket count and refuses a bad one', () => {
+  expect(parseUnsaved({ buffers: 1, drafts: 0, tickets: 2 })).toEqual({ buffers: 1, drafts: 0, tickets: 2 })
+  expect(() => parseUnsaved({ buffers: 1, drafts: 0, tickets: -1 })).toThrow()
+  expect(() => parseUnsaved({ buffers: 1, drafts: 0 })).toThrow()
 })

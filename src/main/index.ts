@@ -7,6 +7,7 @@ import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
 import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
+import { TicketStore } from './tickets/store'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { createCrashReload } from './crashReload'
@@ -136,7 +137,7 @@ void app.whenReady().then(async () => {
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
-  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0 }
+  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0 }
   const running = (): RunningCounts => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved })
   // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const quit = createQuitFlow({
@@ -161,7 +162,8 @@ void app.whenReady().then(async () => {
     void quit.request()
   })
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
-    selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }))
+    selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
+    new TicketStore())
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null
@@ -200,7 +202,7 @@ void app.whenReady().then(async () => {
   const open = (): void => {
     // The new page asks for its folder when it loads; a folder asked meanwhile waits for it.
     openFolders.reset()
-    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0 }; openFolders.reset() })
+    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0 }; openFolders.reset() })
   }
   showWindow = () => {
     const [win] = BrowserWindow.getAllWindows()

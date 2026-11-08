@@ -211,3 +211,28 @@ test('last entries follow the recents: a folder that left them is dropped', () =
   store.setLastEntry('/r9', '/r9/a')
   expect(store.lastEntries).toEqual({ '/r9': '/r9/a' })
 })
+
+test('remembers and prunes branch bases', async () => {
+  const s = new AppStore(file)
+  s.setBranchBase('/r', 'feat/a', 'feat/base')
+  s.setBranchBase('/r', 'feat/b', 'develop')
+  expect(s.branchBase('/r', 'feat/a')).toBe('feat/base')
+  s.pruneBranchBases('/r', ['feat/b'])
+  expect(s.branchBase('/r', 'feat/a')).toBeUndefined()
+  expect(new AppStore(file).branchBase('/r', 'feat/b')).toBe('develop')
+  s.setBranchBase('/r', 'feat/b', null)
+  expect(s.branchBase('/r', 'feat/b')).toBeUndefined()
+  await writeFile(file, JSON.stringify({ branchBases: { '/a': { x: 'y', z: 3 }, '/b': 'no' } }))
+  expect(new AppStore(file).branchBase('/a', 'x')).toBe('y')
+  expect(new AppStore(file).branchBase('/a', 'z')).toBeUndefined()
+  await writeFile(file, JSON.stringify({ branchBases: ['x'] }))
+  expect(new AppStore(file).branchBase('/a', 'x')).toBeUndefined()
+})
+
+test('a branch named __proto__ is a plain entry', () => {
+  const s = new AppStore(file)
+  s.setBranchBase('/r', '__proto__', 'main')
+  expect(s.branchBase('/r', '__proto__')).toBe('main')
+  expect(({} as Record<string, unknown>).main).toBeUndefined()
+  expect(new AppStore(file).branchBase('/r', '__proto__')).toBe('main')
+})

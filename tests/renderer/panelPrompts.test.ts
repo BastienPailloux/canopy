@@ -1,8 +1,9 @@
 import { expect, test } from 'vitest'
-import { PR_PROMPT, rebasePrompt } from '../../src/renderer/sessions/panelPrompts'
+import { prPrompt, rebasePrompt } from '../../src/renderer/sessions/panelPrompts'
 
-test('the PR sentence', () => {
-  expect(PR_PROMPT).toBe('Crée une PR pour cette branche.')
+test('the PR sentence, without and with a target branch', () => {
+  expect(prPrompt()).toBe('Crée une PR pour cette branche.')
+  expect(prPrompt('feat/parent')).toBe('Crée une PR pour cette branche, avec `feat/parent` comme branche cible.')
 })
 
 test('the rebase sentence names the comparison ref', () => {
