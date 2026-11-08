@@ -37,7 +37,7 @@ describe('LinearClient connection', () => {
     const open = vi.fn(async () => fake)
     const client = new LinearClient(open, memoryStore())
     expect(client.connection()).toEqual({ state: 'disconnected', missingTools: [] })
-    await expect(client.connect()).resolves.toEqual({ state: 'connected', workspace: 'canopy', email: 'bastien.pailloux@hotmail.fr', missingTools: [] })
+    await expect(client.connect()).resolves.toEqual({ state: 'connected', workspace: 'canopy', email: 'bastien.pailloux@hotmail.fr', userId: '5d215785-3c9b-44ff-aa4c-f00a2c2229ee', missingTools: [] })
     expect(open).toHaveBeenCalledWith(true)
     expect(client.connection().state).toBe('connected')
   })

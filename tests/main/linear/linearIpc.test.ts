@@ -166,6 +166,21 @@ describe('registerLinearIpc', () => {
     } finally { await b.cleanup() }
   })
 
+  it('connecting after an expired start refreshes with the launched set ready: no false departure', async () => {
+    execFileSync('git', ['branch', 'feat/can-1'], { cwd: repo.path })
+    store.setLinearLink(repo.path, 'CAN-1', { branch: 'feat/can-1', worktree: repo.path, base: 'main' })
+    await sync.refresh() // the cache from an earlier run: CAN-1 listed
+    await client.save('CAN-1', { assignee: OTHER_USER }) // reassigned in Linear meanwhile
+    await client.disconnect()
+    expect(linked.ids()).toEqual([]) // nothing recomputed yet, as at an expired start
+    const refreshed = new Promise<void>((resolve) => { sync.onChange(resolve) })
+    await call('connect')
+    await refreshed
+    const st = sync.state()
+    expect(st.issues.map((i) => i.id)).toContain('CAN-1')
+    expect(st.departures).toEqual([])
+  })
+
   it('a failed read of the links still answers the list and the refresh', async () => {
     await call('refresh', repo.path)
     vi.spyOn(linked, 'recompute').mockRejectedValue(new Error('git exploded'))
@@ -201,7 +216,7 @@ describe('startLinear', () => {
       broadcast: () => { calls.push('event') },
       log: () => undefined,
     })
-    expect(calls).toEqual(['resume', 'event', 'retry', 'links', 'refresh'])
+    expect(calls).toEqual(['links', 'resume', 'event', 'retry', 'refresh'])
   })
 
   it('stays quiet when not connected and never throws', async () => {
@@ -215,7 +230,7 @@ describe('startLinear', () => {
       broadcast: () => undefined,
       log,
     })
-    expect(calls).toEqual([])
+    expect(calls).toEqual(['links'])
     expect(log).toHaveBeenCalled()
   })
 })

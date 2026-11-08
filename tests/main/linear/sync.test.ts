@@ -130,7 +130,9 @@ describe('LinearSync', () => {
   })
 
   it('a launched issue reassigned while launched departs as reassigned once no longer launched', async () => {
-    const f = fake(); f.mine = [issue('ENG-1'), issue('ENG-2')]
+    const f = fake() as ReturnType<typeof fake> & { connection: () => { state: 'connected'; userId?: string } }
+    f.connection = () => ({ state: 'connected', userId: me.id })
+    f.mine = [issue('ENG-1'), issue('ENG-2')]
     let launched = ['ENG-2']
     const s = new LinearSync(file, f as never, () => launched, clock)
     await s.refresh()
@@ -144,6 +146,18 @@ describe('LinearSync', () => {
     const gone = await s.refresh()
     expect(gone.issues.map((i) => i.id)).toEqual(['ENG-1'])
     expect(gone.departures).toEqual([{ id: 'ENG-2', title: 'Title ENG-2', reason: 'reassigned' }])
+  })
+
+  it('own id comes from whoami, never from a listMine answer', async () => {
+    const f = fake() as ReturnType<typeof fake> & { connection: () => { state: 'connected'; userId?: string } }
+    f.connection = () => ({ state: 'connected', userId: 'u1' })
+    f.mine = [issue('ENG-1', 'started', { id: 'u2', name: 'Alice' }), issue('ENG-2')]
+    const s = make(f)
+    await s.refresh()
+    expect(JSON.parse(readFileSync(file, 'utf8')).me).toBe('u1')
+    f.connection = () => ({ state: 'connected' })
+    await make(f).refresh()
+    expect(JSON.parse(readFileSync(file, 'utf8')).me).toBe('u1')
   })
 
   it('canceled issues are not listed', async () => {

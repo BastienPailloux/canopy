@@ -42,7 +42,7 @@ export function quitDetail(counts: RunningCounts): string {
   return [
     ...(running.length > 0 ? [`Quitter arrêtera : ${running.join(', ')}.`] : []),
     ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : []),
-    ...(linear > 0 ? ['Des modifications Linear n\'ont pas été envoyées. Elles restent en attente et partiront dès que Linear sera joignable.'] : [])
+    ...(linear > 0 ? ['Des modifications Linear n’ont pas été envoyées. Elles restent en attente et partiront dès que Linear sera joignable.'] : [])
   ].join(' ')
 }
 

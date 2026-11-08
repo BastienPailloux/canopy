@@ -20,7 +20,7 @@ export class LinearSync {
   private error: string | null = null
   private expired = false
   private departures: Departure[] = []
-  /** Bastien's Linear user id, read off his own issues: a launched issue kept with a new assignee still departs once unlaunched. */
+  /** Bastien's Linear user id, from `whoami` (the last one known): a launched issue kept with a new assignee still departs once unlaunched. */
   private me: string | null = null
   private generation = 0
   private inflight: Promise<LinearListState> | null = null
@@ -102,7 +102,7 @@ export class LinearSync {
 
   private async sync(gen: number): Promise<void> {
     const all = await this.client.listMine()
-    const me = all.find((i) => i.assignee)?.assignee?.id ?? this.me
+    const me = this.client.connection().userId ?? this.me
     const byId = new Map(all.map((i) => [i.id, i]))
     const listed = all.filter((i) => statusGroup(i.status) !== null)
     const listedIds = new Set(listed.map((i) => i.id))

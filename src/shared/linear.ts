@@ -114,6 +114,8 @@ export interface LinearConnection {
   state: 'disconnected' | 'connected' | 'expired'
   workspace?: string
   email?: string
+  /** Bastien's Linear user id, from `whoami`. */
+  userId?: string
   missingTools: string[]
 }
 

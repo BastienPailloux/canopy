@@ -169,7 +169,11 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
       try { return await fn(...args) } finally { checkConnection() }
     })
   }
-  const refreshLater = (): void => { void sync.refresh().catch((e: unknown) => { log('linear refresh failed', e) }) }
+  // A failed read of the links never keeps the list from the renderer.
+  const recompute = (): Promise<void> => linked.recompute().catch((e: unknown) => { log('linear links read failed', e) })
+  /** The only way this module refreshes: the launched set is always current first, so no launched issue departs by mistake. */
+  const refresh = async (): ReturnType<typeof sync.refresh> => { await recompute(); return sync.refresh() }
+  const refreshLater = (): void => { void refresh().catch((e: unknown) => { log('linear refresh failed', e) }) }
 
   handle('connection', () => client.connection())
   handle('connect', async () => {
@@ -187,8 +191,6 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
     if (force === true) for (const p of edits.pending()) edits.discard(p.id)
     sync.clear()
   })
-  // A failed read of the links never keeps the list from the renderer.
-  const recompute = (): Promise<void> => linked.recompute().catch((e: unknown) => { log('linear links read failed', e) })
   handle('list', async (repo) => {
     assertPath(repo)
     await recompute()
@@ -196,8 +198,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
   })
   handle('refresh', async (repo) => {
     assertPath(repo)
-    await recompute()
-    return sync.refresh()
+    return refresh()
   })
   handle('ackDepartures', (ids) => { sync.ackDepartures(parseIds(ids)) })
   handle('issue', (id) => { assertId(id); return client.issue(id) })
@@ -249,6 +250,8 @@ export async function startLinear(deps: {
   log?: (msg: string, e: unknown) => void
 }): Promise<void> {
   const log = deps.log ?? ((msg, e) => { console.error(msg, e) })
+  // First, whatever the connection: any later refresh (a connect from the renderer) finds the launched set ready.
+  try { await deps.linked.recompute() } catch (e) { log('linear links read failed', e) }
   let state: string
   try {
     state = (await deps.client.resume()).state
@@ -259,6 +262,5 @@ export async function startLinear(deps: {
   deps.broadcast('linear:changed', {})
   if (state !== 'connected') return
   try { await deps.edits.retryAll() } catch (e) { log('linear retry failed', e) }
-  try { await deps.linked.recompute() } catch (e) { log('linear links read failed', e) }
   try { await deps.sync.refresh() } catch (e) { log('linear refresh failed', e) }
 }

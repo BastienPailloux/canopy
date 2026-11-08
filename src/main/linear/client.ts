@@ -114,7 +114,7 @@ export class LinearClient {
     const me = names.has('whoami') ? parseWhoami(await this.call('whoami', {})) : undefined
     // A newer connect, resume or disconnect took over (and closed this caller) meanwhile.
     if (gen !== this.generation) return this.connection()
-    this.conn = { state: 'connected', ...(me ? { workspace: me.workspace, email: me.email } : {}), missingTools }
+    this.conn = { state: 'connected', ...(me ? { workspace: me.workspace, email: me.email, userId: me.userId } : {}), missingTools }
     return this.connection()
   }
 
