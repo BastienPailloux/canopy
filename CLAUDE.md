@@ -56,7 +56,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 
 ## Tests
 
-- TDD encouragé : écrire le test qui échoue, puis le code.
+- **TDD obligatoire** : pour toute fonctionnalité ou correction, écrire d'abord le test, le voir échouer pour la bonne raison, puis écrire le code minimal qui le fait passer, puis refactorer. Pas de code de production sans test qui l'a exigé. Pour un bug : un test qui reproduit le bug avant le correctif.
 - Toute logique dans `main/`, `shared/` ou `scripts/` a son test Vitest dans le dossier miroir de `tests/`. Les tests git créent de vrais repos temporaires (`tests/helpers/repo.ts`).
 - Un parcours utilisateur visible ajoute ou adapte un spec Playwright dans `tests/e2e/` (un worker, timeout 60 s).
 - Avant de déclarer un travail terminé : `npm run typecheck && npm test` doivent passer, et `npm run test:e2e` si l'UI ou le main ont changé.
@@ -113,4 +113,5 @@ Ne jamais créer de tag ni modifier `version` dans `package.json` à la main : c
 - Travailler sur une branche dédiée depuis `develop`, jamais directement sur `develop` ou `master`.
 - Commits et push uniquement quand c'est demandé.
 - Vérifier (typecheck, tests) avant d'annoncer qu'une tâche est terminée, et dire honnêtement ce qui n'a pas été vérifié.
-- Mettre à jour ce fichier quand une convention change.
+- Appliquer le TDD (cf. « Tests ») : test qui échoue d'abord, code ensuite.
+- **Après chaque commit**, vérifier que ce `CLAUDE.md` est toujours à jour (commandes, architecture, conventions, release, workflow). S'il ne l'est plus, le corriger dans un commit `docs` dédié.
