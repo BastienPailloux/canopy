@@ -361,6 +361,7 @@
   gap: 6px;
   margin-bottom: 22px;
 }
+.editor-back { margin-right: 6px; }
 .breadcrumb {
   display: flex;
   align-items: center;

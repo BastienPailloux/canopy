@@ -269,11 +269,16 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
 
 function Breadcrumb(props: { id: string | null; onBack: () => void }): React.JSX.Element {
   return (
-    <nav className="breadcrumb" aria-label="Fil d'Ariane">
-      <button onClick={props.onBack}>Mes tickets</button>
-      <span aria-hidden="true">/</span>
-      {props.id ? <span className="mono" aria-current="page">{props.id}</span> : <span aria-current="page">Nouveau ticket</span>}
-    </nav>
+    <>
+      <button className="secondary editor-btn editor-back" onClick={props.onBack} title="Revenir à la liste des tickets">
+        <span aria-hidden="true">←</span> Retour
+      </button>
+      <nav className="breadcrumb" aria-label="Fil d'Ariane">
+        <button onClick={props.onBack}>Mes tickets</button>
+        <span aria-hidden="true">/</span>
+        {props.id ? <span className="mono" aria-current="page">{props.id}</span> : <span aria-current="page">Nouveau ticket</span>}
+      </nav>
+    </>
   )
 }
 

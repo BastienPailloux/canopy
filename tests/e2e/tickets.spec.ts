@@ -81,6 +81,10 @@ test('create and edit a ticket', async () => {
   await group.getByTestId('ticket-REP-1').click()
   await expect(page.getByRole('navigation', { name: "Fil d'Ariane" })).toContainText('REP-1')
   await expect(page.getByLabel('Titre', { exact: true })).toHaveValue('Ajouter la recherche')
+
+  // The back button returns to the list.
+  await page.getByRole('button', { name: 'Retour' }).click()
+  await expect(page.getByRole('heading', { name: 'Mes tickets' })).toBeVisible()
 })
 
 test('launch into a new worktree', async () => {
