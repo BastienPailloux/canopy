@@ -269,6 +269,19 @@ describe('registerLinearIpc', () => {
     expect(edits.pending()[0].uncertain).toBe(false)
   })
 
+  it('an issue kept for its unsent edit departs with its reason as soon as the edit is discarded', async () => {
+    await call('refresh', repo.path)
+    await call('save', 'CAN-2', { labels: { base: [], next: ['Nope'] } }) // refused: held
+    await fake.callTool('save_issue', { id: 'CAN-2', state: 'Canceled' }) // canceled in Linear meanwhile
+    const kept = await call('refresh', repo.path) as { issues: { id: string }[]; departures: unknown[] }
+    expect(kept.issues.map((i) => i.id)).toContain('CAN-2')
+    expect(kept.departures).toEqual([])
+
+    await call('discard', 'CAN-2')
+    await vi.waitFor(() => expect(sync.state().departures).toEqual([{ id: 'CAN-2', title: expect.any(String), reason: 'canceled' }]))
+    expect(sync.state().issues.map((i) => i.id)).not.toContain('CAN-2')
+  })
+
   it('launch links the issue and follows it', async () => {
     const r = await call('launch', repo.path, { id: 'CAN-2', branch: 'feat/can-2', target: { kind: 'new', base: 'main' } }) as { worktree: string; issue: { id: string } }
     expect(r.issue.id).toBe('CAN-2')

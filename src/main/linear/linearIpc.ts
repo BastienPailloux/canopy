@@ -192,6 +192,15 @@ export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise
     return st
   }
   const refreshLater = (): void => { void refresh().catch((e: unknown) => { log('linear refresh failed', e) }) }
+  // An issue kept listed for its unsent edit leaves the queue (sent or discarded): the list is refreshed at once, so
+  // it departs with its notice instead of vanishing from the next read.
+  let queuedIds = new Set(edits.pending().map((p) => p.id))
+  edits.onChange(() => {
+    const now = new Set(edits.pending().map((p) => p.id))
+    const left = [...queuedIds].some((id) => !now.has(id))
+    queuedIds = now
+    if (left) refreshLater()
+  })
 
   handle('connection', () => client.connection())
   handle('connect', async () => {
