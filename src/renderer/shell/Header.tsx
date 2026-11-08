@@ -7,7 +7,8 @@ import { Settings } from './Settings'
 const VIEWS: { id: View; label: string }[] = [
   { id: 'sessions', label: 'Sessions' },
   { id: 'code', label: 'Code' },
-  { id: 'tickets', label: 'Tickets' }
+  { id: 'tickets', label: 'Tickets' },
+  { id: 'mockups', label: 'Maquettes' }
 ]
 
 function Logo(): React.JSX.Element {
