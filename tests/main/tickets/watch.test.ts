@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -25,6 +25,23 @@ describe('watchTickets', () => {
     await vi_waitFor(() => calls >= 1)
     await sleep(500)
     expect(calls).toBe(1)
+  })
+
+  it('fires when an existing ticket is edited in place or replaced by rename', async () => {
+    await mkdir(join(root, '.tickets'))
+    const file = join(root, '.tickets', 'T-1.md')
+    await writeFile(file, 'v1')
+    let calls = 0
+    stop = watchTickets(root, () => { calls++ })
+    await sleep(500)
+    await writeFile(file, 'v2')
+    await vi_waitFor(() => calls >= 1)
+    await sleep(300)
+    const before = calls
+    // How the store writes: a temp file, then a rename over the ticket.
+    await writeFile(`${file}.abc.tmp`, 'v3')
+    await rename(`${file}.abc.tmp`, file)
+    await vi_waitFor(() => calls > before)
   })
 
   it('fires when .tickets is created after watching started', async () => {

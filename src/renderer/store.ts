@@ -61,10 +61,13 @@ let requestCount = 0
 
 const noRepoMessage = (root: string): string => `Aucun repo git dans ${root}`
 
-type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees'>
+type Selection = Pick<AppState, 'repo' | 'worktree' | 'worktrees' | 'openTicket' | 'selectedTicket'>
 
+/** Another repo has other tickets: the one open or selected would point at a ticket of the repo left. */
 function selection(s: Selection, workspace: Workspace, repo: string, worktree: string): Partial<Selection> {
-  return repo === s.repo ? { worktree } : { repo, worktree, worktrees: repoWorktrees(workspace, repo) }
+  return repo === s.repo
+    ? { worktree }
+    : { repo, worktree, worktrees: repoWorktrees(workspace, repo), openTicket: null, selectedTicket: null }
 }
 
 export const useApp = create<AppState>((set) => ({

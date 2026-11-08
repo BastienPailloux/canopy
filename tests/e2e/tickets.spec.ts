@@ -85,6 +85,14 @@ test('create and edit a ticket', async () => {
   // The back button returns to the list.
   await page.getByRole('button', { name: 'Retour' }).click()
   await expect(page.getByRole('heading', { name: 'Mes tickets' })).toBeVisible()
+
+  // From the keyboard: the row takes the focus and Enter opens it; Enter on its Lancer button does not.
+  await page.getByTestId('ticket-REP-1').getByRole('button', { name: /Lancer/ }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: 'Mes tickets' })).toBeVisible()
+  await page.getByTestId('ticket-REP-1').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByLabel('Titre', { exact: true })).toHaveValue('Ajouter la recherche')
 })
 
 test('launch into a new worktree', async () => {

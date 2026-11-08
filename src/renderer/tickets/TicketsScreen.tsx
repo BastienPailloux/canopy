@@ -54,7 +54,14 @@ function Row(props: {
 }): React.JSX.Element {
   const { t, linked } = props
   return (
-    <div className="ticket-row" role="row" aria-selected={props.selected} data-testid={`ticket-${t.id}`} title="Ouvrir le ticket" onClick={props.onOpen}>
+    <div className="ticket-row" role="row" aria-selected={props.selected} data-testid={`ticket-${t.id}`} title="Ouvrir le ticket"
+      tabIndex={0} onClick={props.onOpen}
+      onKeyDown={(e) => {
+        // Only the row itself: Enter on its Lancer or branch button must do what that button does.
+        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+        e.preventDefault()
+        props.onOpen()
+      }}>
       <span className="ticket-id mono">{t.id}</span>
       <span className="ticket-title" title={t.title}>{t.title}</span>
       {t.priority !== 'none' && <span className="ticket-priority">{PRIORITY_LABEL[t.priority]}</span>}
