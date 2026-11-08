@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, symlink, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TicketStore } from '../../../src/main/tickets/store'
@@ -89,12 +90,71 @@ describe('TicketStore', () => {
 
   it('unreadable files are reported, not rewritten', async () => {
     await mkdir(dir(), { recursive: true })
-    const bad = ': : not yaml\n'
-    await writeFile(join(dir(), 'BAD-1.md'), bad)
+    const bad = '---\ntitle: [unclosed\n---\n'
+    const f = join(dir(), 'BAD-1.md')
+    await writeFile(f, bad)
     const list = await store.list(repo.path)
     expect(list).toHaveLength(1)
     expect(list[0]).toMatchObject({ kind: 'unreadable', file: 'BAD-1.md' })
-    expect(await readFile(join(dir(), 'BAD-1.md'), 'utf8')).toBe(bad)
+    await expect(store.patch(repo.path, 'BAD-1', { title: 'x' })).rejects.toThrow()
+    await expect(store.archive(repo.path, 'BAD-1')).rejects.toThrow()
+    expect(await readFile(f, 'utf8')).toBe(bad)
+  })
+
+  it('refuses a symlinked .tickets', async () => {
+    const target = await mkdtemp(join(tmpdir(), 'canopy-link-'))
+    await symlink(target, dir())
+    await expect(store.create(repo.path, fields())).rejects.toThrow(/vrai dossier/)
+    await expect(store.list(repo.path)).rejects.toThrow(/vrai dossier/)
+    expect(await readdir(target)).toEqual([])
+  })
+
+  it('refuses a symlinked archive', async () => {
+    await store.create(repo.path, fields())
+    const target = await mkdtemp(join(tmpdir(), 'canopy-link-'))
+    await rm(join(dir(), 'archive'), { recursive: true })
+    await symlink(target, join(dir(), 'archive'))
+    await expect(store.archive(repo.path, 'CAN-1')).rejects.toThrow(/vrai dossier/)
+    expect(await readdir(target)).toEqual([])
+    expect(existsSync(join(dir(), 'CAN-1.md'))).toBe(true)
+  })
+
+  it('refuses a tracked .tickets', async () => {
+    await repo.commit('.tickets/CAN-1.md', 'x')
+    await expect(store.create(repo.path, fields())).rejects.toThrow(/suivi par git/)
+  })
+
+  it('rejects malformed ids', async () => {
+    for (const id of ['../../x', 'can-1', 'CAN-1/../x', 'CAN']) {
+      await expect(store.get(repo.path, id)).rejects.toThrow(/invalide/)
+      await expect(store.patch(repo.path, id, {})).rejects.toThrow(/invalide/)
+      await expect(store.archive(repo.path, id)).rejects.toThrow(/invalide/)
+      await expect(store.duplicate(repo.path, id)).rejects.toThrow(/invalide/)
+    }
+  })
+
+  it('patch and archive also exclude .tickets from git', async () => {
+    await store.create(repo.path, fields())
+    await writeFile(join(repo.path, '.git/info/exclude'), '')
+    await store.patch(repo.path, 'CAN-1', { title: 'x' })
+    expect(await readFile(join(repo.path, '.git/info/exclude'), 'utf8')).toContain('/.tickets/')
+    await writeFile(join(repo.path, '.git/info/exclude'), '')
+    await store.archive(repo.path, 'CAN-1')
+    expect(await readFile(join(repo.path, '.git/info/exclude'), 'utf8')).toContain('/.tickets/')
+  })
+
+  it('patch ignores undefined for required keys and clears optional ones', async () => {
+    await store.create(repo.path, fields({ branch: 'feat/a' }))
+    const t = await store.patch(repo.path, 'CAN-1', { title: undefined, branch: undefined })
+    expect(t.title).toBe('Un ticket')
+    expect(t.branch).toBeUndefined()
+  })
+
+  it('archive refuses to overwrite an archived ticket', async () => {
+    await store.create(repo.path, fields())
+    await writeFile(join(dir(), 'archive', 'CAN-1.md'), 'keep')
+    await expect(store.archive(repo.path, 'CAN-1')).rejects.toThrow(/existe déjà/)
+    expect(await readFile(join(dir(), 'archive', 'CAN-1.md'), 'utf8')).toBe('keep')
   })
 
   it('archive moves the file and hides it from list', async () => {
