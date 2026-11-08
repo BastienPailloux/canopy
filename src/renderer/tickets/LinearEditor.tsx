@@ -6,12 +6,13 @@ import {
 import { MAX_DESCRIPTION, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, type TicketPriority, ticketKey } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { Markdown } from '../sessions/Markdown'
-import { createLinearSaver, notifyLinearSavers, trackLinearSaver, type LinearSaver, type TextKey } from './linearSave'
+import {
+  closeLinearSaver, createLinearSaver, linearSaverFor, notifyLinearSavers, trackLinearSaver, type SideChange, type TextKey
+} from './linearSave'
 import { useLinear } from './linearStore'
 import { Description } from './TicketEditor'
 
 type Options = { statuses: LinearStatus[]; labels: string[]; users: LinearUser[] }
-type Side = { statusId?: string; priority?: TicketPriority; labels?: string[]; assigneeId?: string | null }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 const LEAVING = 'Ce ticket quittera ta liste au prochain rafraîchissement.'
@@ -30,15 +31,14 @@ export function LinearEditor({ id }: { id: string }): React.JSX.Element {
 
 function Editor({ id }: { id: string }): React.JSX.Element {
   const ids = useId()
-  const [saver] = useState<LinearSaver>(() => createLinearSaver(id, { title: '', description: '' }, (c) => window.canopy.linearSave(id, c)))
+  // A closed editor of this issue may have left text it could not send: it comes back here.
+  const [saver] = useState(() => linearSaverFor(id, () => createLinearSaver(id, { title: '', description: '' }, (c) => window.canopy.linearSave(id, c))))
   const [detail, setDetail] = useState<LinearIssueDetail | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [options, setOptions] = useState<Options | null>(null)
   const [entry, setEntry] = useState<PendingEdit | undefined>(undefined)
   /** The last `pending` reason main gave, until a send goes through. */
-  const [reason, setReason] = useState<string | null>(null)
-  /** What Bastien just chose in the side column, shown until main's answer is read. */
-  const [side, setSide] = useState<Side>({})
+  const [reason, setReason] = useState<string | null>(() => (saver.unsent() ? 'Le dernier envoi a échoué : ce texte n’est pas encore dans Linear.' : null))
   const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -49,14 +49,20 @@ function Editor({ id }: { id: string }): React.JSX.Element {
 
   /** Reads the issue and main's queue; typed text stays, the rest follows Linear. */
   const load = async (): Promise<void> => {
+    const readAt = saver.generation()
     try {
       const [d, pending] = await Promise.all([window.canopy.linearIssue(id), window.canopy.linearPending()])
       if (!live.current) return
       const p = pending.find((x) => x.id === id)
-      if (!saver.dirty()) saver.reset(d, p)
-      setDetail(d)
-      setEntry(p)
-      setSide({})
+      if (saver.generation() !== readAt) {
+        // A send or an answer came during the read: it may predate them, only the read-only parts are taken.
+        const { children, comments, parentId, cycle, project } = d
+        setDetail((cur) => (cur ? { ...cur, children, comments, parentId, cycle, project } : d))
+      } else {
+        if (saver.reset(d, p, readAt) === 'same') void window.canopy.linearDiscard(id, ['description']).catch(() => undefined)
+        setDetail(d)
+        setEntry(p)
+      }
       setLoadError(null)
       rerender()
     } catch (e) {
@@ -64,16 +70,18 @@ function Editor({ id }: { id: string }): React.JSX.Element {
     }
   }
   const refreshPending = async (): Promise<void> => {
+    const readAt = saver.generation()
     const pending = await window.canopy.linearPending().catch(() => null)
-    if (live.current && pending) { setEntry(pending.find((x) => x.id === id)); setSide({}) }
+    if (live.current && pending && saver.generation() === readAt) setEntry(pending.find((x) => x.id === id))
   }
 
   useEffect(() => {
     live.current = true
-    const untrack = trackLinearSaver(saver)
-    const offResult = saver.onResult((r) => {
+    trackLinearSaver(id, saver)
+    const offResult = saver.onResult((r, fresh) => {
       if (!live.current) return
-      if (r.issue) { const i = r.issue; setDetail((d) => (d ? mergeAnswer(d, i) : d)) }
+      // An older answer arriving after a newer one must not show over it.
+      if (r.issue && fresh) { const i = r.issue; setDetail((d) => (d ? mergeAnswer(d, i) : d)) }
       setReason(r.kind === 'pending' ? r.reason : null)
       notifyLinearSavers()
       rerender()
@@ -85,8 +93,8 @@ function Editor({ id }: { id: string }): React.JSX.Element {
       live.current = false
       off()
       offResult()
-      // Closing sends what was typed; counted until then (StrictMode remounts track it again).
-      void saver.commit().finally(() => { if (!live.current && !saver.unsent()) untrack() })
+      // Closing sends what was typed; text that cannot go stays counted and comes back with the next editor.
+      void closeLinearSaver(id, saver, () => !live.current)
     }
   }, [])
 
@@ -96,7 +104,7 @@ function Editor({ id }: { id: string }): React.JSX.Element {
     let on = true
     window.canopy.linearTeamOptions(teamId).then((o) => { if (on) setOptions(o) }, (e: unknown) => { if (on) setError(message(e)) })
     return () => { on = false }
-  }, [teamId, detail?.updatedAt])
+  }, [teamId])
 
   const app = useApp.getState()
   const back = (): void => app.setOpenTicket(null)
@@ -117,15 +125,16 @@ function Editor({ id }: { id: string }): React.JSX.Element {
   if (!detail) return <div className="ticket-editor"><p className="editor-loading">Chargement…</p></div>
 
   const p = entry?.change
+  const side = saver.side()
   const statusId = side.statusId ?? p?.statusId ?? detail.status.id ?? options?.statuses.find((s) => s.name === detail.status.name)?.id ?? ''
   const priority = side.priority ?? p?.priority ?? detail.priority
   const labels = side.labels ?? p?.labels ?? detail.labels
   const assigneeId = side.assigneeId !== undefined ? side.assigneeId : p?.assigneeId !== undefined ? p.assigneeId : detail.assignee?.id ?? null
   const users = options?.users ?? (detail.assignee ? [detail.assignee] : [])
 
-  const change = (c: Side): void => {
-    setSide((s) => ({ ...s, ...c }))
+  const change = (c: SideChange): void => {
     saver.field(c)
+    rerender()
   }
   const assign = (next: string | null): void => {
     if (me && assigneeId === me && next !== me) setLeaving(true)
@@ -134,7 +143,13 @@ function Editor({ id }: { id: string }): React.JSX.Element {
   const type = (k: TextKey, v: string): void => { saver.text(k, v); notifyLinearSavers(); rerender() }
   const commit = (k: TextKey): void => { void saver.commit(k).then(() => { notifyLinearSavers(); rerender() }) }
   const discard = async (fields: LinearField[]): Promise<void> => {
-    try { await window.canopy.linearDiscard(id, fields) } catch (e) { setError(message(e)); return }
+    try {
+      await window.canopy.linearDiscard(id, fields)
+      // Only these fields take Linear's value: text being typed elsewhere stays.
+      saver.resetFields(await window.canopy.linearIssue(id), fields)
+    } catch (e) { setError(message(e)); return }
+    notifyLinearSavers()
+    rerender()
     await load()
   }
   const keepMine = (): void => { void saver.keepMine().then(() => rerender()) }

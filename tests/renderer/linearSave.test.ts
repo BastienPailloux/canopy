@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { LinearChange, LinearIssue, LinearIssueDetail, PendingEdit, SaveResult } from '../../src/shared/linear'
-import { createLinearSaver } from '../../src/renderer/tickets/linearSave'
+import { closeLinearSaver, createLinearSaver, openLinearSaver, unsavedLinear } from '../../src/renderer/tickets/linearSave'
 
 const ISSUE: LinearIssueDetail = {
   id: 'ENG-1', uuid: 'u1', title: 'Titre', description: 'Avant\n', url: 'https://linear.app/x/issue/ENG-1',
@@ -54,7 +54,7 @@ describe('createLinearSaver', () => {
   it('field changes are sent at once', async () => {
     const { send, saver } = setup()
     const results: SaveResult[] = []
-    saver.onResult((r) => results.push(r))
+    saver.onResult((r) => { results.push(r) })
     saver.field({ statusId: 's2' })
     saver.field({ labels: ['Bug'] })
     expect(send).toHaveBeenCalledTimes(2)
@@ -176,5 +176,88 @@ describe('createLinearSaver', () => {
     saver.field({ priority: 'high' })
     await vi.waitFor(() => expect(saver.value('description')).toBe('Collègue\n'))
     expect(saver.value('title')).toBe('Je tape')
+  })
+
+  it('overlapping side sends answered out of order keep the latest choice and never drop an in-flight label', async () => {
+    const answers: ((r: SaveResult) => void)[] = []
+    const send = vi.fn((_c: LinearChange) => new Promise<SaveResult>((res) => answers.push(res)))
+    const saver = createLinearSaver('ENG-1', ISSUE, send)
+    const fresh: boolean[] = []
+    saver.onResult((_r, f) => fresh.push(f))
+    saver.field({ labels: ['A'] })
+    saver.field({ statusId: 's2' })
+    answers[1]({ kind: 'sent', issue: answer({ labels: [] }) })
+    await vi.waitFor(() => expect(fresh).toHaveLength(1))
+    expect(saver.side()).toEqual({ labels: ['A'] })
+    saver.field({ labels: [...(saver.side().labels ?? []), 'C'] })
+    expect(send).toHaveBeenLastCalledWith({ labels: ['A', 'C'] })
+    answers[0]({ kind: 'sent', issue: answer({ labels: ['A'] }) })
+    await vi.waitFor(() => expect(fresh).toHaveLength(2))
+    expect(fresh[1]).toBe(false)
+    expect(saver.side()).toEqual({ labels: ['A', 'C'] })
+    answers[2]({ kind: 'sent', issue: answer({ labels: ['A', 'C'] }) })
+    await vi.waitFor(() => expect(fresh).toHaveLength(3))
+    expect(fresh[2]).toBe(true)
+    expect(saver.side()).toEqual({})
+  })
+
+  it('a side choice main queued keeps showing until discarded', async () => {
+    const { saver } = setup(() => ({ kind: 'pending', reason: 'Réseau' }))
+    saver.field({ priority: 'high' })
+    await vi.waitFor(() => expect(saver.generation()).toBeGreaterThan(1))
+    expect(saver.side()).toEqual({ priority: 'high' })
+    saver.resetFields(ISSUE, ['priority'])
+    expect(saver.side()).toEqual({})
+  })
+
+  it('a read started before a save does not overwrite it', async () => {
+    const { send, saver } = setup()
+    const readAt = saver.generation()
+    saver.text('description', 'V1')
+    await saver.commit('description')
+    expect(saver.reset(answer({ description: 'V0' }), undefined, readAt)).toBe('kept')
+    expect(saver.value('description')).toBe('V1')
+    saver.text('description', 'V2')
+    await saver.commit('description')
+    expect(send).toHaveBeenLastCalledWith({ description: { base: 'V1', text: 'V2' } })
+  })
+
+  it('a held text equal to Linear\'s once normalized opens no conflict', () => {
+    const { saver } = setup()
+    const r = saver.reset(answer({ description: 'Un\nDeux' }), {
+      id: 'ENG-1', change: { description: { base: 'Vieux', text: 'Un  \nDeux\n\n' } }, error: '', held: { description: 'conflit' }, uncertain: false
+    })
+    expect(r).toBe('same')
+    expect(saver.conflict()).toBeNull()
+    expect(saver.value('description')).toBe('Un\nDeux')
+  })
+
+  it('discarding the title leaves the description being typed', () => {
+    const { saver } = setup()
+    saver.reset(ISSUE, { id: 'ENG-1', change: { title: 'Refusé' }, error: '', held: { title: 'refusé' }, uncertain: false })
+    saver.text('description', 'Je tape')
+    saver.resetFields(answer({ title: 'Linear', description: 'Autre' }), ['title'])
+    expect(saver.value('title')).toBe('Linear')
+    expect(saver.value('description')).toBe('Je tape')
+    expect(saver.dirty()).toBe(true)
+  })
+
+  it('text a close could not send is kept for the next editor of the issue and counted', async () => {
+    let fail = true
+    const make = () => createLinearSaver('ENG-9', ISSUE, async (c) => {
+      if (fail) throw new Error('IPC')
+      return { kind: 'sent', issue: answer({ description: c.description?.text ?? '' }) }
+    })
+    const first = openLinearSaver('ENG-9', make)
+    first.text('description', 'Ne pas perdre')
+    await closeLinearSaver('ENG-9', first, () => true)
+    expect(unsavedLinear()).toBe(1)
+    const second = openLinearSaver('ENG-9', make)
+    expect(second).toBe(first)
+    expect(second.value('description')).toBe('Ne pas perdre')
+    fail = false
+    await closeLinearSaver('ENG-9', second, () => true)
+    expect(unsavedLinear()).toBe(0)
+    expect(openLinearSaver('ENG-9', make)).not.toBe(first)
   })
 })
