@@ -196,7 +196,7 @@ void app.whenReady().then(async () => {
     broadcast
   })
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
-  void startLinear({ client: linearClient, edits: linearEdits, sync: linearSync, broadcast })
+  void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null

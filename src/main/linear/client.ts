@@ -55,6 +55,8 @@ const PAGE = 50
 export class LinearClient {
   private caller: McpCaller | null = null
   private conn: LinearConnection = { state: 'disconnected', missingTools: [] }
+  /** Bumped by every connect, resume and disconnect: a slower, older one never overwrites a newer result. */
+  private generation = 0
 
   constructor(
     private readonly open: (interactive: boolean) => Promise<McpCaller>,
@@ -67,14 +69,16 @@ export class LinearClient {
 
   /** Interactive: may open the browser for the OAuth consent. */
   connect(): Promise<LinearConnection> {
-    return this.start(true)
+    return this.start(true, ++this.generation)
   }
 
   /** Stored tokens only: never opens the browser. No tokens = disconnected, refused tokens = expired. */
   async resume(): Promise<LinearConnection> {
+    const gen = ++this.generation
     try {
-      return await this.start(false)
+      return await this.start(false, gen)
     } catch (e) {
+      if (gen !== this.generation) return this.connection()
       if (e instanceof LinearNotConnectedError) {
         await this.drop()
         this.conn = { state: 'disconnected', missingTools: [] }
@@ -90,19 +94,26 @@ export class LinearClient {
   }
 
   async disconnect(): Promise<void> {
+    this.generation++
     await this.drop()
     this.conn = { state: 'disconnected', missingTools: [] }
     this.store.saveLinearAuth(null)
   }
 
-  private async start(interactive: boolean): Promise<LinearConnection> {
+  private async start(interactive: boolean, gen: number): Promise<LinearConnection> {
     const caller = await this.open(interactive)
+    if (gen !== this.generation) {
+      await caller.close().catch(() => {})
+      return this.connection()
+    }
     await this.drop()
     this.caller = caller
     const tools = await this.guard(caller, () => caller.listTools())
     const names = new Set(tools.map((t) => t.name))
     const missingTools = REQUIRED_TOOLS.filter((t) => !names.has(t))
     const me = names.has('whoami') ? parseWhoami(await this.call('whoami', {})) : undefined
+    // A newer connect, resume or disconnect took over (and closed this caller) meanwhile.
+    if (gen !== this.generation) return this.connection()
     this.conn = { state: 'connected', ...(me ? { workspace: me.workspace, email: me.email } : {}), missingTools }
     return this.connection()
   }

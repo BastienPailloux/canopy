@@ -20,6 +20,8 @@ export class LinearSync {
   private error: string | null = null
   private expired = false
   private departures: Departure[] = []
+  /** Bastien's Linear user id, read off his own issues: a launched issue kept with a new assignee still departs once unlaunched. */
+  private me: string | null = null
   private generation = 0
   private inflight: Promise<LinearListState> | null = null
   private listeners = new Set<() => void>()
@@ -65,6 +67,7 @@ export class LinearSync {
     this.error = null
     this.expired = false
     this.departures = []
+    this.me = null
     try { rmSync(this.file, { force: true }) } catch (e) { console.error('linear cache removal failed', e) }
     for (const l of [...this.listeners]) l()
   }
@@ -99,6 +102,7 @@ export class LinearSync {
 
   private async sync(gen: number): Promise<void> {
     const all = await this.client.listMine()
+    const me = all.find((i) => i.assignee)?.assignee?.id ?? this.me
     const byId = new Map(all.map((i) => [i.id, i]))
     const listed = all.filter((i) => statusGroup(i.status) !== null)
     const listedIds = new Set(listed.map((i) => i.id))
@@ -122,7 +126,8 @@ export class LinearSync {
       if (launched.has(id) && r !== 'missing') { kept.push(r); continue }
       if (r === 'missing') { newDepartures.push({ id, title: old.title, reason: 'missing' }); continue }
       if (statusGroup(r.status) === null) { newDepartures.push({ id, title: r.title, reason: 'canceled' }); continue }
-      if ((r.assignee?.id ?? null) !== (old.assignee?.id ?? null)) { newDepartures.push({ id, title: r.title, reason: 'reassigned' }); continue }
+      const reassigned = me !== null ? (r.assignee?.id ?? null) !== me : (r.assignee?.id ?? null) !== (old.assignee?.id ?? null)
+      if (reassigned) { newDepartures.push({ id, title: r.title, reason: 'reassigned' }); continue }
       kept.push(r)
     }
     for (const id of launched) {
@@ -138,6 +143,7 @@ export class LinearSync {
     const fresh = new Set(newDepartures.map((d) => d.id))
     this.departures = [...this.departures.filter((d) => !back.has(d.id) && !fresh.has(d.id)), ...newDepartures]
     this.fetchedAt = this.now().toISOString()
+    this.me = me
   }
 
   private commit(): void {
@@ -149,7 +155,7 @@ export class LinearSync {
     try {
       mkdirSync(dirname(this.file), { recursive: true })
       const tmp = `${this.file}.tmp`
-      writeFileSync(tmp, JSON.stringify({ issues: this.issues, fetchedAt: this.fetchedAt, departures: this.departures }), { mode: 0o600 })
+      writeFileSync(tmp, JSON.stringify({ issues: this.issues, fetchedAt: this.fetchedAt, departures: this.departures, me: this.me }), { mode: 0o600 })
       renameSync(tmp, this.file)
     } catch { /* the cache is only an accelerator */ }
   }
@@ -163,6 +169,7 @@ export class LinearSync {
       this.issues = raw.issues
       this.fetchedAt = typeof raw.fetchedAt === 'string' ? raw.fetchedAt : null
       this.departures = Array.isArray(raw.departures) ? raw.departures.filter(isDeparture) : []
+      this.me = typeof raw.me === 'string' ? raw.me : null
     } catch {
       try { renameSync(this.file, `${this.file}.corrupt-${Date.now()}`) } catch { /* ignore */ }
     }

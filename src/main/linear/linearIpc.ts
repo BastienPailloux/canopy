@@ -44,7 +44,7 @@ export function parseChange(raw: unknown): LinearChange {
   }
   if (description !== undefined) {
     if (!isObject(description) || typeof description.base !== 'string' || typeof description.text !== 'string' ||
-      description.text.length > MAX_DESCRIPTION) throw bad('Description')
+      description.base.length > MAX_DESCRIPTION || description.text.length > MAX_DESCRIPTION) throw bad('Description')
     out.description = { base: description.base, text: description.text }
   }
   if (statusId !== undefined) {
@@ -95,29 +95,38 @@ function parseIds(raw: unknown): string[] {
 }
 
 /**
- * The launched Linear issues `LinearSync` keeps listed even when they would leave Bastien's list: those of the repo the
- * renderer follows (the last `follow`), whose branch still exists locally. Before any `follow` (app start), every
- * stored link counts, so the first refresh does not report a launched issue as gone.
+ * The launched Linear issues `LinearSync` keeps listed even when they would leave Bastien's list, app-wide: every
+ * linked issue of every repo whose branch still exists locally. Cached, because `LinearSync` reads it synchronously;
+ * `recompute` runs before every list, refresh and launch, and at startup. A root whose branches cannot be listed keeps
+ * its previous answer (all its links the first time), so a git hiccup never turns into a false departure.
  */
 export class LinkedIssues {
-  private current: string[] | null = null
+  private readonly byRoot = new Map<string, string[]>()
 
   constructor(
     private readonly store: Pick<AppStore, 'linearLinks' | 'linearLinkRoots'>,
     private readonly branches: (root: string) => Promise<string[]>,
-    private readonly mainRoot: (repo: string) => Promise<string> = mainWorktreeRoot,
   ) {}
 
   ids(): string[] {
-    if (this.current) return [...this.current]
-    return this.store.linearLinkRoots().flatMap((r) => Object.keys(this.store.linearLinks(r)))
+    return [...new Set([...this.byRoot.values()].flat())]
   }
 
-  async follow(repo: string): Promise<void> {
-    const root = await this.mainRoot(repo)
-    const links = this.store.linearLinks(root)
-    const existing = new Set(Object.keys(links).length > 0 ? await this.branches(root) : [])
-    this.current = Object.entries(links).filter(([, l]) => existing.has(l.branch)).map(([id]) => id)
+  async recompute(): Promise<void> {
+    const roots = this.store.linearLinkRoots()
+    const next = new Map<string, string[]>()
+    await Promise.all(roots.map(async (root) => {
+      const links = Object.entries(this.store.linearLinks(root))
+      if (links.length === 0) return
+      try {
+        const existing = new Set(await this.branches(root))
+        next.set(root, links.filter(([, l]) => existing.has(l.branch)).map(([id]) => id))
+      } catch {
+        next.set(root, this.byRoot.get(root) ?? links.map(([id]) => id))
+      }
+    }))
+    this.byRoot.clear()
+    for (const [root, ids] of next) this.byRoot.set(root, ids)
   }
 }
 
@@ -129,7 +138,7 @@ export interface LinearIpcDeps {
   client: IpcClient
   edits: Pick<LinearEdits, 'save' | 'pending' | 'discard' | 'retryAll' | 'onChange'>
   sync: Pick<LinearSync, 'state' | 'refresh' | 'ackDepartures' | 'clear' | 'onChange'>
-  linked: Pick<LinkedIssues, 'follow'>
+  linked: Pick<LinkedIssues, 'recompute'>
   /** Where the links of launched issues are read. */
   store: Pick<AppStore, 'linearLinks'>
   /** What a launch needs. */
@@ -172,21 +181,22 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
     return conn
   })
   handle('disconnect', async (force) => {
-    if (edits.pending().length > 0) {
-      if (force !== true) throw new Error(PENDING_REFUSAL)
-      for (const p of edits.pending()) edits.discard(p.id)
-    }
+    if (edits.pending().length > 0 && force !== true) throw new Error(PENDING_REFUSAL)
+    // Only once the tokens are gone: a failed disconnect keeps the queue.
     await client.disconnect()
+    if (force === true) for (const p of edits.pending()) edits.discard(p.id)
     sync.clear()
   })
+  // A failed read of the links never keeps the list from the renderer.
+  const recompute = (): Promise<void> => linked.recompute().catch((e: unknown) => { log('linear links read failed', e) })
   handle('list', async (repo) => {
     assertPath(repo)
-    await linked.follow(repo)
+    await recompute()
     return sync.state()
   })
   handle('refresh', async (repo) => {
     assertPath(repo)
-    await linked.follow(repo)
+    await recompute()
     return sync.refresh()
   })
   handle('ackDepartures', (ids) => { sync.ackDepartures(parseIds(ids)) })
@@ -216,7 +226,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
     const parsed = parseLaunch(req)
     try {
       const r = await launchLinear({ ...deps.launch, linear: client }, repo, parsed)
-      await linked.follow(repo).catch((e: unknown) => { log('linear links read failed', e) })
+      await recompute()
       refreshLater()
       return r
     } finally {
@@ -232,6 +242,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
 /** At app start: reconnects with the stored tokens (never the browser), then resends the queue and refreshes. Never throws. */
 export async function startLinear(deps: {
   client: Pick<LinearClient, 'resume'>
+  linked: Pick<LinkedIssues, 'recompute'>
   edits: Pick<LinearEdits, 'retryAll'>
   sync: Pick<LinearSync, 'refresh'>
   broadcast: (event: string, payload: unknown) => void
@@ -248,5 +259,6 @@ export async function startLinear(deps: {
   deps.broadcast('linear:changed', {})
   if (state !== 'connected') return
   try { await deps.edits.retryAll() } catch (e) { log('linear retry failed', e) }
+  try { await deps.linked.recompute() } catch (e) { log('linear links read failed', e) }
   try { await deps.sync.refresh() } catch (e) { log('linear refresh failed', e) }
 }

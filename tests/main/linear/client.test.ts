@@ -115,6 +115,36 @@ describe('LinearClient connection', () => {
     expect(second.calls.some((c) => c.name === 'list_issues')).toBe(true)
     expect(first.calls.some((c) => c.name === 'list_issues')).toBe(false)
   })
+
+  it('a slow resume never overwrites a newer connect, whether it fails or succeeds', async () => {
+    const good = fakeLinear()
+    let failResume!: (e: Error) => void
+    const open = vi.fn((interactive: boolean): Promise<McpCaller> => interactive
+      ? Promise.resolve(good)
+      : new Promise((_, reject) => { failResume = reject }))
+    const client = new LinearClient(open, memoryStore())
+    const resumed = client.resume()
+    await expect(client.connect()).resolves.toMatchObject({ state: 'connected' })
+    failResume(new UnauthorizedError())
+    await expect(resumed).resolves.toMatchObject({ state: 'connected' })
+    expect(client.connection().state).toBe('connected')
+    await expect(client.issueBrief('CAN-1')).resolves.toMatchObject({ id: 'CAN-1' })
+
+    const late = fakeLinear()
+    const lateClose = vi.spyOn(late, 'close')
+    let finishResume!: (c: McpCaller) => void
+    const open2 = vi.fn((interactive: boolean): Promise<McpCaller> => interactive
+      ? Promise.resolve(good)
+      : new Promise((resolve) => { finishResume = resolve }))
+    const client2 = new LinearClient(open2, memoryStore())
+    const resumed2 = client2.resume()
+    await client2.connect()
+    finishResume(late)
+    await resumed2
+    expect(lateClose).toHaveBeenCalled()
+    await client2.listMine()
+    expect(late.calls).toEqual([])
+  })
 })
 
 describe('LinearClient reads', () => {

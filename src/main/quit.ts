@@ -1,7 +1,7 @@
 /** What the page holds and quitting would lose. Only the renderer knows: it reports it. */
 /** `tickets`: ticket editors with changes not written yet. */
 export interface UnsavedCounts { buffers: number; drafts: number; tickets: number }
-/** `linear`: Linear edits queued in main and not sent yet; they are kept on disk and sent at the next launch. */
+/** `linear`: Linear edits queued in main and not sent yet; kept on disk, sent once Linear can be reached. */
 export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number; linear: number }
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
@@ -42,8 +42,7 @@ export function quitDetail(counts: RunningCounts): string {
   return [
     ...(running.length > 0 ? [`Quitter arrêtera : ${running.join(', ')}.`] : []),
     ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : []),
-    ...(linear === 1 ? ['1 modification Linear n’a pas encore été envoyée : elle le sera au prochain lancement.'] : []),
-    ...(linear > 1 ? [`${linear} modifications Linear n’ont pas encore été envoyées : elles le seront au prochain lancement.`] : [])
+    ...(linear > 0 ? ['Des modifications Linear n\'ont pas été envoyées. Elles restent en attente et partiront dès que Linear sera joignable.'] : [])
   ].join(' ')
 }
 

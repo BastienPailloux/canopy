@@ -127,12 +127,12 @@ test('parseUnsaved takes the ticket count and refuses a bad one', () => {
   expect(() => parseUnsaved({ buffers: 1, drafts: 0 })).toThrow()
 })
 
-test('pending Linear edits ask before quitting, and say they will be sent later', async () => {
+test('pending Linear edits ask before quitting, and say they stay queued', async () => {
   const h = setup({ linear: 2 }, false)
   await h.flow.request()
   expect(h.confirm).toHaveBeenCalledOnce()
   expect(h.calls).toEqual([])
-  expect(quitDetail({ ...NONE, linear: 1 })).toBe('1 modification Linear n’a pas encore été envoyée : elle le sera au prochain lancement.')
+  expect(quitDetail({ ...NONE, linear: 1 })).toBe('Des modifications Linear n\'ont pas été envoyées. Elles restent en attente et partiront dès que Linear sera joignable.')
   expect(quitDetail({ ...NONE, linear: 2, buffers: 1 })).toBe(
-    'Sera perdu : 1 fichier non enregistré. 2 modifications Linear n’ont pas encore été envoyées : elles le seront au prochain lancement.')
+    'Sera perdu : 1 fichier non enregistré. Des modifications Linear n\'ont pas été envoyées. Elles restent en attente et partiront dès que Linear sera joignable.')
 })

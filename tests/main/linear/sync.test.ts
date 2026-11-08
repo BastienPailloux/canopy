@@ -129,6 +129,23 @@ describe('LinearSync', () => {
     expect((await s.refresh()).issues.map((i) => i.id)).toContain('ENG-9')
   })
 
+  it('a launched issue reassigned while launched departs as reassigned once no longer launched', async () => {
+    const f = fake(); f.mine = [issue('ENG-1'), issue('ENG-2')]
+    let launched = ['ENG-2']
+    const s = new LinearSync(file, f as never, () => launched, clock)
+    await s.refresh()
+    const other = { id: 'u2', name: 'Alice' }
+    f.mine = [issue('ENG-1')]
+    f.briefs['ENG-2'] = issue('ENG-2', 'started', other)
+    const kept = await s.refresh()
+    expect(kept.issues.map((i) => i.id)).toContain('ENG-2')
+    expect(kept.departures).toEqual([])
+    launched = []
+    const gone = await s.refresh()
+    expect(gone.issues.map((i) => i.id)).toEqual(['ENG-1'])
+    expect(gone.departures).toEqual([{ id: 'ENG-2', title: 'Title ENG-2', reason: 'reassigned' }])
+  })
+
   it('canceled issues are not listed', async () => {
     const f = fake(); f.mine = [issue('A-1'), issue('A-2', 'canceled'), issue('A-3', 'duplicate')]
     const st = await make(f).refresh()

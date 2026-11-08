@@ -25,6 +25,8 @@ let sync: LinearSync
 let linked: LinkedIssues
 let events: string[]
 let handlers: Map<string, (...args: unknown[]) => unknown>
+let authStore: { saveLinearAuth: ReturnType<typeof vi.fn<(s: unknown) => void>> }
+const OTHER_USER = '1bee77ed-5afd-459a-be6d-79125cddad1d'
 
 const call = (name: string, ...args: unknown[]): Promise<unknown> => {
   const fn = handlers.get(`linear:${name}`)
@@ -40,7 +42,8 @@ beforeEach(async () => {
   tickets = new TicketStore()
   opts = {}
   fake = fakeLinear(opts)
-  client = new LinearClient(vi.fn(async (): Promise<McpCaller> => fake), { saveLinearAuth: () => undefined })
+  authStore = { saveLinearAuth: vi.fn<(s: unknown) => void>() }
+  client = new LinearClient(vi.fn(async (): Promise<McpCaller> => fake), authStore)
   edits = new LinearEdits(join(dir, 'linear-pending.json'), client)
   linked = new LinkedIssues(store, localBranches)
   sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids())
@@ -73,6 +76,7 @@ describe('registerLinearIpc', () => {
     await expect(call('save', 'CAN-1', { title: '  ' })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { description: { base: '', text: 'x'.repeat(100_001) } })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { description: 'plain' })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { description: { base: 'x'.repeat(100_001), text: '' } })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { labels: Array.from({ length: 21 }, (_, i) => `l${i}`) })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { labels: ['x'.repeat(51)] })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { priority: 'p1' })).rejects.toThrow(/invalide/)
@@ -106,6 +110,14 @@ describe('registerLinearIpc', () => {
     expect(events).toContain('linear:changed')
   })
 
+  it('a forced disconnect that fails keeps the queue', async () => {
+    opts.failWith = new Error('network down')
+    await call('save', 'CAN-1', { title: 'Nouveau titre' })
+    authStore.saveLinearAuth.mockImplementation(() => { throw new Error('trousseau indisponible') })
+    await expect(call('disconnect', true)).rejects.toThrow('trousseau indisponible')
+    expect(edits.pending()).toHaveLength(1)
+  })
+
   it('disconnect without pending edits needs no force', async () => {
     await call('disconnect')
     expect(await call('connection')).toMatchObject({ state: 'disconnected' })
@@ -119,12 +131,46 @@ describe('registerLinearIpc', () => {
     expect((await tickets.get(repo.path, 'CAN-1')).title).toBe('Ticket local')
   })
 
-  it('list follows the linked issues of the repo whose branch exists', async () => {
-    store.setLinearLink(repo.path, 'CAN-1', { branch: 'main', worktree: repo.path, base: 'main' })
-    store.setLinearLink(repo.path, 'CAN-2', { branch: 'gone', worktree: repo.path, base: 'main' })
-    await call('list', repo.path)
-    expect(linked.ids()).toEqual(['CAN-1'])
-    expect(await call('links', repo.path)).toHaveProperty('CAN-2')
+  it('launched set: linked issues of every repo whose branch exists; an unreadable root keeps its links', async () => {
+    const other = await createRepo({ dirName: 'other' })
+    try {
+      store.setLinearLink(repo.path, 'CAN-1', { branch: 'main', worktree: repo.path, base: 'main' })
+      store.setLinearLink(repo.path, 'CAN-2', { branch: 'gone', worktree: repo.path, base: 'main' })
+      store.setLinearLink(other.path, 'CAN-3', { branch: 'main', worktree: other.path, base: 'main' })
+      store.setLinearLink('/nowhere/at/all', 'CAN-4', { branch: 'main', worktree: '/nowhere/at/all', base: 'main' })
+      await call('list', repo.path)
+      expect(linked.ids().sort()).toEqual(['CAN-1', 'CAN-3', 'CAN-4'])
+      expect(await call('links', repo.path)).toHaveProperty('CAN-2')
+    } finally { await other.cleanup() }
+  })
+
+  it('a launched issue of repo A stays listed while following repo B, and departs for its true reason once its branch is gone', async () => {
+    const b = await createRepo({ dirName: 'repo-b' })
+    try {
+      execFileSync('git', ['branch', 'feat/can-1'], { cwd: repo.path })
+      store.setLinearLink(repo.path, 'CAN-1', { branch: 'feat/can-1', worktree: repo.path, base: 'main' })
+      await call('refresh', repo.path)
+      expect((await call('save', 'CAN-1', { assigneeId: OTHER_USER }) as { kind: string }).kind).toBe('sent')
+      await sync.refresh()
+
+      const st = await call('refresh', b.path) as { issues: { id: string }[]; departures: unknown[] }
+      expect(st.issues.map((i) => i.id)).toContain('CAN-1')
+      expect(st.departures).toEqual([])
+      expect((await call('list', b.path) as { issues: { id: string }[] }).issues.map((i) => i.id)).toContain('CAN-1')
+
+      execFileSync('git', ['branch', '-D', 'feat/can-1'], { cwd: repo.path })
+      await call('refresh', b.path)
+      const after = await call('refresh', b.path) as { issues: { id: string }[]; departures: { id: string; reason: string }[] }
+      expect(after.issues.map((i) => i.id)).not.toContain('CAN-1')
+      expect(after.departures.filter((d) => d.id === 'CAN-1')).toEqual([{ id: 'CAN-1', title: expect.any(String), reason: 'reassigned' }])
+    } finally { await b.cleanup() }
+  })
+
+  it('a failed read of the links still answers the list and the refresh', async () => {
+    await call('refresh', repo.path)
+    vi.spyOn(linked, 'recompute').mockRejectedValue(new Error('git exploded'))
+    expect((await call('list', repo.path) as { issues: unknown[] }).issues).toHaveLength(4)
+    expect((await call('refresh', repo.path) as { issues: unknown[] }).issues).toHaveLength(4)
   })
 
   it('a sent save refreshes the list and emits linear:changed', async () => {
@@ -149,12 +195,13 @@ describe('startLinear', () => {
     const calls: string[] = []
     await startLinear({
       client: { resume: async () => { calls.push('resume'); return { state: 'connected', missingTools: [] } } },
+      linked: { recompute: async () => { calls.push('links') } },
       edits: { retryAll: async () => { calls.push('retry') } },
       sync: { refresh: async () => { calls.push('refresh'); return sync.state() } },
       broadcast: () => { calls.push('event') },
       log: () => undefined,
     })
-    expect(calls).toEqual(['resume', 'event', 'retry', 'refresh'])
+    expect(calls).toEqual(['resume', 'event', 'retry', 'links', 'refresh'])
   })
 
   it('stays quiet when not connected and never throws', async () => {
@@ -162,6 +209,7 @@ describe('startLinear', () => {
     const log = vi.fn()
     await startLinear({
       client: { resume: async () => { throw new Error('keychain locked') } },
+      linked: { recompute: async () => { calls.push('links') } },
       edits: { retryAll: async () => { calls.push('retry') } },
       sync: { refresh: async () => { calls.push('refresh'); return sync.state() } },
       broadcast: () => undefined,
