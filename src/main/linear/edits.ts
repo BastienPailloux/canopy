@@ -61,6 +61,8 @@ function reasonOf(e: unknown): string {
 }
 
 const CONFLICT_REASON = 'Conflit : la description a aussi été modifiée dans Linear au même endroit.'
+/** Linear answered a patch save with the text read just before: the patch was dropped (e.g. `patch` no longer exists). */
+const NOT_APPLIED_REASON = 'Linear n’a pas appliqué la modification'
 
 function validChange(v: unknown): v is LinearChange {
   if (!isRecord(v)) return false
@@ -269,8 +271,8 @@ export class LinearEdits {
       if (v !== undefined) parts.set(p.field, { [p.arg]: v })
     }
     const d = c.description
-    const conflict = (remote: string) => {
-      out.held.description = CONFLICT_REASON
+    const conflict = (remote: string, why = CONFLICT_REASON) => {
+      out.held.description = why
       out.conflict = { remote, mine: d?.text ?? '' }
       parts.delete('description')
     }
@@ -298,6 +300,15 @@ export class LinearEdits {
     }
     const saved = (fs: LinearField[], issue: LinearIssue) => {
       out.issue = issue
+      const part = parts.get('description')
+      if (fs.includes('description') && part && d) {
+        const before = String(part.remote ?? '')
+        // A non-empty patch, and Linear still has the text read just before: it was not applied. Never "sent".
+        if (sameDescription(issue.description, before) && !sameDescription(before, d.text)) {
+          conflict(issue.description, NOT_APPLIED_REASON)
+          fs = fs.filter((f) => f !== 'description')
+        }
+      }
       out.done.push(...fs)
       if (fs.includes('description')) out.descriptionNow = issue.description
       for (const f of fs) parts.delete(f)

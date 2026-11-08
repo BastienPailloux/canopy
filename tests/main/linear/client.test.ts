@@ -50,6 +50,25 @@ describe('LinearClient connection', () => {
     expect(client.connection()).toMatchObject({ state: 'connected', missingTools: ['save_issue'] })
   })
 
+  it('a required parameter gone from a tool is reported as tool.param', async () => {
+    const { client } = await connected({}, (f) => {
+      const all = f.listTools.bind(f)
+      f.listTools = async () => (await all()).map((t) => {
+        if (t.name !== 'save_issue' && t.name !== 'list_issues') return t
+        const schema = structuredClone(t.inputSchema) as { properties: Record<string, unknown> }
+        if (t.name === 'save_issue') delete schema.properties.patch
+        else delete schema.properties.cursor
+        return { ...t, inputSchema: schema }
+      })
+    })
+    expect(client.connection().missingTools).toEqual(['save_issue.patch', 'list_issues.cursor'])
+  })
+
+  it('the captured tools have every required parameter', async () => {
+    const { client } = await connected()
+    expect(client.connection().missingTools).toEqual([])
+  })
+
   it('resume never opens the browser', async () => {
     const fake = fakeLinear()
     const open = vi.fn(async () => fake)

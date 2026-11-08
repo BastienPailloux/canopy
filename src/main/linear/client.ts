@@ -18,6 +18,17 @@ export const REQUIRED_TOOLS = [
   'whoami', 'list_issues', 'get_issue', 'save_issue', 'list_comments', 'save_comment', 'list_issue_statuses', 'list_issue_labels', 'list_users',
 ]
 
+/** Parameters Canopy relies on, reported as `tool.param` in `missingTools` when a tool lost them. */
+export const REQUIRED_PARAMS: [tool: string, param: string][] = [
+  ['save_issue', 'patch'], ['save_issue', 'id'], ['list_issues', 'assignee'], ['list_issues', 'cursor'],
+]
+
+/** The parameters `inputSchema` declares; null when it declares none readable. */
+function paramsOf(schema: unknown): Set<string> | null {
+  if (!isRecord(schema) || !isRecord(schema.properties)) return null
+  return new Set(Object.keys(schema.properties))
+}
+
 /** What `LinearClient` needs of an MCP client. */
 export interface McpCaller {
   listTools(): Promise<{ name: string; inputSchema: unknown }[]>
@@ -126,6 +137,10 @@ export class LinearClient {
     const tools = await this.guard(caller, () => caller.listTools())
     const names = new Set(tools.map((t) => t.name))
     const missingTools = REQUIRED_TOOLS.filter((t) => !names.has(t))
+    const schemas = new Map(tools.map((t) => [t.name, paramsOf(t.inputSchema)]))
+    for (const [tool, param] of REQUIRED_PARAMS) {
+      if (names.has(tool) && !schemas.get(tool)?.has(param)) missingTools.push(`${tool}.${param}`)
+    }
     const me = names.has('whoami') ? parseWhoami(await this.call('whoami', {})) : undefined
     // A newer connect, resume or disconnect took over (and closed this caller) meanwhile.
     if (gen !== this.generation) return this.connection()

@@ -79,6 +79,34 @@ describe('LinearEdits', () => {
     expect(fileEntries(file)).toEqual([])
   })
 
+  it('a patch Linear silently ignores is held, never reported sent', async () => {
+    const { client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB')
+    const ignoring = {
+      issueBrief: client.issueBrief.bind(client),
+      // a server that dropped `patch`: saves the other fields, answers the unchanged description
+      save: async (id: string, args: Record<string, unknown>) => {
+        const { patch: _ignored, ...rest } = args
+        return Object.keys(rest).length > 0 ? client.save(id, rest) : client.issueBrief(id)
+      },
+    }
+    const edits = new LinearEdits(tmpFile(), ignoring)
+    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A2\n\nB' }, priority: 'high' })
+    expect(r).toMatchObject({ kind: 'conflict', remote: 'A\n\nB', mine: 'A2\n\nB', issue: { priority: 'high' } })
+    const [p] = edits.pending()
+    expect(p.change).toEqual({ description: { base: 'A\n\nB', text: 'A2\n\nB' } })
+    expect(p.held.description).toBe('Linear n’a pas appliqué la modification')
+  })
+
+  it('a patch that only changes what Linear normalises away is sent, not held', async () => {
+    const { client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB')
+    const edits = new LinearEdits(tmpFile(), client)
+    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A \n\nB' } })
+    expect(r.kind).toBe('sent')
+    expect(edits.pending()).toEqual([])
+  })
+
   it('an anchor vanishing between read and send re-reads once, then conflicts instead of overwriting', async () => {
     const { fake, client, colleague } = await setup()
     await colleague('CAN-2', 'A\n\nB\n\nC')
