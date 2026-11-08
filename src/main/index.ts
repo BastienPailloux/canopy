@@ -131,7 +131,8 @@ void app.whenReady().then(async () => {
     // The personal Claude login is used unless the user saved an API key.
     env: () => ({ ...currentEnv(), ...store.apiKeyEnv() }),
     pathToClaudeCodeExecutable: claudeExecutablePath,
-    isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot)
+    isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot),
+    attachmentsDir: join(app.getPath('userData'), 'attachments')
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })

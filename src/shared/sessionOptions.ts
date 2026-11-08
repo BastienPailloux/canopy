@@ -10,3 +10,7 @@ export const SESSION_MODES: { value: PermissionMode; label: string }[] = [
 ]
 
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+
+/** Claude reads PDFs up to 32 MB, about 100 pages. */
+export const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
+export const MAX_DOCUMENT_BASE64 = Math.ceil(MAX_DOCUMENT_BYTES / 3) * 4

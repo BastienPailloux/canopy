@@ -1,7 +1,14 @@
-import type { UserContent } from './types'
+import type { UserContent, UserDocument } from './types'
 
 /** One image of a message, as the composer attaches it. */
 export type UserImage = NonNullable<UserContent['images']>[number]
+
+/** What a composer holds. `documents` is absent from drafts stashed before PDFs. */
+export interface Draft { text: string; images: UserImage[]; documents?: UserDocument[] }
+
+/** Nothing typed or attached. With `trim`, blank text counts as nothing. */
+export const isDraftEmpty = (d: Draft, trim = false): boolean =>
+  (trim ? d.text.trim() : d.text) === '' && d.images.length === 0 && !d.documents?.length
 
 /** Notes of one published release, shown in "Nouveautés". */
 export interface ReleaseNotes {
@@ -19,7 +26,7 @@ export interface StashedTab {
   cwd: string
   sessionId?: string
   title: string
-  draft: { text: string; images: UserImage[] }
+  draft: Draft
   interrupted: boolean
 }
 

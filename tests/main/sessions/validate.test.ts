@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES } from '../../../src/shared/sessionOptions'
 import { assertContent, assertMode, parseDecision, parseStartOptions } from '../../../src/main/sessions/validate'
 
 const content = { text: 'hi' }
@@ -30,13 +31,30 @@ test('assertContent accepts the allowed image types', () => {
   }
 })
 
+test('assertContent accepts PDF documents', () => {
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: 'AAAA' }] })).not.toThrow()
+})
+
+test('assertContent accepts a PDF of exactly the limit, and not one byte more', () => {
+  const exact = 'A'.repeat(MAX_DOCUMENT_BASE64 - 4) + 'AAA='
+  expect(Buffer.from(exact, 'base64').length).toBe(MAX_DOCUMENT_BYTES)
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: exact }] })).not.toThrow()
+  const over = 'A'.repeat(MAX_DOCUMENT_BASE64)
+  expect(Buffer.from(over, 'base64').length).toBe(MAX_DOCUMENT_BYTES + 1)
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: over }] })).toThrow()
+})
+
 test.each([
   ['null', null],
   ['a missing text', {}],
   ['images that are no array', { text: '', images: 'x' }],
   ['a null image', { text: '', images: [null] }],
   ['an unknown image type', { text: '', images: [{ mediaType: 'image/svg+xml', base64: 'AAAA' }] }],
-  ['a missing base64', { text: '', images: [{ mediaType: 'image/png' }] }]
+  ['a missing base64', { text: '', images: [{ mediaType: 'image/png' }] }],
+  ['documents that are no array', { text: '', documents: 'x' }],
+  ['a document with no name', { text: '', documents: [{ base64: 'AAAA' }] }],
+  ['a document with no base64', { text: '', documents: [{ name: 'doc.pdf' }] }],
+  ['a document over the size limit', { text: '', documents: [{ name: 'doc.pdf', base64: 'A'.repeat(MAX_DOCUMENT_BASE64 + 4) }] }]
 ])('assertContent rejects %s', (_name, c) => {
   expect(() => assertContent(c)).toThrow()
 })

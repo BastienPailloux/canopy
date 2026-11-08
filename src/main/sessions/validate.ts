@@ -1,6 +1,6 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { StartSessionOptions } from '../../shared/api'
-import { IMAGE_TYPES, SESSION_MODES } from '../../shared/sessionOptions'
+import { IMAGE_TYPES, MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES, SESSION_MODES } from '../../shared/sessionOptions'
 import type { PermissionDecision, UserContent } from '../../shared/types'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -14,10 +14,18 @@ export function assertMode(mode: unknown): asserts mode is PermissionMode {
   if (!SESSION_MODES.some((m) => m.value === mode)) throw new Error('Mode invalide')
 }
 
+/** Bytes a base64 string decodes to: its length alone lets a few too many through. */
+const decodedLength = (base64: string): number =>
+  Math.floor(base64.length * 3 / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
+
 export function assertContent(c: unknown): asserts c is UserContent {
   const valid = isRecord(c) && typeof c.text === 'string' && (c.images === undefined || (
     Array.isArray(c.images) &&
     c.images.every((i) => isRecord(i) && IMAGE_TYPES.includes(i.mediaType as string) && typeof i.base64 === 'string')
+  )) && (c.documents === undefined || (
+    Array.isArray(c.documents) &&
+    c.documents.every((d) => isRecord(d) && typeof d.name === 'string' && d.name !== '' &&
+      typeof d.base64 === 'string' && d.base64.length <= MAX_DOCUMENT_BASE64 && decodedLength(d.base64) <= MAX_DOCUMENT_BYTES)
   ))
   if (!valid) throw new Error('Message invalide')
 }

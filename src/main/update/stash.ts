@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { IMAGE_TYPES } from '../../shared/sessionOptions'
+import type { UserDocument } from '../../shared/types'
 import type { Stash, StashedBuffer, StashedTab, UserImage } from '../../shared/update'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -11,6 +12,11 @@ const isString = (v: unknown): v is string => typeof v === 'string'
 function parseImage(i: unknown): UserImage {
   if (!isRecord(i) || !IMAGE_TYPES.includes(i.mediaType as string) || !isString(i.base64)) throw new Error('Image invalide')
   return { mediaType: i.mediaType as string, base64: i.base64 }
+}
+
+function parseDocument(d: unknown): UserDocument {
+  if (!isRecord(d) || !isString(d.name) || d.name === '' || !isString(d.base64)) throw new Error('Document invalide')
+  return { name: d.name, base64: d.base64 }
 }
 
 function parseBuffer(b: unknown): StashedBuffer {
@@ -27,11 +33,16 @@ function parseTab(t: unknown): StashedTab {
   if (t.sessionId !== undefined && !isString(t.sessionId)) throw new Error('Onglet invalide')
   const { draft } = t
   if (!isRecord(draft) || !isString(draft.text) || !Array.isArray(draft.images)) throw new Error('Brouillon invalide')
+  if (draft.documents !== undefined && !Array.isArray(draft.documents)) throw new Error('Brouillon invalide')
   return {
     cwd: t.cwd,
     ...(t.sessionId !== undefined ? { sessionId: t.sessionId as string } : {}),
     title: t.title,
-    draft: { text: draft.text, images: draft.images.map(parseImage) },
+    draft: {
+      text: draft.text,
+      images: draft.images.map(parseImage),
+      ...(draft.documents ? { documents: draft.documents.map(parseDocument) } : {})
+    },
     interrupted: t.interrupted
   }
 }

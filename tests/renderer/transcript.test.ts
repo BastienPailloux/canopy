@@ -1,4 +1,5 @@
 import type { SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
+import { attachmentNote } from '../../src/shared/attachments'
 import { describe, expect, it } from 'vitest'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript } from '../../src/renderer/sessions/transcript'
 
@@ -227,6 +228,28 @@ describe('history and stream', () => {
     ].map((m) => ({ uuid: `u${++uuids}`, session_id: SESSION, parent_tool_use_id: null, parent_agent_id: null, ...m })) as SessionMessage[]
 
     expect(settle(run(history)).items).toEqual(fromStream.items)
+  })
+})
+
+describe('documents', () => {
+  const pdf = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'AAAA' }, title: 'spec.pdf' }
+
+  it('show by name, with the note for Claude hidden', () => {
+    const t = run([user([
+      { type: 'text', text: 'Lis la spec' },
+      pdf,
+      { type: 'text', text: attachmentNote('spec.pdf', '/tmp/x/spec.pdf') }
+    ])])
+    expect(t.items).toEqual([{ kind: 'user', text: 'Lis la spec', images: [], documents: [{ name: 'spec.pdf' }] }])
+  })
+
+  it('a document sent alone still makes a user item', () => {
+    expect(run([user([pdf])]).items).toEqual([{ kind: 'user', text: '', images: [], documents: [{ name: 'spec.pdf' }] }])
+  })
+
+  it('addUser shows the names of the documents sent', () => {
+    expect(addUser(emptyTranscript(), { text: 'lis', documents: [{ name: 'spec.pdf', base64: 'AAAA' }] }).items)
+      .toEqual([{ kind: 'user', text: 'lis', images: [], documents: [{ name: 'spec.pdf' }] }])
   })
 })
 

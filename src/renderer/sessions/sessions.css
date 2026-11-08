@@ -556,6 +556,58 @@
   line-height: 1;
 }
 
+.composer.dragging {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.doc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.msg-user .doc-chips {
+  margin-bottom: 8px;
+}
+.doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  height: 28px;
+  padding: 0 4px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.doc-chip-kind {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  font-size: 10px;
+  font-weight: 600;
+}
+.doc-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-chip button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-2);
+  line-height: 1;
+}
+.doc-chip button:hover {
+  background: var(--selected);
+  color: var(--fg);
+}
+
 /* Trust dialog */
 .dialog.trust {
   width: 520px;
