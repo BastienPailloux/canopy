@@ -5,6 +5,7 @@ import type { AppStore } from '../appStore'
 import { git } from '../git/exec'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { clearSharedReads } from '../git/sharedReads'
+import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, STATUSES } from '../../shared/tickets'
 import type { LaunchRequest, LaunchTarget, TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
 import { branchBaseAt } from './branchBase'
 import { launchCandidates, launchTicket, type LaunchDeps } from './launch'
@@ -12,14 +13,7 @@ import type { TicketStore } from './store'
 import { watchTickets } from './watch'
 
 const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
-const STATUSES: TicketStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done']
-const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
 const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base']
-const MAX_LABEL = 50
-const MAX_TITLE = 200
-const MAX_DESCRIPTION = 100_000
-const MAX_SUBTASKS = 200
-const MAX_LABELS = 20
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const bad = (what: string): Error => new Error(`${what} invalide`)

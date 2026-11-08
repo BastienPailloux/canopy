@@ -1,13 +1,14 @@
 /** What the page holds and quitting would lose. Only the renderer knows: it reports it. */
-export interface UnsavedCounts { buffers: number; drafts: number }
+/** `tickets`: ticket editors with changes not written yet. */
+export interface UnsavedCounts { buffers: number; drafts: number; tickets: number }
 export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number }
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
 
 export function parseUnsaved(raw: unknown): UnsavedCounts {
-  const { buffers, drafts } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-  if (!isCount(buffers) || !isCount(drafts)) throw new Error('Compte invalide')
-  return { buffers, drafts }
+  const { buffers, drafts, tickets } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  if (!isCount(buffers) || !isCount(drafts) || !isCount(tickets)) throw new Error('Compte invalide')
+  return { buffers, drafts, tickets }
 }
 
 export interface QuitDeps {
@@ -29,15 +30,16 @@ const runningList = ({ sessions, terminals }: RunningCounts): string[] => [
 
 /** The one question asked at quit, with what is still running and what would be lost. */
 export function quitDetail(counts: RunningCounts): string {
-  const { buffers, drafts } = counts
+  const { buffers, drafts, tickets } = counts
   const running = runningList(counts)
   const lost = [
     ...(buffers > 0 ? [plural(buffers, 'fichier non enregistré', 'fichiers non enregistrés')] : []),
-    ...(drafts > 0 ? [plural(drafts, 'brouillon de message', 'brouillons de message')] : [])
+    ...(drafts > 0 ? [plural(drafts, 'brouillon de message', 'brouillons de message')] : []),
+    ...(tickets > 0 ? [plural(tickets, 'ticket pas encore enregistré', 'tickets pas encore enregistrés')] : [])
   ]
   return [
     ...(running.length > 0 ? [`Quitter arrêtera : ${running.join(', ')}.`] : []),
-    ...(lost.length > 0 ? [`${buffers + drafts > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : [])
+    ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : [])
   ].join(' ')
 }
 
@@ -73,7 +75,7 @@ export function createQuitFlow(deps: QuitDeps): {
     async request() {
       if (quitting || asking) return
       const counts = deps.counts()
-      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts > 0) {
+      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets > 0) {
         asking = true
         try {
           if (!(await deps.confirm(counts))) return

@@ -158,8 +158,8 @@ export interface CanopyApi {
   switchBranch(path: string, branch: string): Promise<{ conflict: boolean }>
   /** Worktrees of the repos of the folder `root` that vanished from outside with sessions or terminals still alive. */
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
-  /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts. */
-  reportUnsaved(counts: { buffers: number; drafts: number }): Promise<void>
+  /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts, ticket edits not written. */
+  reportUnsaved(counts: { buffers: number; drafts: number; tickets: number }): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */

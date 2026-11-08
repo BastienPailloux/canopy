@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropDraft, dropDrafts, getDraft, setDraft } from '../../src/renderer/code/drafts'
 import { useSessions, type SessionTab } from '../../src/renderer/sessions/sessionStore'
 import { collectStash, connectUpdateStash, restoreStash, stillUnsaved, useRestoredFiles } from '../../src/renderer/update/stash'
+import { createSaver, trackSaver } from '../../src/renderer/tickets/editorSave'
 import { keepOverMissing } from '../../src/renderer/code/draftOverMissing'
 import type { Stash } from '../../src/shared/update'
 
@@ -53,7 +54,7 @@ describe('stash', () => {
     expect(getDraft(CWD, 'a.ts')?.version).toBe('old')
   })
 
-  it('answers update:collectStash with the stash', () => {
+  it('answers update:collectStash with the stash', async () => {
     const on = vi.fn(() => () => undefined)
     const submitStash = vi.fn()
     vi.stubGlobal('window', { canopy: { on, submitStash } })
@@ -61,7 +62,24 @@ describe('stash', () => {
     expect(on).toHaveBeenCalledWith('update:collectStash', expect.any(Function))
     const cb = (on.mock.calls[0] as unknown as [string, () => void])[1]
     cb()
-    expect(submitStash).toHaveBeenCalledWith(collectStash())
+    await vi.waitFor(() => expect(submitStash).toHaveBeenCalledWith(collectStash()))
+  })
+
+  it('writes the open ticket edits before answering', async () => {
+    const order: string[] = []
+    const on = vi.fn(() => () => undefined)
+    const submitStash = vi.fn(() => { order.push('stash') })
+    vi.stubGlobal('window', { canopy: { on, submitStash } })
+    const saver = createSaver(async () => { order.push('ticket') }, 60_000)
+    const untrack = trackSaver(saver)
+    saver.change({ title: 'T' })
+    connectUpdateStash()
+    const cb = (on.mock.calls[0] as unknown as [string, () => void])[1]
+    cb()
+    await vi.waitFor(() => expect(submitStash).toHaveBeenCalled())
+    expect(order).toEqual(['ticket', 'stash'])
+    untrack()
+    saver.dispose()
   })
 
   it('a non-interrupted tab gets no notice', async () => {

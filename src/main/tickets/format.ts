@@ -1,9 +1,7 @@
 import { Document, isSeq, parse } from 'yaml'
-import type { Subtask, Ticket, TicketPriority, TicketStatus } from '../../shared/tickets'
+import { PRIORITIES, STATUSES, type Subtask, type Ticket, type TicketPriority, type TicketStatus } from '../../shared/tickets'
 
 const SUBTASKS_HEADING = '## Sous-tâches'
-const STATUSES: TicketStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done']
-const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
 const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base']
 
 function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {

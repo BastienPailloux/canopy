@@ -8,6 +8,10 @@ export const STATUS_LABEL: Record<TicketStatus, string> = {
   done: 'Terminé',
 }
 
+/** Every status, in the order of the file format and of the editor's menu. */
+export const STATUSES: TicketStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done']
+
+/** List order: what is being worked on first. */
 export const STATUS_ORDER: TicketStatus[] = ['in_progress', 'in_review', 'todo', 'backlog', 'done']
 
 export type TicketPriority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
@@ -19,6 +23,15 @@ export const PRIORITY_LABEL: Record<TicketPriority, string> = {
   low: 'Basse',
   none: 'Aucune',
 }
+
+export const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
+
+/** Limits main enforces on every write; the editor keeps within them so that a save is never refused. */
+export const MAX_TITLE = 200
+export const MAX_DESCRIPTION = 100_000
+export const MAX_SUBTASKS = 200
+export const MAX_LABELS = 20
+export const MAX_LABEL = 50
 
 export interface Subtask { title: string; done: boolean }
 

@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { allDrafts, getDraft, onDraftsChange, setDraft, type Draft } from '../code/drafts'
 import { restoreTabs, stashTabs } from '../sessions/sessionStore'
 import type { Stash, StashedBuffer } from '../../shared/update'
+import { flushSavers } from '../tickets/editorSave'
 
 /** Files whose unsaved text came back after an update: the user is told which. */
 export const useRestoredFiles = create<{ files: StashedBuffer[] }>(() => ({ files: [] }))
@@ -31,7 +32,11 @@ export function restoreStash(s: Stash): void {
   restoreTabs(s.tabs)
 }
 
-/** Answers the main process when an update is about to restart the app. */
+/** Answers the main process when an update is about to restart the app, once the ticket edits are written. */
 export function connectUpdateStash(): () => void {
-  return window.canopy.on('update:collectStash', () => { window.canopy.submitStash(collectStash()) })
+  return window.canopy.on('update:collectStash', () => {
+    // Bounded: the main process stops waiting for the stash after a few seconds.
+    const wait = new Promise((resolve) => setTimeout(resolve, 2000))
+    void Promise.race([flushSavers().catch(() => false), wait]).then(() => { window.canopy.submitStash(collectStash()) })
+  })
 }

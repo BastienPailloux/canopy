@@ -1,24 +1,20 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { PRIORITY_LABEL, STATUS_LABEL, type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus } from '../../shared/tickets'
+import {
+  MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, STATUSES,
+  type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus
+} from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
-import { createSaver, createVersionFilter, mergeDisk, type Saver } from './editorSave'
+import { createSaver, createVersionFilter, draftToCreate, mergeDisk, notifySavers, trackSaver, type Saver } from './editorSave'
 import { useTickets } from './ticketStore'
 import { linkedWorktree, useRepoRefs } from './TicketsScreen'
 
-const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
-const STATUSES: TicketStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done']
-const MAX_LABEL = 50
-const MAX_LABELS = 20
 
 const DRAFT: Ticket = {
   id: '', title: '', description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], created: '', updated: '', archived: false
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
-const fields = (t: Ticket): TicketFields => ({
-  title: t.title, description: t.description, status: t.status, priority: t.priority, labels: t.labels, subtasks: t.subtasks
-})
 
 /**
  * Screen 3b: one ticket, saved as it is edited. `id` `'new'` is a draft: nothing is written before it has a title, then
@@ -77,8 +73,9 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     let t: Ticket
     if (idRef.current) t = await window.canopy.patchTicket(repo, idRef.current, changes)
     else {
-      const all = { ...fields(local.current ?? DRAFT), ...changes }
-      if (all.title.trim() === '') return
+      // What shows now, not what was typed then: a title typed and erased since creates nothing.
+      const all = draftToCreate(local.current ?? DRAFT)
+      if (!all) return
       t = await window.canopy.createTicket(repo, all)
       idRef.current = t.id
       props.onCreated(t.id)
@@ -89,11 +86,20 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     applyDisk(t)
   }
   const saver = useRef<Saver>(null as unknown as Saver)
-  saver.current ??= createSaver((c) => save(c), 500, (e) => { if (live.current) setSaveError(message(e)) })
+  saver.current ??= createSaver((c) => save(c), 500, {
+    onError: (e) => { if (live.current) setSaveError(message(e)) },
+    onPending: notifySavers
+  })
 
+  // Counted by what quitting would lose while it holds changes; once closed, it writes them, then stops.
   useEffect(() => {
     live.current = true
-    return () => { live.current = false; void saver.current.flush() }
+    const s = saver.current
+    const untrack = trackSaver(s)
+    return () => {
+      live.current = false
+      void s.flush().then(() => { if (!live.current) { s.dispose(); untrack() } })
+    }
   }, [])
 
   useEffect(() => {
@@ -166,7 +172,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     setBusy(true)
     setActionError(null)
     try {
-      await saver.current.flush()
+      if (!(await saver.current.flush())) throw new Error('Les dernières modifications ne sont pas enregistrées : action annulée.')
       await fn(id)
     } catch (e) {
       if (live.current) { setActionError(message(e)); setBusy(false) }
@@ -204,7 +210,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
 
           <label className="editor-label" htmlFor={`${ids}-title`}>Titre</label>
           <input id={`${ids}-title`} className="editor-title" value={ticket.title} placeholder="Titre du ticket"
-            autoFocus={!id} spellCheck={false} maxLength={200} aria-invalid={(titleEmpty && !!id) || undefined}
+            autoFocus={!id} spellCheck={false} maxLength={MAX_TITLE} aria-invalid={(titleEmpty && !!id) || undefined}
             {...focus('title')}
             onChange={(e) => update({ title: e.target.value })}
             onBlur={() => {
@@ -280,6 +286,7 @@ function Description(props: { value: string; focus: FocusProps; onChange: (v: st
     const ta = area.current
     if (!ta) return
     const r = applyFormat(ta.value, ta.selectionStart, ta.selectionEnd, f)
+    if (r.value.length > MAX_DESCRIPTION) return
     props.onChange(r.value)
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(r.start, r.end) })
   }
@@ -293,7 +300,7 @@ function Description(props: { value: string; focus: FocusProps; onChange: (v: st
         <button onMouseDown={keep} onClick={() => format('list')} title="Liste" aria-label="Liste">•</button>
         <button onMouseDown={keep} onClick={() => format('code')} title="Code" aria-label="Code" className="mono">{'</>'}</button>
       </div>
-      <textarea id={`${ids}-desc`} ref={area} value={props.value} placeholder="Décris le ticket en Markdown…"
+      <textarea id={`${ids}-desc`} ref={area} value={props.value} maxLength={MAX_DESCRIPTION} placeholder="Décris le ticket en Markdown…"
         {...props.focus} onChange={(e) => props.onChange(e.target.value)} />
     </div>
   )
@@ -313,15 +320,15 @@ function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items
     if (!editing) return
     const text = editing.text.trim()
     setEditing(null)
-    if (text !== '' && text.length <= 200) {
-      if (editing.index >= items.length) props.onChange([...items, { title: text, done: false }])
+    if (text !== '' && text.length <= MAX_TITLE) {
+      if (editing.index >= items.length) { if (items.length < MAX_SUBTASKS) props.onChange([...items, { title: text, done: false }]) }
       else if (text !== items[editing.index]?.title) props.onChange(items.map((s, i) => (i === editing.index ? { ...s, title: text } : s)))
     }
     props.focus.onBlur()
   }
   const start = (index: number, text: string): void => { props.focus.onFocus(); setEditing({ index, text }) }
   const input = (
-    <input autoFocus className="subtask-input" value={editing?.text ?? ''} aria-label="Nom de la sous-tâche" maxLength={200}
+    <input autoFocus className="subtask-input" value={editing?.text ?? ''} aria-label="Nom de la sous-tâche" maxLength={MAX_TITLE}
       onChange={(e) => { if (current.current) setEditing({ ...current.current, text: e.target.value }) }}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -334,7 +341,8 @@ function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items
     <section className="subtasks" aria-label="Sous-tâches">
       <div className="subtasks-head">
         <h3>Sous-tâches <span className="n">{done} / {items.length}</span></h3>
-        <button className="add" onClick={() => start(items.length, '')}>+ Ajouter</button>
+        <button className="add" disabled={items.length >= MAX_SUBTASKS} title={items.length >= MAX_SUBTASKS ? `${MAX_SUBTASKS} sous-tâches au plus` : undefined}
+          onClick={() => start(items.length, '')}>+ Ajouter</button>
       </div>
       {items.map((s, i) => (
         <div key={i} className="subtask" data-done={s.done}>

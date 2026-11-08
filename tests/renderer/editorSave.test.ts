@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TicketFields } from '../../src/shared/tickets'
-import { createSaver, createVersionFilter, mergeDisk } from '../../src/renderer/tickets/editorSave'
+import { createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
 
 type Changes = Partial<TicketFields>
 
@@ -80,7 +80,7 @@ describe('createSaver', () => {
   it('keeps a failed change pending for the next save, unless changed since', async () => {
     const errors: unknown[] = []
     const save = vi.fn(async (c: Changes) => { if (save.mock.calls.length === 1) throw new Error(`refusé ${Object.keys(c)}`) })
-    const s = createSaver(save, 500, (e) => errors.push(e))
+    const s = createSaver(save, 500, { onError: (e) => errors.push(e) })
     s.change({ title: 'A', description: 'd' })
     await vi.advanceTimersByTimeAsync(500)
     expect(errors).toHaveLength(1)
@@ -114,5 +114,93 @@ describe('createVersionFilter', () => {
     expect(fresh(v('b', '2026-11-08T01:00:00Z'))).toBe(false)
     // Edited by hand without touching `updated`: new content.
     expect(fresh(v('c', '2026-11-08T01:00:00Z'))).toBe(true)
+  })
+})
+
+describe('saver retries and flush result', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('retries a failed save on its own after retryMs', async () => {
+    let fail = true
+    const save = vi.fn(async (_c: Changes) => { if (fail) throw new Error('disque plein') })
+    const s = createSaver(save, 500, { retryMs: 2000, onError: () => {} })
+    s.change({ title: 'A' })
+    await vi.advanceTimersByTimeAsync(500)
+    expect(save).toHaveBeenCalledTimes(1)
+    fail = false
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(save).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(s.pending().size).toBe(0)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  it('dispose stops the timers', async () => {
+    const save = vi.fn(async (_c: Changes) => { throw new Error('x') })
+    const s = createSaver(save, 500, { retryMs: 1000, onError: () => {} })
+    s.change({ title: 'A' })
+    await vi.advanceTimersByTimeAsync(500)
+    s.dispose()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  it('flush resolves true once everything is written, false when something stays pending', async () => {
+    let fail = true
+    const s = createSaver(async () => { if (fail) throw new Error('x') }, 500, { onError: () => {} })
+    expect(await s.flush()).toBe(true)
+    s.change({ title: 'A' })
+    expect(await s.flush()).toBe(false)
+    fail = false
+    expect(await s.flush()).toBe(true)
+  })
+
+  it('tells onPending when the pending keys may have changed', async () => {
+    const onPending = vi.fn()
+    const s = createSaver(async () => {}, 500, { onPending })
+    s.change({ title: 'A' })
+    expect(onPending).toHaveBeenCalled()
+    onPending.mockClear()
+    await s.flush()
+    expect(onPending).toHaveBeenCalled()
+  })
+})
+
+describe('open savers registry', () => {
+  it('counts the tracked savers with pending changes, notifies, and flushes them all', async () => {
+    const seen: number[] = []
+    const off = onSaversChange(() => seen.push(unsavedTickets()))
+    const save = vi.fn(async (_c: Changes) => {})
+    const a = createSaver(save, 60_000, { onPending: notifySavers })
+    const b = createSaver(save, 60_000, { onPending: notifySavers })
+    const untrackA = trackSaver(a)
+    const untrackB = trackSaver(b)
+    expect(unsavedTickets()).toBe(0)
+    a.change({ title: 'A' })
+    b.change({ description: 'B' })
+    expect(unsavedTickets()).toBe(2)
+    expect(seen.at(-1)).toBe(2)
+    await flushSavers()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(unsavedTickets()).toBe(0)
+    expect(seen.at(-1)).toBe(0)
+    a.change({ title: 'C' })
+    untrackA()
+    expect(unsavedTickets()).toBe(0)
+    untrackB()
+    off()
+    a.dispose()
+  })
+})
+
+describe('draftToCreate', () => {
+  const draft = { title: '', description: 'd', status: 'todo' as const, priority: 'high' as const, labels: ['x'], subtasks: [] }
+  it('creates from what the editor shows, nothing while its title is empty or erased', () => {
+    expect(draftToCreate(draft)).toBeNull()
+    expect(draftToCreate({ ...draft, title: '   ' })).toBeNull()
+    expect(draftToCreate({ ...draft, title: 'T' })).toEqual({ ...draft, title: 'T' })
   })
 })
