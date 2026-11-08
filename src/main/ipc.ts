@@ -6,6 +6,8 @@ import type { ClaudeAccount, Worktree, WorktreeStats } from '../shared/types'
 import { readClaudeAccount, type AccountRunner } from './account'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
+import { localBranches, registerTicketIpc } from './tickets/ticketIpc'
+import type { TicketStore } from './tickets/store'
 import type { LspPool } from './code/lsp'
 import { openExternalUrl } from './externalLinks'
 import { resolveCompareRef } from './git/refs'
@@ -139,7 +141,7 @@ export function registerUpdateIpc(updater: Updater | null, stashFile: string): v
 
 export function registerIpc(
   store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void,
-  takeOpenFolder: () => string | null, runAccount: AccountRunner
+  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore
 ): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
@@ -290,6 +292,7 @@ export function registerIpc(
   ipcMain.handle('shell:openExternal', (_e, url: unknown) => openExternalUrl(url, (u) => shell.openExternal(u)))
 
   registerCodeIpc(broadcast, lsp)
+  registerTicketIpc(broadcast, tickets, store)
 
   ipcMain.handle('worktree:list', async (_e, repo: unknown) => {
     assertPath(repo)
@@ -299,6 +302,9 @@ export function registerIpc(
       throw e
     })
     orphans.observe(repo, list)
+    // Branches deleted since forget the base they were stacked on.
+    const main = list.find((w) => w.isMain)
+    if (main) await localBranches(main.path).then((b) => store.pruneBranchBases(main.path, b), () => undefined)
     return list
   })
 
@@ -325,7 +331,12 @@ export function registerIpc(
     assertPath(repo)
     const o = parseNewWorktree(raw)
     const base = o.existing ? undefined : o.base ?? (await cachedBaseRef(repo)).ref
+    const defaultBase = o.base !== undefined && !o.existing ? await cachedBaseRef(repo).catch(() => null) : null
     const created = await createWorktree(repo, { ...o, base, trusted: await isConfigTrusted(store, repo) })
+    // Only a base other than the repo's own says the branch is stacked.
+    if (o.base !== undefined && !o.existing && o.base !== defaultBase?.name && o.base !== defaultBase?.ref) {
+      store.setBranchBase(await mainWorktreeRoot(repo), o.branch, o.base)
+    }
     clearSharedReads()
     return created
   })

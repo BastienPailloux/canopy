@@ -6,7 +6,7 @@ const TAG = 'canopy:'
 /** `git stash push -m x` names it `On <branch>: x`. A ref cannot hold `:`. */
 const TAGGED = /^On [^:]+: canopy:(.+)$/
 
-const currentBranch = async (cwd: string): Promise<string | null> =>
+export const currentBranch = async (cwd: string): Promise<string | null> =>
   (await git(cwd, ['symbolic-ref', '--short', '--quiet', 'HEAD'], { okCodes: [1] })).trim() || null
 
 /** Position in the stash list of the latest changes set aside for `branch`. Not `%gd`: `log.date` changes what it prints. */

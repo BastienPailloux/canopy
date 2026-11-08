@@ -2,6 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
+import type { Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 
 export interface RemovalRisks {
@@ -208,6 +209,23 @@ export interface CanopyApi {
   writeFile(cwd: string, path: string, content: string, expectedVersion?: string): Promise<string>
   /** Watches the worktrees `repo` lists now, and no other: emits `code:changed` `{ cwd }` after changes. */
   watchWorktrees(repo: string): Promise<void>
+  /** Tickets of the repo whose main checkout holds `repo` (any worktree path works). */
+  listTickets(repo: string): Promise<TicketListEntry[]>
+  getTicket(repo: string, id: string): Promise<Ticket>
+  createTicket(repo: string, fields: TicketFields): Promise<Ticket>
+  patchTicket(repo: string, id: string, changes: Partial<TicketFields>): Promise<Ticket>
+  duplicateTicket(repo: string, id: string): Promise<Ticket>
+  archiveTicket(repo: string, id: string): Promise<void>
+  ticketConfig(repo: string): Promise<{ prefix: string; next: number }>
+  setTicketPrefix(repo: string, prefix: string): Promise<void>
+  ticketLabels(repo: string): Promise<string[]>
+  /** Watches the tickets of `repo` for this window, and no other repo: emits `tickets:changed` `{ repo }` (main root). */
+  watchTickets(repo: string): Promise<void>
+  /**
+   * The base remembered for the branch checked out at `cwd`. `lost`: that base no longer exists locally,
+   * and is forgotten after this answer. Null: none.
+   */
+  branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */
