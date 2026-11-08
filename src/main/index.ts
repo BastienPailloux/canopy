@@ -8,6 +8,7 @@ import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-ag
 import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
 import { TicketStore } from './tickets/store'
+import { MockupStore } from './mockups/store'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
 import { createCrashReload } from './crashReload'
@@ -163,7 +164,7 @@ void app.whenReady().then(async () => {
   })
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    new TicketStore())
+    new TicketStore(), new MockupStore())
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null

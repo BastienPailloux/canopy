@@ -4,6 +4,7 @@ import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashComman
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
+import type { Mockup, MockupChanges, MockupFields, MockupList } from './mockups'
 
 export interface RemovalRisks {
   dirty: number
@@ -233,6 +234,16 @@ export interface CanopyApi {
    * and is forgotten after this answer. Null: none.
    */
   branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
+  /** Mockups of the repo whose main checkout holds `repo`; an unreadable registry is reported, never rewritten. */
+  listMockups(repo: string): Promise<MockupList>
+  /** Registers the claude.ai artifact at `url`. Already there: returns it, linked to `fields.ticket` if it had no ticket. */
+  addMockup(repo: string, url: string, fields?: Partial<MockupFields>): Promise<Mockup>
+  /** `ticket: null` removes the link; a `title` sets `titleSet` unless given. */
+  patchMockup(repo: string, id: string, changes: MockupChanges): Promise<Mockup>
+  /** Forgets the mockup in Canopy; it stays on claude.ai. */
+  removeMockup(repo: string, id: string): Promise<void>
+  /** Watches the mockups of `repo` for this window, and no other repo: emits `mockups:changed` `{ repo }` (main root). */
+  watchMockups(repo: string): Promise<void>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */

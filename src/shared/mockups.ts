@@ -27,6 +27,9 @@ export interface Mockup {
 
 export type MockupFields = Pick<Mockup, 'title' | 'kind' | 'status' | 'ticket' | 'titleSet'>
 
+/** A patch: `ticket: null` removes the link. */
+export type MockupChanges = Partial<Omit<MockupFields, 'ticket'>> & { ticket?: string | null }
+
 /** A registry that cannot be read is reported, never overwritten. */
 export type MockupList = { kind: 'ok'; mockups: Mockup[] } | { kind: 'unreadable'; error: string }
 
