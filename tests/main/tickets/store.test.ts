@@ -30,7 +30,7 @@ const dir = () => join(repo.path, '.tickets')
 describe('TicketStore', () => {
   it('create writes .tickets/CAN-1.md in the main checkout', async () => {
     const wt = join(repo.path, '..', 'wt')
-    execFileSync('git', ['worktree', 'add', '-b', 'x', wt], { cwd: repo.path })
+    execFileSync('git', ['worktree', 'add', '-b', 'x', wt], { cwd: repo.path, stdio: 'pipe' })
     const t = await store.create(wt, fields())
     expect(t.id).toBe('CAN-1')
     expect(existsSync(join(dir(), 'CAN-1.md'))).toBe(true)
