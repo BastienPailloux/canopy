@@ -264,3 +264,86 @@ describe('LinearSync', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).issues.map((i: LinearIssue) => i.id)).toEqual(['NEW-1'])
   })
 })
+
+describe('LinearSync call volume', () => {
+  it('looks up the issues that left the list five at a time, each once', async () => {
+    const f = fake()
+    const ids = Array.from({ length: 12 }, (_, n) => `G-${n + 1}`)
+    f.mine = ids.map((id) => issue(id))
+    const s = make(f)
+    await s.refresh()
+    f.mine = []
+    for (const id of ids) f.briefs[id] = issue(id, 'started', { id: 'u2', name: 'Other' })
+    let running = 0
+    let peak = 0
+    const brief = f.issueBrief
+    f.issueBrief = async (id: string) => {
+      running++; peak = Math.max(peak, running)
+      await new Promise((r) => setTimeout(r, 5))
+      try { return await brief(id) } finally { running-- }
+    }
+    const st = await s.refresh()
+    expect(peak).toBe(5)
+    expect([...f.briefCalls].sort()).toEqual([...ids].sort())
+    expect(st.departures).toHaveLength(12)
+  })
+
+  it('a launched issue deleted in Linear departs once as missing, its link is forgotten, and it is never looked up again', async () => {
+    const f = fake(); f.mine = []
+    f.briefs['L-1'] = issue('L-1', 'started', { id: 'u2', name: 'Other' })
+    let launched = ['L-1']
+    const forgotten: string[][] = []
+    const s = new LinearSync(file, f as never, () => launched, clock, () => [], (gone) => {
+      forgotten.push(gone)
+      launched = launched.filter((id) => !gone.includes(id))
+    })
+    expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['L-1'])
+    delete f.briefs['L-1']
+    const st = await s.refresh()
+    expect(st.departures).toEqual([{ id: 'L-1', title: 'Title L-1', reason: 'missing' }])
+    expect(forgotten).toEqual([['L-1']])
+    f.briefCalls.length = 0
+    await s.refresh()
+    await s.refresh()
+    expect(f.briefCalls).toEqual([])
+    expect(s.state().departures.map((d) => d.id)).toEqual(['L-1'])
+  })
+
+  it('a launched issue never listed and missing departs once under its ID, and is forgotten', async () => {
+    const f = fake(); f.mine = []
+    let launched = ['L-2']
+    const forgotten: string[][] = []
+    const s = new LinearSync(file, f as never, () => launched, clock, () => [], (gone) => {
+      forgotten.push(gone)
+      launched = launched.filter((id) => !gone.includes(id))
+    })
+    const st = await s.refresh()
+    expect(st.departures).toEqual([{ id: 'L-2', title: 'L-2', reason: 'missing' }])
+    expect(forgotten).toEqual([['L-2']])
+    f.briefCalls.length = 0
+    await s.refresh()
+    expect(f.briefCalls).toEqual([])
+  })
+
+  it('a missing launched issue with an unsent edit is neither forgotten nor reported: it waits for Bastien', async () => {
+    const f = fake(); f.mine = []
+    f.briefs['L-3'] = issue('L-3')
+    const forgotten: string[][] = []
+    const s = new LinearSync(file, f as never, () => ['L-3'], clock, () => ['L-3'], (gone) => { forgotten.push(gone) })
+    await s.refresh()
+    delete f.briefs['L-3']
+    const st = await s.refresh()
+    expect(st.issues.map((i) => i.id)).toEqual(['L-3'])
+    expect(st.departures).toEqual([])
+    expect(forgotten).toEqual([])
+  })
+
+  it('a lookup that fails forgets nothing', async () => {
+    const f = fake(); f.mine = []
+    f.briefs['L-4'] = new Error('network down')
+    const forgotten: string[][] = []
+    const s = new LinearSync(file, f as never, () => ['L-4'], clock, () => [], (gone) => { forgotten.push(gone) })
+    await s.refresh()
+    expect(forgotten).toEqual([])
+  })
+})

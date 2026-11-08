@@ -155,7 +155,7 @@ void app.whenReady().then(async () => {
   const linearEdits = new LinearEdits(join(userData, 'linear-pending.json'), linearClient)
   const linearLinked = new LinkedIssues(store, localBranches)
   const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
-    () => linearEdits.pending().map((p) => p.id))
+    () => linearEdits.pending().map((p) => p.id), (ids) => linearLinked.forget(ids))
   let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0 }
   const running = (): RunningCounts => ({
     sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())

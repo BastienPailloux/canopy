@@ -108,7 +108,7 @@ export class LinkedIssues {
   private readonly byRoot = new Map<string, string[]>()
 
   constructor(
-    private readonly store: Pick<AppStore, 'linearLinks' | 'linearLinkRoots'>,
+    private readonly store: Pick<AppStore, 'linearLinks' | 'linearLinkRoots' | 'setLinearLink'>,
     private readonly branches: (root: string) => Promise<string[]>,
   ) {}
 
@@ -131,6 +131,16 @@ export class LinkedIssues {
     }))
     this.byRoot.clear()
     for (const [root, ids] of next) this.byRoot.set(root, ids)
+  }
+
+  /** Drops the links of issues Linear says no longer exist (`LinearSync` reported them): they are never looked up again. */
+  forget(ids: string[]): void {
+    const gone = new Set(ids)
+    for (const [root, linkedIds] of this.byRoot) {
+      if (!linkedIds.some((id) => gone.has(id))) continue
+      for (const id of linkedIds) if (gone.has(id)) this.store.setLinearLink(root, id, null)
+      this.byRoot.set(root, linkedIds.filter((id) => !gone.has(id)))
+    }
   }
 }
 

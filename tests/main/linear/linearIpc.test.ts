@@ -47,7 +47,8 @@ beforeEach(async () => {
   client = new LinearClient(vi.fn(async (): Promise<McpCaller> => fake), authStore)
   edits = new LinearEdits(join(dir, 'linear-pending.json'), client)
   linked = new LinkedIssues(store, localBranches)
-  sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids(), undefined, () => edits.pending().map((p) => p.id))
+  sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids(), undefined, () => edits.pending().map((p) => p.id),
+    (ids) => linked.forget(ids))
   events = []
   handlers = new Map()
   ;({ refresh: refreshLinear } = registerLinearIpc({
@@ -198,6 +199,17 @@ describe('registerLinearIpc', () => {
     vi.spyOn(linked, 'recompute').mockRejectedValue(new Error('git exploded'))
     expect((await call('list', repo.path) as { issues: unknown[] }).issues).toHaveLength(4)
     expect((await call('refresh', repo.path) as { issues: unknown[] }).issues).toHaveLength(4)
+  })
+
+  it('a launched issue deleted in Linear departs once and loses its link: no lookup on the next refreshes', async () => {
+    store.setLinearLink(repo.path, 'CAN-9999', { branch: 'main', worktree: repo.path, base: 'main' })
+    const st = await call('refresh', repo.path) as { departures: { id: string; reason: string }[] }
+    expect(st.departures).toEqual([{ id: 'CAN-9999', title: 'CAN-9999', reason: 'missing' }])
+    expect(store.linearLinks(repo.path)['CAN-9999']).toBeUndefined()
+    fake.calls.length = 0
+    await call('refresh', repo.path)
+    await call('refresh', repo.path)
+    expect(fake.calls.filter((c) => c.name === 'get_issue')).toEqual([])
   })
 
   it('a sent save refreshes the list and emits linear:changed', async () => {

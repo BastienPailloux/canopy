@@ -9,6 +9,16 @@ type SyncClient = Pick<LinearClient, 'listMine' | 'issueBrief' | 'connection'>
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isIssue = (v: unknown): v is LinearIssue =>
   isRecord(v) && typeof v.id === 'string' && typeof v.title === 'string' && isRecord(v.status) && typeof v.status.type === 'string'
+/** Lookups of issues absent from `listMine` run this many at a time: parallel, without a burst on Linear. */
+const LOOKUP_BATCH = 5
+
+/** `f` on every item, `n` at a time, answers in order. */
+async function mapBatched<T, R>(items: T[], n: number, f: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = []
+  for (let i = 0; i < items.length; i += n) out.push(...await Promise.all(items.slice(i, i + n).map(f)))
+  return out
+}
+
 const isDeparture = (v: unknown): v is Departure =>
   isRecord(v) && typeof v.id === 'string' && typeof v.title === 'string' &&
   (v.reason === 'reassigned' || v.reason === 'canceled' || v.reason === 'missing')
@@ -34,6 +44,8 @@ export class LinearSync {
     private readonly now: () => Date = () => new Date(),
     /** Issues with an unsent edit: kept listed, even deleted in Linear (the last copy), until their queue is empty. */
     private readonly unsent: () => string[] = () => [],
+    /** Launched issues Linear says no longer exist: their link is to be dropped, so they are never looked up again. */
+    private readonly forget: (ids: string[]) => void = () => {},
   ) {
     this.load()
   }
@@ -135,23 +147,36 @@ export class LinearSync {
       }
     }
 
-    for (const [id, old] of prev) {
-      if (listedIds.has(id)) continue
-      const r = await lookup(id)
+    const gone = [...prev.values()].filter((old) => !listedIds.has(old.id))
+    const absent = [...launched].filter((id) => !listedIds.has(id) && !prev.has(id))
+    const answers = await mapBatched([...gone.map((o) => o.id), ...absent], LOOKUP_BATCH, lookup)
+    const answer = new Map([...gone.map((o) => o.id), ...absent].map((id, n) => [id, answers[n]]))
+    // Deleted in Linear: reported once, then its link goes, so it is never looked up again. Not while an edit waits.
+    const forgotten: string[] = []
+
+    for (const old of gone) {
+      const id = old.id
+      const r = answer.get(id) ?? 'failed'
       if (r === 'failed') { kept.push(old); continue }
       if (launched.has(id) && r !== 'missing') { kept.push(r); continue }
       // Deleted in Linear, but Bastien's edit still waits: the row stays so he sees it and decides.
       if (unsent.has(id)) { kept.push(old); continue }
-      if (r === 'missing') { newDepartures.push({ id, title: old.title, reason: 'missing' }); continue }
+      if (r === 'missing') {
+        newDepartures.push({ id, title: old.title, reason: 'missing' })
+        if (launched.has(id)) forgotten.push(id)
+        continue
+      }
       if (statusGroup(r.status) === null) { newDepartures.push({ id, title: r.title, reason: 'canceled' }); continue }
       const reassigned = me !== null ? (r.assignee?.id ?? null) !== me : (r.assignee?.id ?? null) !== (old.assignee?.id ?? null)
       if (reassigned) { newDepartures.push({ id, title: r.title, reason: 'reassigned' }); continue }
       kept.push(r)
     }
-    for (const id of launched) {
-      if (listedIds.has(id) || prev.has(id)) continue
-      const r = await lookup(id)
-      if (r !== 'missing' && r !== 'failed') kept.push(r)
+    for (const id of absent) {
+      const r = answer.get(id) ?? 'failed'
+      if (r === 'missing' && !unsent.has(id)) {
+        newDepartures.push({ id, title: id, reason: 'missing' })
+        forgotten.push(id)
+      } else if (r !== 'missing' && r !== 'failed') kept.push(r)
     }
 
     if (gen !== this.generation) return
@@ -162,6 +187,9 @@ export class LinearSync {
     this.departures = [...this.departures.filter((d) => !back.has(d.id) && !fresh.has(d.id)), ...newDepartures]
     this.fetchedAt = this.now().toISOString()
     this.me = me
+    if (forgotten.length > 0) {
+      try { this.forget(forgotten) } catch (e) { console.error('linear link removal failed', e) }
+    }
   }
 
   private commit(): void {
