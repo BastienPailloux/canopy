@@ -27,6 +27,36 @@ export function linearActive(s: Pick<LinearState, 'connection' | 'list'>): boole
   return s.connection.state !== 'disconnected' || s.list.issues.length > 0
 }
 
+/** The repo `connectLinear` follows, and the refresh in flight for it: one at a time, a repo switch drops it. */
+let followed: string | null = null
+let inflight: { repo: string; promise: Promise<void> } | null = null
+
+/**
+ * Refreshes the followed repo's list. A call while one runs for the same repo reuses it; an answer that arrives after
+ * a repo switch is ignored. A failure keeps the issues (mirrors main) and only reports the error.
+ */
+export function refreshLinear(): Promise<void> {
+  const repo = followed
+  if (!repo || useLinear.getState().connection.state === 'disconnected') return Promise.resolve()
+  if (inflight && inflight.repo === repo) return inflight.promise
+  let mine!: { repo: string; promise: Promise<void> }
+  mine = {
+    repo,
+    promise: (async () => {
+      try {
+        const list = await window.canopy.linearRefresh(repo)
+        if (inflight === mine) useLinear.setState({ list })
+      } catch (e) {
+        if (inflight === mine) useLinear.setState((s) => ({ list: { ...s.list, error: message(e) } }))
+      } finally {
+        if (inflight === mine) inflight = null
+      }
+    })()
+  }
+  inflight = mine
+  return mine.promise
+}
+
 /**
  * Keeps `useLinear` on the active repo: reads it on start and on a repo change, refreshes every 3 minutes while the
  * Tickets view is shown, on window focus, and re-reads (never refreshes) on `linear:changed`. Returns the stop function.
@@ -56,17 +86,7 @@ export function connectLinear(): () => void {
     }))
   }
 
-  const refresh = async (): Promise<void> => {
-    const repo = current
-    if (!repo || useLinear.getState().connection.state === 'disconnected') return
-    try {
-      const list = await window.canopy.linearRefresh(repo)
-      if (current === repo) useLinear.setState({ list })
-    } catch (e) {
-      // Mirrors main: the issues stay, only the error shows.
-      if (current === repo) useLinear.setState((s) => ({ list: { ...s.list, error: message(e) } }))
-    }
-  }
+  const refresh = refreshLinear
 
   const syncTimer = (): void => {
     const want = useApp.getState().view === 'tickets' && current !== null
@@ -76,6 +96,10 @@ export function connectLinear(): () => void {
 
   const follow = (repo: string | null): void => {
     current = repo
+    followed = repo
+    inflight = null
+    // Links belong to a repo: the old repo's must not show under the new one. The list and the edits are app-wide.
+    useLinear.setState({ links: {} })
     syncTimer()
     void read().then(() => { if (current === repo && useApp.getState().view === 'tickets') return refresh() })
   }
@@ -94,6 +118,6 @@ export function connectLinear(): () => void {
   return () => {
     off(); unsub(); window.removeEventListener('focus', onFocus)
     if (timer) clearInterval(timer)
-    timer = null; current = null; seq++
+    timer = null; current = null; followed = null; inflight = null; seq++
   }
 }

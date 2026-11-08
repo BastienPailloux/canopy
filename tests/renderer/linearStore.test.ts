@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LinearIssue, LinearListState } from '../../src/shared/linear'
-import { connectLinear, useLinear } from '../../src/renderer/tickets/linearStore'
+import { connectLinear, refreshLinear, useLinear } from '../../src/renderer/tickets/linearStore'
 import { useApp } from '../../src/renderer/store'
 
 const issue = { id: 'A-1', title: 'a', status: { id: null, name: 'En cours', type: 'started' }, priority: 'none', labels: [] } as unknown as LinearIssue
@@ -70,5 +70,40 @@ describe('connectLinear', () => {
     const l = useLinear.getState().list
     expect(l.issues).toHaveLength(1)
     expect(l.error).toBe('réseau')
+  })
+
+  it('two triggers share one linearRefresh call', async () => {
+    stop = connectLinear()
+    await flush()
+    refresh.mockClear()
+    const a = refreshLinear()
+    const b = refreshLinear()
+    await Promise.all([a, b])
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refresh of repo A answering after a switch to B is ignored', async () => {
+    stop = connectLinear()
+    await flush()
+    let resolveA!: (l: LinearListState) => void
+    refresh.mockImplementationOnce(() => new Promise<LinearListState>((r) => { resolveA = r }))
+    const p = refreshLinear()
+    useApp.setState({ repo: '/other' })
+    await flush()
+    resolveA(list({ issues: [], fetchedAt: 'A' }))
+    await p
+    expect(useLinear.getState().list.fetchedAt).not.toBe('A')
+  })
+
+  it('a repo switch resets links, and a failed read leaves them empty', async () => {
+    const links = { 'A-1': { branch: 'b', worktree: 'w', base: 'x' } }
+    ;(window as any).canopy.linearLinks = vi.fn(async () => links)
+    stop = connectLinear()
+    await flush()
+    expect(useLinear.getState().links).toEqual(links)
+    ;(window as any).canopy.linearLinks = vi.fn(async () => { throw new Error('x') })
+    useApp.setState({ repo: '/other' })
+    await flush()
+    expect(useLinear.getState().links).toEqual({})
   })
 })

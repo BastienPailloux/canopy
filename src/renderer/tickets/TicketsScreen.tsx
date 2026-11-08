@@ -3,7 +3,7 @@ import { PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, parseTicketKey, type Ticket, 
 import type { BaseRef, Worktree } from '../../shared/types'
 import { useApp } from '../store'
 import { LaunchPanel } from './LaunchPanel'
-import { linearActive, useLinear } from './linearStore'
+import { linearActive, refreshLinear, useLinear } from './linearStore'
 import { filterRows, groupRows, mergeRows, syncLabel, type Filters, type Row as ListRow } from './listModel'
 import { useTickets } from './ticketStore'
 
@@ -106,8 +106,7 @@ function SyncHeader(): React.JSX.Element {
   const refresh = async (): Promise<void> => {
     if (!repo || busy) return
     setBusy(true)
-    try { useLinear.setState({ list: await window.canopy.linearRefresh(repo) }) }
-    catch (e) { useLinear.setState((s) => ({ list: { ...s.list, error: e instanceof Error ? e.message : String(e) } })) }
+    try { await refreshLinear() }
     finally { setBusy(false) }
   }
   const reconnect = (): void => {
@@ -156,6 +155,7 @@ export function TicketsScreen(): React.JSX.Element {
     app.setWorktree(w.path)
     app.setView('sessions')
   }
+  useEffect(() => { if (!linear && filters.status === 'in_review') setFilters((f) => ({ ...f, status: 'all' })) }, [linear, filters.status])
   const set = (patch: Partial<Filters>): void => setFilters((f) => ({ ...f, ...patch }))
   const tabs = linear ? FILTERS_LINEAR : FILTERS
 
