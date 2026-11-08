@@ -5,7 +5,7 @@ import {
 } from '../../shared/mockups'
 import type { Ticket } from '../../shared/tickets'
 import { Conversation } from '../sessions/Conversation'
-import { useSessions } from '../sessions/sessionStore'
+import { selectTab, useSessions } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { chatTab, sendEdit, usePublishError } from './mockupChat'
 import { StatusPill } from './MockupCard'
@@ -43,6 +43,9 @@ function Editor(props: { repo: string; cwd: string | null; mockup: Mockup | null
   const [panel, setPanel] = useState<'claude' | 'props'>('claude')
   const [tabId, setTabId] = useState(() => (cwd ? chatTab(cwd, m?.id ?? 'new') : undefined))
   const error = usePublishError((s) => s.text)
+
+  // The conversation shown here is the one Sessions shows for this checkout too.
+  useEffect(() => { if (cwd && tabId) selectTab(cwd, tabId) }, [cwd, tabId])
 
   // What the title handler must read: the mockup as it is now, not as when it was set up.
   const current = useRef(m)
