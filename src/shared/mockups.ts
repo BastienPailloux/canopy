@@ -121,8 +121,16 @@ export function pageTitle(raw: string): string {
   return raw.trim().replace(/\s+[|\-—]\s+Claude$/, '').trim()
 }
 
+/**
+ * A mockup as prompt data: its title JSON-quoted (it may come from the page's <title>, so quotes and newlines are
+ * escaped and it cannot pass for an instruction), then its URL.
+ */
+function quotedMockup(m: Pick<Mockup, 'title' | 'url'>): string {
+  return `${JSON.stringify(m.title)} — ${m.url}`
+}
+
 export function mockupLine(m: Pick<Mockup, 'title' | 'url'>): string {
-  return `Maquette : ${m.title} — ${m.url}`
+  return `Maquette : ${quotedMockup(m)}`
 }
 
 const VARIANT_HINT = "Publie le résultat comme une nouvelle maquette (outil Artifact, action publish, sans url) : l'originale reste intacte, et donne le lien de la nouvelle."
@@ -155,7 +163,7 @@ export function editPrompt(o: { url?: string; text: string; first: boolean; vari
 /** The launch prompt's list of linked mockups; empty when there are none. */
 export function launchMockupsSection(ms: Pick<Mockup, 'title' | 'url'>[]): string {
   if (ms.length === 0) return ''
-  return ["Maquettes liées (à lire avec l'outil Artifact, action read) :", ...ms.map((m) => `- ${m.title} — ${m.url}`)].join('\n')
+  return ["Maquettes liées (à lire avec l'outil Artifact, action read) :", ...ms.map((m) => `- ${quotedMockup(m)}`)].join('\n')
 }
 
 /** The transcript's tool item, as far as this module needs it (no renderer import). */

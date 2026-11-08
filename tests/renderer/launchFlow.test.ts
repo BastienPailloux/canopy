@@ -90,7 +90,7 @@ describe('runLaunch', () => {
     await runLaunch('/r', REQ, { startClaude: true, mockups })
     const expected = `${launchPrompt(ticket('x'))}\n\n${launchMockupsSection(mockups)}`
     expect(calls).toContain(`askClaude ${NEW.path} ${expected}`)
-    expect(expected).toContain('- Scanner — https://claude.ai/artifact/WcXTxNhxSWaDL28ttqjZye')
+    expect(expected).toContain('- "Scanner" — https://claude.ai/artifact/WcXTxNhxSWaDL28ttqjZye')
   })
 
   it('an empty list of mockups leaves the prompt as it was', async () => {
@@ -108,6 +108,6 @@ describe('launchText', () => {
     const text = launchText(ticket('T'), [{ title: 'A', url: 'u1' }, { title: 'B', url: 'u2' }])
     expect(text.startsWith(`${launchPrompt(ticket('T'))}\n\n`)).toBe(true)
     expect(text).toContain('Artifact')
-    expect(text).toContain('- A — u1\n- B — u2')
+    expect(text).toContain('- "A" — u1\n- "B" — u2')
   })
 })
