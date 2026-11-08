@@ -67,4 +67,20 @@ describe('ticket format', () => {
     expect(out).toContain('archived: true')
     expect(parseTicket(out, full.id).archived).toBe(true)
   })
+
+  it('round-trips a title and label ending in ---', () => {
+    const t = { ...full, title: 'Fix ---', labels: ['a ---'] }
+    expect(parseTicket(serializeTicket(t), t.id)).toEqual(t)
+  })
+
+  it('throws on empty front matter and on no front matter', () => {
+    expect(() => parseTicket('---\n---\n', 'DPP-1')).toThrow(/title/)
+    expect(() => parseTicket('juste du texte', 'DPP-1')).toThrow()
+  })
+
+  it('reads numeric title and labels as strings', () => {
+    const t = parseTicket(minimal('x').replace('title: T', 'title: 2026').replace('labels: []', 'labels: [2025]'), 'DPP-1')
+    expect(t.title).toBe('2026')
+    expect(t.labels).toEqual(['2025'])
+  })
 })

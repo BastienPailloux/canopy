@@ -7,15 +7,16 @@ const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
 const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base']
 
 function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {
-  const m = /^---\r?\n([\s\S]*?)(?:\r?\n)?---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(text)
+  const m = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(text)
   if (!m) throw new Error('Front matter manquant')
-  const data = parse(m[1]) ?? {}
+  const data = parse(m[1] ?? '') ?? {}
   if (typeof data !== 'object' || Array.isArray(data)) throw new Error('Front matter invalide')
   return { data: data as Record<string, unknown>, body: m[2] }
 }
 
 function str(v: unknown, key: string): string {
   if (v instanceof Date) return v.toISOString()
+  if (typeof v === 'number') return String(v)
   if (typeof v !== 'string' || !v) throw new Error(`Champ « ${key} » invalide`)
   return v
 }
@@ -49,7 +50,7 @@ export function parseTicket(text: string, fileId: string): Ticket {
   const priority = data.priority ?? 'none'
   if (!PRIORITIES.includes(priority as TicketPriority)) throw new Error(`Priorité inconnue : ${String(priority)}`)
   const labels = data.labels ?? []
-  if (!Array.isArray(labels) || labels.some((l) => typeof l !== 'string')) throw new Error('Champ « labels » invalide')
+  if (!Array.isArray(labels) || labels.some((l) => typeof l !== 'string' && typeof l !== 'number')) throw new Error('Champ « labels » invalide')
   const { description, subtasks } = splitBody(body)
   const t: Ticket = {
     id: optStr(data.id) ?? fileId,
@@ -57,7 +58,7 @@ export function parseTicket(text: string, fileId: string): Ticket {
     description,
     status: status as TicketStatus,
     priority: priority as TicketPriority,
-    labels: labels as string[],
+    labels: labels.map(String),
     subtasks,
     created: str(data.created, 'created'),
     updated: str(data.updated, 'updated'),
