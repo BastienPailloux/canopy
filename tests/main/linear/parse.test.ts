@@ -73,6 +73,10 @@ describe('issues', () => {
     expect(() => parseIssueList(v)).toThrow(LinearFormatError)
     expect(() => parseIssueList(v)).toThrow(/status/)
   })
+  it('synthetic: a duplicate issue in a list parses', () => {
+    const v = { issues: [baseIssue(), baseIssue({ id: 'CAN-8', statusType: 'duplicate', status: 'Duplicate' })], hasNextPage: false }
+    expect(parseIssueList(v).issues[1].status.type).toBe('duplicate')
+  })
   it('throws on an unknown status type', () => {
     expect(() => parseIssue(baseIssue({ statusType: 'weird' }))).toThrow(/statusType/)
   })
@@ -124,9 +128,9 @@ describe('comments', () => {
 })
 
 describe('statuses, labels, users, whoami', () => {
-  it('parses statuses, skipping the duplicate type', () => {
+  it('parses statuses, duplicate included', () => {
     const s = parseStatuses(json('list_issue_statuses', 'list_issue_statuses'))
-    expect(s.map((x) => x.name)).toEqual(['In Review', 'Done', 'Canceled', 'In Progress', 'Todo', 'Backlog'])
+    expect(s.map((x) => x.name)).toEqual(['In Review', 'Done', 'Canceled', 'In Progress', 'Todo', 'Duplicate', 'Backlog'])
     expect(s[0]).toEqual({ id: '5ce0420c-c7ba-4603-a06b-6f8777a4bd4a', name: 'In Review', type: 'started' })
   })
   it('throws on an unknown status type', () => {

@@ -24,7 +24,7 @@ export const ISSUE_FIELDS: string[] = [
   'labels', 'assignee', 'assigneeId', 'parentId', 'team', 'teamId', 'cycleId', 'project',
 ]
 
-const STATUS_TYPES: LinearStatusType[] = ['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled']
+const STATUS_TYPES: LinearStatusType[] = ['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled', 'duplicate']
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isString = (v: unknown): v is string => typeof v === 'string'
@@ -156,8 +156,6 @@ export function parseStatuses(v: unknown): LinearStatus[] {
   const out: LinearStatus[] = []
   for (const s of v) {
     const o = obj(tool, s, 'status')
-    // "duplicate" is a real Linear type that Canopy never shows (hidden group).
-    if (o.type === 'duplicate') continue
     if (!STATUS_TYPES.includes(o.type as LinearStatusType)) throw new LinearFormatError(tool, 'type')
     out.push({ id: str(tool, o, 'id'), name: str(tool, o, 'name'), type: o.type as LinearStatusType })
   }

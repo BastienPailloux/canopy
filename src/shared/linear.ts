@@ -1,6 +1,6 @@
 import { branchSlug, type TicketPriority, type TicketStatus } from './tickets'
 
-export type LinearStatusType = 'triage' | 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled'
+export type LinearStatusType = 'triage' | 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' | 'duplicate'
 
 /** A status of a team's workflow. */
 export interface LinearStatus { id: string; name: string; type: LinearStatusType }

@@ -22,6 +22,7 @@ describe('statusGroup', () => {
     expect(statusGroup({ type: 'started', name: 'Code revue' })).toBe('in_review')
     expect(statusGroup({ type: 'completed', name: 'Done' })).toBe('done')
     expect(statusGroup({ type: 'canceled', name: 'Canceled' })).toBeNull()
+    expect(statusGroup({ type: 'duplicate', name: 'Duplicate' })).toBeNull()
   })
 })
 
