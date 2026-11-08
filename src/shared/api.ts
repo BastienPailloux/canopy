@@ -4,7 +4,7 @@ import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashComman
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
-import type { Mockup, MockupChanges, MockupFields, MockupList } from './mockups'
+import type { Mockup, MockupChanges, MockupFields, MockupList, MockupViewBounds } from './mockups'
 
 export interface RemovalRisks {
   dirty: number
@@ -244,6 +244,15 @@ export interface CanopyApi {
   removeMockup(repo: string, id: string): Promise<void>
   /** Watches the mockups of `repo` for this window, and no other repo: emits `mockups:changed` `{ repo }` (main root). */
   watchMockups(repo: string): Promise<void>
+  /**
+   * Shows the claude.ai view of this window over `bounds` (window content pixels), loading `url` unless it is already
+   * the one shown. Hide it before any modal: the native view is drawn above the page.
+   * Emits `mockups:title` (`MockupTitleEvent`) and `mockups:viewError` (`MockupViewErrorEvent`) on `on(...)`.
+   */
+  showMockupView(url: string, bounds: MockupViewBounds): Promise<void>
+  setMockupViewBounds(bounds: MockupViewBounds): Promise<void>
+  hideMockupView(): Promise<void>
+  reloadMockupView(): Promise<void>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */

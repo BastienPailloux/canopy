@@ -30,6 +30,14 @@ export type MockupFields = Pick<Mockup, 'title' | 'kind' | 'status' | 'ticket' |
 /** A patch: `ticket: null` removes the link. */
 export type MockupChanges = Partial<Omit<MockupFields, 'ticket'>> & { ticket?: string | null }
 
+/** The rectangle of the 4b area, in window content pixels. */
+export interface MockupViewBounds { x: number; y: number; width: number; height: number }
+
+/** Payload of the `mockups:title` event: the page title of the mockup shown, Claude suffix removed. */
+export interface MockupTitleEvent { url: string; title: string }
+/** Payload of the `mockups:viewError` event: the mockup's main frame failed to load. */
+export interface MockupViewErrorEvent { url: string; error: string }
+
 /** A registry that cannot be read is reported, never overwritten. */
 export type MockupList = { kind: 'ok'; mockups: Mockup[] } | { kind: 'unreadable'; error: string }
 

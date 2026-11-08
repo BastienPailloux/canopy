@@ -10,6 +10,7 @@ import { localBranches, registerTicketIpc } from './tickets/ticketIpc'
 import type { TicketStore } from './tickets/store'
 import { registerMockupIpc } from './mockups/mockupIpc'
 import type { MockupStore } from './mockups/store'
+import { MockupViewManager, mockupViewOverride, registerMockupViewIpc } from './mockups/view'
 import type { LspPool } from './code/lsp'
 import { openExternalUrl } from './externalLinks'
 import { resolveCompareRef } from './git/refs'
@@ -300,6 +301,10 @@ export function registerIpc(
     trusted: (cwd) => isConfigTrusted(store, cwd)
   })
   registerMockupIpc(mockups)
+  registerMockupViewIpc(new MockupViewManager({
+    openExternal: (u) => shell.openExternal(u),
+    override: mockupViewOverride({ isPackaged: app.isPackaged, env: process.env })
+  }))
 
   ipcMain.handle('worktree:list', async (_e, repo: unknown) => {
     assertPath(repo)
