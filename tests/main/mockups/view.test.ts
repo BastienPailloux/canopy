@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampBounds, MockupViewManager, mockupViewOverride, parseBounds } from '../../../src/main/mockups/view'
+import { allowedInView, clampBounds, MockupViewManager, mockupViewOverride, parseBounds } from '../../../src/main/mockups/view'
 
 const SHORT = 'WcXTxNhxSWaDL28ttqjZye'
 
@@ -45,5 +45,22 @@ describe('MockupViewManager.accepts', () => {
     const m = new MockupViewManager({ openExternal: open, override: 'about:blank' })
     expect(m.accepts('about:blank')).toBe('about:blank')
     expect(m.accepts('https://evil.com/')).toBeNull()
+  })
+})
+
+describe('allowedInView', () => {
+  it('keeps claude.ai and its login pages, over https only', () => {
+    for (const u of ['https://claude.ai/artifact/x', 'https://www.claude.ai/', 'https://console.anthropic.com/',
+      'https://a.claudeusercontent.com/f', 'https://accounts.google.com/o/oauth2', 'https://appleid.apple.com/auth', 'https://CLAUDE.AI/']) {
+      expect(allowedInView(u), u).toBe(true)
+    }
+  })
+
+  it('sends the rest to the browser', () => {
+    for (const u of ['http://claude.ai/', 'https://claude.ai.evil.com/', 'https://evilclaude.ai/', 'https://anthropic.com.evil.com/',
+      'https://evilanthropic.com/', 'https://google.com/', 'https://x.accounts.google.com/', 'https://user:pw@claude.ai/',
+      'file:///etc/passwd', 'javascript:alert(1)', 'about:blank', 'not a url']) {
+      expect(allowedInView(u), u).toBe(false)
+    }
   })
 })

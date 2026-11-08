@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, WebContentsView } from 'electron'
+import { BrowserWindow, ipcMain, session, WebContentsView } from 'electron'
 import type { WebContents } from 'electron'
 import { pageTitle, parseArtifactUrl, type MockupTitleEvent, type MockupViewBounds, type MockupViewErrorEvent } from '../../shared/mockups'
 import { openExternalUrl } from '../externalLinks'
@@ -7,6 +7,32 @@ export const MOCKUP_PARTITION = 'persist:claude-ai'
 
 /** Chromium's "navigation aborted": a redirect or a newer navigation, not a failure. */
 const ERR_ABORTED = -3
+
+/** Hosts the view may navigate to: claude.ai and its login providers. */
+const VIEW_HOSTS = ['claude.ai', 'accounts.google.com', 'appleid.apple.com']
+const VIEW_HOST_SUFFIXES = ['.claude.ai', '.anthropic.com', '.claudeusercontent.com']
+
+/** Whether a navigation of the view to `url` stays in it (https, claude.ai or login); else it goes to the browser. */
+export function allowedInView(url: string): boolean {
+  let u: URL
+  try { u = new URL(url) } catch { return false }
+  if (u.protocol !== 'https:' || u.username !== '' || u.password !== '') return false
+  const host = u.hostname.toLowerCase()
+  return VIEW_HOSTS.includes(host) || VIEW_HOST_SUFFIXES.some((s) => host.endsWith(s))
+}
+
+/** The only permission the claude.ai pages get (their copy buttons). */
+const ALLOWED_PERMISSION = 'clipboard-sanitized-write'
+let partitionLocked = false
+
+/** Denies the claude.ai partition every permission but the clipboard write, once per process. */
+function lockPartition(): void {
+  if (partitionLocked) return
+  partitionLocked = true
+  const s = session.fromPartition(MOCKUP_PARTITION)
+  s.setPermissionRequestHandler((_wc, permission, callback) => { callback(permission === ALLOWED_PERMISSION) })
+  s.setPermissionCheckHandler((_wc, permission) => permission === ALLOWED_PERMISSION)
+}
 
 /** Integer pixels, never negative. */
 export function clampBounds(b: MockupViewBounds): MockupViewBounds {
@@ -61,22 +87,31 @@ export class MockupViewManager {
     if (existing) return existing
     const win = BrowserWindow.fromWebContents(sender)
     if (!win || win.isDestroyed()) return null
+    lockPartition()
     const view = new WebContentsView({
       webPreferences: { partition: MOCKUP_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false }
     })
     const entry: Entry = { view, win, url: null }
     const wc = view.webContents
-    // Free navigation inside the view (login); new windows go to the default browser.
+    const toBrowser = (url: string): void => { void openExternalUrl(url, this.deps.openExternal).catch(() => undefined) }
+    // New windows go to the default browser; navigation stays in the view only on claude.ai and its login pages.
     wc.setWindowOpenHandler(({ url }) => {
-      void openExternalUrl(url, this.deps.openExternal).catch(() => undefined)
+      toBrowser(url)
       return { action: 'deny' }
     })
+    const guard = (e: { preventDefault: () => void }, url: string): void => {
+      if (allowedInView(url)) return
+      e.preventDefault()
+      toBrowser(url)
+    }
+    wc.on('will-navigate', (e) => { guard(e, e.url) })
+    wc.on('will-redirect', (e) => { guard(e, e.url) })
     wc.on('page-title-updated', (_e, title) => {
       const url = entry.url
       if (url === null || sender.isDestroyed()) return
       // Only the mockup's own page names it: not the login page it may go through.
-      const here = parseArtifactUrl(wc.getURL())
-      if (this.deps.override === undefined && here?.url !== url) return
+      const here = parseArtifactUrl(wc.getURL())?.id
+      if (this.deps.override === undefined && (here === undefined || here !== parseArtifactUrl(url)?.id)) return
       const shown = pageTitle(title)
       if (shown !== '') sender.send('canopy:event', 'mockups:title', { url, title: shown } satisfies MockupTitleEvent)
     })
