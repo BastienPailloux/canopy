@@ -54,7 +54,7 @@ function Editor(props: { repo: string; cwd: string | null; mockup: Mockup | null
     const cur = current.current
     const next = title.slice(0, MAX_MOCKUP_TITLE).trim()
     if (!cur || cur.titleSet || url !== cur.url || next === '' || next === cur.title) return
-    window.canopy.patchMockup(repo, cur.id, { title: next, titleSet: false }).then((r) => upsertMockup(repo, r), () => undefined)
+    window.canopy.patchMockup(repo, cur.id, { title: next, titleSet: false, auto: true }).then((r) => upsertMockup(repo, r), () => undefined)
   }), [repo])
 
   const status = m ? shownStatus(m, ticket) : null

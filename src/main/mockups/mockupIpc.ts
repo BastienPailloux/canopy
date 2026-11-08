@@ -3,12 +3,12 @@ import { isAbsolute } from 'node:path'
 import type { WebContents } from 'electron'
 import { MAX_MOCKUP_TITLE, MOCKUP_ID_RE, MOCKUP_KINDS, MOCKUP_STATUSES, parseArtifactUrl } from '../../shared/mockups'
 import type { MockupChanges, MockupKind, MockupStatus } from '../../shared/mockups'
+import { TICKET_ID_RE as TICKET_RE } from '../../shared/tickets'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { watchFolder } from '../tickets/watch'
 import type { MockupStore } from './store'
 
-const TICKET_RE = /^[A-Z][A-Z0-9]*-\d+$/
-const FIELD_KEYS: (keyof MockupChanges)[] = ['title', 'kind', 'status', 'ticket', 'titleSet']
+const FIELD_KEYS: (keyof MockupChanges)[] = ['title', 'kind', 'status', 'ticket', 'titleSet', 'auto']
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const bad = (what: string): Error => new Error(`${what} invalide`)
@@ -29,12 +29,13 @@ function assertUrl(url: unknown): asserts url is string {
 export function parseMockupChanges(raw: unknown): MockupChanges {
   if (!isObject(raw)) throw bad('Maquette')
   for (const k of Object.keys(raw)) if (!(FIELD_KEYS as string[]).includes(k)) throw bad(`Champ ${k}`)
-  const { title, kind, status, ticket, titleSet } = raw
+  const { title, kind, status, ticket, titleSet, auto } = raw
   if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > MAX_MOCKUP_TITLE)) throw bad('Titre')
   if (kind !== undefined && !MOCKUP_KINDS.includes(kind as MockupKind)) throw bad('Gabarit')
   if (status !== undefined && !MOCKUP_STATUSES.includes(status as MockupStatus)) throw bad('Statut')
   if (ticket !== undefined && ticket !== null && (typeof ticket !== 'string' || !TICKET_RE.test(ticket))) throw bad('Ticket')
   if (titleSet !== undefined && typeof titleSet !== 'boolean') throw bad('titleSet')
+  if (auto !== undefined && typeof auto !== 'boolean') throw bad('auto')
   const out: Record<string, unknown> = {}
   for (const k of FIELD_KEYS) if (raw[k] !== undefined) out[k] = raw[k]
   return out as MockupChanges
@@ -48,7 +49,7 @@ export function registerMockupIpc(mockups: MockupStore): void {
   handle('add', (repo, url, fields) => {
     assertPath(repo)
     assertUrl(url)
-    const { ticket, ...rest } = fields === undefined ? {} : parseMockupChanges(fields)
+    const { ticket, auto: _auto, ...rest } = fields === undefined ? {} : parseMockupChanges(fields)
     return mockups.add(repo, url, { ...rest, ...(ticket ? { ticket } : {}) })
   })
   handle('patch', (repo, id, changes) => { assertPath(repo); assertId(id); return mockups.patch(repo, id, parseMockupChanges(changes)) })

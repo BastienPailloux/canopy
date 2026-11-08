@@ -73,6 +73,19 @@ describe('MockupStore', () => {
     await expect(store.patch(repo.path, 'AAAAAAAAAAAAAAAAAAAAAA', {})).rejects.toThrow(/introuvable/)
   })
 
+  it('an automatic title does not replace one the user set, and other changes still apply', async () => {
+    await store.add(repo.path, URL)
+    const auto = await store.patch(repo.path, SHORT, { title: 'Depuis la page', titleSet: false, auto: true })
+    expect(auto).toMatchObject({ title: 'Depuis la page', titleSet: false })
+    expect((await readJson()).mockups[0]).not.toHaveProperty('auto')
+    await store.patch(repo.path, SHORT, { title: 'Nom choisi' })
+    const late = await store.patch(repo.path, SHORT, { title: 'Titre de la page', titleSet: false, auto: true })
+    expect(late).toMatchObject({ title: 'Nom choisi', titleSet: true })
+    expect((await readJson()).mockups[0]).toMatchObject({ title: 'Nom choisi', titleSet: true })
+    const mixed = await store.patch(repo.path, SHORT, { title: 'Encore la page', auto: true, status: 'wip' })
+    expect(mixed).toMatchObject({ title: 'Nom choisi', titleSet: true, status: 'wip' })
+  })
+
   it('patch keeps unknown keys, top-level and per mockup', async () => {
     await store.add(repo.path, URL)
     const doc = await readJson()
@@ -134,12 +147,13 @@ describe('parseMockupChanges', () => {
     expect(parseMockupChanges({ title: 'A', kind: 'phone', status: 'wip', ticket: null, titleSet: false }))
       .toEqual({ title: 'A', kind: 'phone', status: 'wip', ticket: null, titleSet: false })
     expect(parseMockupChanges({ ticket: 'DPP-12' })).toEqual({ ticket: 'DPP-12' })
+    expect(parseMockupChanges({ title: 'A', auto: true })).toEqual({ title: 'A', auto: true })
   })
 
   it('refuses unknown keys and bad values', () => {
     for (const raw of [
       null, [], { url: URL }, { title: '' }, { title: ' ' }, { title: 'x'.repeat(201) }, { kind: 'tablet' },
-      { status: 'in_progress' }, { ticket: 'dpp-1' }, { ticket: '../x' }, { titleSet: 'yes' },
+      { status: 'in_progress' }, { ticket: 'dpp-1' }, { ticket: '../x' }, { titleSet: 'yes' }, { auto: 1 },
     ]) expect(() => parseMockupChanges(raw), JSON.stringify(raw)).toThrow(/invalide/)
   })
 })

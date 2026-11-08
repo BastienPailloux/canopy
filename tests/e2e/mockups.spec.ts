@@ -59,6 +59,9 @@ test('add a mockup by link, link it to a ticket, edit and remove it', async () =
   const file = join(repo.path, '.mockups', 'mockups.json')
   await expect.poll(async () => readFile(file, 'utf8').catch(() => '')).toContain(ID)
   expect(git(repo.path, 'status', '--porcelain')).toBe('')
+  await page.getByRole('tab', { name: 'Sans ticket' }).click()
+  await expect(card).toBeVisible()
+  await page.getByRole('tab', { name: 'Toutes' }).click()
 
   // Create a ticket and link the mockup from the ticket editor (3b).
   await page.evaluate((r) => window.canopy.createTicket(r, {
@@ -82,6 +85,9 @@ test('add a mockup by link, link it to a ticket, edit and remove it', async () =
   await expect(page.getByRole('button', { name: '← Toutes les maquettes' })).toBeVisible()
   await page.getByRole('tab', { name: 'Propriétés' }).click()
   await expect(page.getByLabel('Ticket lié')).toHaveValue('REP-1')
+  // The e2e view loads its stand-in page: nothing ever reaches claude.ai.
+  const urls = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map((w) => w.getURL()))
+  expect(urls.filter((u) => u.startsWith('https://claude.ai'))).toEqual([])
 
   await page.getByRole('button', { name: 'Retirer de Canopy' }).click()
   await page.getByRole('group', { name: 'Confirmer le retrait' }).getByRole('button', { name: 'Retirer', exact: true }).click()

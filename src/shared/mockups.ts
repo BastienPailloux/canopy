@@ -27,8 +27,11 @@ export interface Mockup {
 
 export type MockupFields = Pick<Mockup, 'title' | 'kind' | 'status' | 'ticket' | 'titleSet'>
 
-/** A patch: `ticket: null` removes the link. */
-export type MockupChanges = Partial<Omit<MockupFields, 'ticket'>> & { ticket?: string | null }
+/**
+ * A patch: `ticket: null` removes the link. `auto`: the title comes from the page, not the user; it is then left
+ * alone once the user named the mockup (`titleSet`).
+ */
+export type MockupChanges = Partial<Omit<MockupFields, 'ticket'>> & { ticket?: string | null; auto?: boolean }
 
 /** The rectangle of the 4b area, in window content pixels. */
 export interface MockupViewBounds { x: number; y: number; width: number; height: number }

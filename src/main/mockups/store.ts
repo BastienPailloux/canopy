@@ -3,13 +3,13 @@ import { lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/pro
 import { join, sep } from 'node:path'
 import { MAX_MOCKUP_TITLE, MOCKUP_ID_RE, MOCKUP_KINDS, MOCKUP_STATUSES, parseArtifactUrl } from '../../shared/mockups'
 import type { Mockup, MockupChanges, MockupFields, MockupKind, MockupList, MockupStatus } from '../../shared/mockups'
+import { TICKET_ID_RE as TICKET_RE } from '../../shared/tickets'
 import { git } from '../git/exec'
 import { ensureExcluded, mainWorktreeRoot } from '../git/worktrees'
 
 const DIR = '.mockups'
 const FILE = 'mockups.json'
 const EXCLUDE_ENTRY = '/.mockups/'
-const TICKET_RE = /^[A-Z][A-Z0-9]*-\d+$/
 const DEFAULT_TITLE = 'Maquette sans titre'
 
 type Raw = Record<string, unknown>
@@ -69,7 +69,7 @@ function serializeRegistry(r: Registry): string {
 /** Applies `changes` to a raw entry; a title typed by the user sets `titleSet` unless it is given. */
 function applyChanges(entry: Raw, changes: MockupChanges): void {
   for (const [k, v] of Object.entries(changes)) {
-    if (v === undefined) continue
+    if (v === undefined || k === 'auto') continue
     if (k === 'ticket' && v === null) delete entry.ticket
     else entry[k] = k === 'title' ? (v as string).trim() : v
   }
@@ -191,6 +191,12 @@ export class MockupStore {
     return this.update(repo, (r) => {
       const i = r.mockups.findIndex((m) => m.id === id)
       if (i < 0) throw notFound(id)
+      // A page title arriving after the user renamed the mockup: the user's name stays.
+      if (changes.auto && r.mockups[i].titleSet === true) {
+        const { title: _title, titleSet: _titleSet, auto: _auto, ...rest } = changes
+        if (Object.values(rest).every((v) => v === undefined)) return { value: r.mockups[i], write: false }
+        changes = rest
+      }
       applyChanges(r.entries[i], changes)
       r.entries[i].updated = new Date().toISOString()
       return { value: parseEntry(r.entries[i], i), write: true }

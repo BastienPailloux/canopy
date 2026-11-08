@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MockupViewBounds, MockupViewErrorEvent } from '../../shared/mockups'
 
-const MODAL = '[aria-modal="true"]'
+const MODAL = '[aria-modal="true"], [role="menu"]'
 
 /**
  * The area the main process draws the claude.ai view on. The native view sits above the page: it is shown on this

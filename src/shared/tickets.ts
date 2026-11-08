@@ -74,6 +74,9 @@ export function branchSlug(title: string): string {
   return words.join('-') || 'ticket'
 }
 
+/** A ticket ID: its prefix, a dash, a number. */
+export const TICKET_ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
+
 /** A ticket ID prefix: capitals and digits, 10 at most, starting with a letter. Checked in main on every write and by the settings field. */
 export const PREFIX_RE = /^[A-Z][A-Z0-9]{0,9}$/
 
