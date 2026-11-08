@@ -55,6 +55,8 @@ interface Session {
   pending: Map<string, PendingPermission>
   terminalCommands: Set<string>
   initialized: boolean
+  /** Launched from a Linear issue and not yet checked for a Linear MCP server. */
+  expectLinear?: boolean
   reported?: SessionState
   closed: boolean
 }
@@ -106,6 +108,13 @@ function toUserMessage(c: UserContent, copies: string[] = []): SDKUserMessage {
   return { type: 'user', message: { role: 'user', content: [...text, ...images, ...documents, ...notes] }, parent_tool_use_id: null }
 }
 
+export const LINEAR_NOTICE = 'Claude n’a pas accès à Linear dans cette session.'
+
+/** Whether a connected MCP server of the session's init message is Linear's. */
+export function hasLinearServer(servers: { name: string; status: string }[]): boolean {
+  return servers.some((s) => s.status === 'connected' && s.name.toLowerCase().includes('linear'))
+}
+
 /** Runs concurrent Agent SDK sessions. Each one lives until `stop` or its own failure, whatever the UI does. */
 export class SessionManager extends EventEmitter<EventMap> {
   private readonly sessions = new Map<string, Session>()
@@ -153,7 +162,7 @@ export class SessionManager extends EventEmitter<EventMap> {
 
     const s: Session = {
       localId, sessionId, cwd, title: o.content.text, startedAt: Date.now(), query: q, input,
-      mode: o.mode ?? 'default', turn: 'idle', pending: new Map(), terminalCommands: new Set(), initialized: false, closed: false
+      mode: o.mode ?? 'default', turn: 'idle', pending: new Map(), terminalCommands: new Set(), initialized: false, closed: false, ...(o.expectLinear ? { expectLinear: true } : {})
     }
     session = s
     this.sessions.set(localId, s)
@@ -364,6 +373,10 @@ export class SessionManager extends EventEmitter<EventMap> {
     // A status carries it too: approving a plan leaves plan mode without any init.
     if (msg.type === 'system' && (msg.subtype === 'init' || msg.subtype === 'status') && msg.permissionMode) s.mode = msg.permissionMode
     this.notify('message', { localId: s.localId, msg })
+    if (msg.type === 'system' && msg.subtype === 'init' && s.expectLinear) {
+      s.expectLinear = false
+      if (!hasLinearServer(msg.mcp_servers ?? [])) this.notify('notice', { localId: s.localId, text: LINEAR_NOTICE })
+    }
     if (msg.type === 'system' && msg.subtype === 'init' && !s.initialized) {
       s.initialized = true
       this.notify('commandsChanged', { localId: s.localId })

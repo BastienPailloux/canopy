@@ -3,6 +3,7 @@ import type { OrphanedWorktree } from '../../shared/api'
 import { MAX_WORKSPACE_REPOS, type Workspace, type WorkspaceEntry, type Worktree, type WorktreeStatus } from '../../shared/types'
 import { basename, useApp, worktreeLabel } from '../store'
 import { ticketKey } from '../../shared/tickets'
+import { useLinear } from '../tickets/linearStore'
 import { useTickets } from '../tickets/ticketStore'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
 import { railInitials } from './panelWidths'
@@ -44,7 +45,7 @@ function RailRow(props: { label: string; status: WorktreeStatus; statusText: str
   )
 }
 
-function Row(props: { w: Worktree; ticketId?: string; label: string; idleMain: string; entry?: StatsEntry; ports?: Record<string, number>; status: WorktreeStatus; active: boolean; rail: boolean; onPick: () => void; onSwitch: () => void; onRemove: () => void }): React.JSX.Element {
+function Row(props: { w: Worktree; ticketId?: string; ticketSource?: 'local' | 'linear'; label: string; idleMain: string; entry?: StatsEntry; ports?: Record<string, number>; status: WorktreeStatus; active: boolean; rail: boolean; onPick: () => void; onSwitch: () => void; onRemove: () => void }): React.JSX.Element {
   const { w, entry } = props
   const stats = entry?.stats
   const statusText = w.isMain && props.status === 'idle' ? props.idleMain : STATUS_LABEL[props.status]
@@ -86,7 +87,7 @@ function Row(props: { w: Worktree; ticketId?: string; label: string; idleMain: s
           onClick={(e) => {
             e.stopPropagation()
             useApp.getState().setView('tickets')
-            useApp.getState().setOpenTicket(ticketKey('local', props.ticketId!))
+            useApp.getState().setOpenTicket(ticketKey(props.ticketSource ?? 'local', props.ticketId!))
           }}>{props.ticketId}</button>
       )}
       {!w.isMain && (
@@ -147,11 +148,13 @@ export function WorktreeList({ repo, workspace, rail }: { repo: string; workspac
   const [removing, setRemoving] = useState<WorkspaceEntry | null>(null)
   const [switching, setSwitching] = useState<WorkspaceEntry | null>(null)
   const ticketEntries = useTickets((s) => s.entries)
+  const linearLinks = useLinear((s) => s.links)
   const ticketByBranch = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const t of ticketEntries) if (t.kind === 'ticket' && t.ticket.branch) m.set(t.ticket.branch, t.ticket.id)
+    const m = new Map<string, { id: string; source: 'local' | 'linear' }>()
+    for (const [id, link] of Object.entries(linearLinks)) m.set(link.branch, { id, source: 'linear' })
+    for (const t of ticketEntries) if (t.kind === 'ticket' && t.ticket.branch) m.set(t.ticket.branch, { id: t.ticket.id, source: 'local' })
     return m
-  }, [ticketEntries])
+  }, [ticketEntries, linearLinks])
   const sections = useMemo(() => groupEntries(workspace), [workspace])
   const single = isSingleRepo(workspace)
 
@@ -178,7 +181,7 @@ export function WorktreeList({ repo, workspace, rail }: { repo: string; workspac
             {section.entries.map((e) => {
               const { path } = e.worktree
               return (
-                <Row key={path} w={e.worktree} ticketId={e.repo === repo && e.worktree.branch ? ticketByBranch.get(e.worktree.branch) : undefined} label={entryLabel(e, single)} idleMain={single ? 'Principal' : worktreeLabel(e.worktree)}
+                <Row key={path} w={e.worktree} ticketId={e.repo === repo && e.worktree.branch ? ticketByBranch.get(e.worktree.branch)?.id : undefined} ticketSource={e.repo === repo && e.worktree.branch ? ticketByBranch.get(e.worktree.branch)?.source : undefined} label={entryLabel(e, single)} idleMain={single ? 'Principal' : worktreeLabel(e.worktree)}
                   entry={entries[path]} ports={ports[path]} status={statuses[path] ?? 'idle'} active={path === active} rail={rail}
                   onPick={() => selectEntry(e)} onSwitch={() => setSwitching(e)} onRemove={() => setRemoving(e)} />
               )

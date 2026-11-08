@@ -148,7 +148,7 @@ export function TicketsScreen(): React.JSX.Element {
   const count = (f: Filter): number => (f === 'all' ? all.filter((r) => r.status !== 'done').length : all.filter((r) => r.status === f).length)
   const parsed = selectedKey ? parseTicketKey(selectedKey) : null
   const selected = parsed?.source === 'local' ? tickets.find((t) => t.id === parsed.id) ?? null : null
-  const selectedLinear = parsed?.source === 'linear' ? parsed.id : null
+  const selectedIssue = parsed?.source === 'linear' ? list.issues.find((i) => i.id === parsed.id) ?? null : null
 
   const app = useApp.getState()
   const openLinked = (w: Worktree): void => {
@@ -244,8 +244,8 @@ export function TicketsScreen(): React.JSX.Element {
       <aside className="launch-panel" aria-label="Lancement">
         {selected && repo
           ? <LaunchPanel key={`${repo}\0${selected.id}`} repo={repo} ticket={selected} refs={refs} focus={focusReq?.id === selectedKey ? focusReq.seq : 0} />
-          : selectedLinear
-            ? <p className="launch-empty">Ticket Linear {selectedLinear} — lancement à venir.</p>
+          : selectedIssue && repo
+            ? <LaunchPanel key={`${repo}\0linear:${selectedIssue.id}`} repo={repo} issue={selectedIssue} refs={refs} focus={focusReq?.id === selectedKey ? focusReq.seq : 0} />
             : <p className="launch-empty">Clique sur « Lancer » à côté d’un ticket pour préparer son lancement.</p>}
       </aside>
     </div>

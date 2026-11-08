@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { linearLaunchPrompt, type LinearIssue, type LinearLaunchRequest } from '../../src/shared/linear'
 import { launchPrompt, type LaunchRequest, type Ticket } from '../../src/shared/tickets'
 import type { Worktree } from '../../src/shared/types'
 
 const calls: string[] = []
 vi.mock('../../src/renderer/sessions/sessionStore', () => ({
-  askClaude: vi.fn((cwd: string, text: string) => { calls.push(`askClaude ${cwd} ${text}`); return 'tab' })
+  askClaude: vi.fn((cwd: string, text: string, o?: { expectLinear?: boolean }) => { calls.push(`askClaude ${cwd} ${text}${o?.expectLinear ? ' expectLinear' : ''}`); return 'tab' })
 }))
 
-const { defaultBranchName, runLaunch } = await import('../../src/renderer/tickets/launchFlow')
+const { defaultBranchName, runLaunch, runLinearLaunch } = await import('../../src/renderer/tickets/launchFlow')
 const { useApp } = await import('../../src/renderer/store')
 
 const ticket = (title: string): Ticket => ({
@@ -82,5 +83,39 @@ describe('runLaunch', () => {
     expect(useApp.getState().view).toBe('tickets')
     expect(useApp.getState().worktree).toBe('/r')
     expect(calls.some((c) => c.startsWith('askClaude'))).toBe(true)
+  })
+})
+
+describe('runLinearLaunch', () => {
+  const issue = { id: 'ENG-482', title: 'Export CSV', description: 'Détails', url: 'https://linear.app/x/issue/ENG-482' } as LinearIssue
+  const LREQ: LinearLaunchRequest = { id: 'ENG-482', branch: 'feat/eng-482-export-csv', target: { kind: 'new', base: 'main' } }
+  let linearLaunch: ReturnType<typeof vi.fn>
+  const patchTicket = vi.fn()
+  beforeEach(() => {
+    calls.length = 0
+    useApp.setState({ repo: '/r', worktree: '/r', worktrees: [MAIN], orphans: [], workspace: null, view: 'tickets' })
+    linearLaunch = vi.fn(async () => ({ worktree: NEW.path, issue }))
+    vi.stubGlobal('window', {
+      canopy: {
+        linearLaunch, patchTicket,
+        listWorktrees: vi.fn(async () => [MAIN, NEW]),
+        scanWorkspace: vi.fn(async () => { throw new Error('not used') })
+      }
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('sends linearLaunchPrompt with expectLinear and never calls patchTicket', async () => {
+    await runLinearLaunch('/r', LREQ, { startClaude: true })
+    expect(linearLaunch).toHaveBeenCalledWith('/r', LREQ)
+    expect(calls.filter((c) => c.startsWith('askClaude'))).toEqual([`askClaude ${NEW.path} ${linearLaunchPrompt(issue)} expectLinear`])
+    expect(patchTicket).not.toHaveBeenCalled()
+    expect(useApp.getState().view).toBe('sessions')
+    expect(useApp.getState().worktree).toBe(NEW.path)
+  })
+
+  it('does not ask Claude when not asked to', async () => {
+    await runLinearLaunch('/r', LREQ, { startClaude: false })
+    expect(calls.some((c) => c.startsWith('askClaude'))).toBe(false)
   })
 })

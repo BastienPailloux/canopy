@@ -1,3 +1,4 @@
+import { linearLaunchPrompt, type LinearLaunchRequest } from '../../shared/linear'
 import { branchSlug, launchPrompt, type LaunchRequest, type Ticket } from '../../shared/tickets'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
@@ -28,11 +29,23 @@ async function rescan(repo: string): Promise<void> {
 export async function runLaunch(repo: string, req: LaunchRequest, o: { startClaude: boolean }): Promise<void> {
   const before = useApp.getState().repo
   const result = await window.canopy.launchTicket(repo, req)
+  await showLaunched(repo, before, result.worktree)
+  if (o.startClaude) askClaude(result.worktree, launchPrompt(result.ticket))
+}
+
+/** Like `runLaunch` for a Linear issue: nothing is written in Linear, and the session is told to expect its MCP. */
+export async function runLinearLaunch(repo: string, req: LinearLaunchRequest, o: { startClaude: boolean }): Promise<void> {
+  const before = useApp.getState().repo
+  const result = await window.canopy.linearLaunch(repo, req)
+  await showLaunched(repo, before, result.worktree)
+  if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue), { expectLinear: true })
+}
+
+async function showLaunched(repo: string, before: string | null, worktree: string): Promise<void> {
   await rescan(repo)
   if (useApp.getState().repo === before) {
     const app = useApp.getState()
-    app.setWorktree(result.worktree)
+    app.setWorktree(worktree)
     app.setView('sessions')
   }
-  if (o.startClaude) askClaude(result.worktree, launchPrompt(result.ticket))
 }

@@ -20,6 +20,10 @@ export interface SessionTab {
   title: string
   state: TabState
   error?: string
+  /** A non-blocking remark from main, e.g. no Linear MCP in a session launched from a Linear issue. */
+  notice?: string
+  /** The next process started for this tab was launched from a Linear issue. */
+  expectLinear?: boolean
   transcript: Transcript
   /** What the composer holds. */
   draft: Draft
@@ -194,10 +198,14 @@ function isResumable(tab: SessionTab): boolean {
   return tab.sessionId !== undefined && (tab.resumable || tab.transcript.items.some((i) => i.kind === 'assistant' || i.kind === 'tool'))
 }
 
+/** Notices that came before their tab knew its process. */
+const noticeWaiting = new Map<string, string>()
+
 async function launch(tab: SessionTab, content: UserContent): Promise<void> {
   const localId = await window.canopy.startSession(tab.cwd, {
     content,
     mode: tab.mode,
+    ...(tab.expectLinear ? { expectLinear: true } : {}),
     ...(tab.model ? { model: tab.model } : {}),
     ...(isResumable(tab) ? { resumeId: tab.sessionId } : {})
   })
@@ -206,7 +214,8 @@ async function launch(tab: SessionTab, content: UserContent): Promise<void> {
     await window.canopy.stopSession(localId).catch(() => undefined)
     return
   }
-  patchTab(tab.id, { localId })
+  patchTab(tab.id, { localId, expectLinear: undefined, notice: noticeWaiting.get(localId) })
+  noticeWaiting.delete(localId)
   refreshCommands({ id: tab.id, localId })
   refreshModels({ id: tab.id, localId })
 }
@@ -330,9 +339,10 @@ async function deliver(tab: SessionTab, content: UserContent): Promise<boolean> 
  * Sends `text` to the worktree's selected session, or to a new one when that tab holds an unsent draft.
  * Trust is asked as for any message. Resolves the tab used.
  */
-export function askClaude(cwd: string, text: string): string {
+export function askClaude(cwd: string, text: string, o: { expectLinear?: boolean } = {}): string {
   const current = tabOf(useSessions.getState().active[cwd])
   const id = current && isDraftEmpty(current.draft) ? current.id : newTab(cwd)
+  if (o.expectLinear) patchTab(id, { expectLinear: true })
   setDraftText(id, text)
   void submit(id)
   return id
@@ -527,6 +537,11 @@ export function connectSessions(): () => void {
   const off = [
     on('message', onMessage),
     on('state', onState),
+    on('notice', ({ localId, text }) => {
+      const tab = tabOfProcess(localId)
+      if (tab) patchTab(tab.id, { notice: text })
+      else noticeWaiting.set(localId, text)
+    }),
     on('permission', addPermission),
     on('permissionCancelled', ({ requestId }) => removePermission(requestId)),
     on('commandsChanged', ({ localId }) => {

@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { BRANCH_TYPES, PRIORITY_LABEL, ticketKey, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
 import { basename, useApp } from '../store'
-import { defaultBranchName, runLaunch } from './launchFlow'
+import { linearBranchName, type LinearIssue } from '../../shared/linear'
+import { defaultBranchName, runLaunch, runLinearLaunch } from './launchFlow'
 import type { RepoRefs } from './TicketsScreen'
 
 type BranchType = (typeof BRANCH_TYPES)[number]
@@ -27,16 +28,19 @@ function withType(name: string, type: BranchType): string {
 }
 
 /** Where and how to launch `ticket`: a new worktree or a free existing one, the branch name, then one click. */
-export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRefs; focus: number }): React.JSX.Element {
-  const { repo, ticket, refs } = props
+export function LaunchPanel(props: { repo: string; ticket?: Ticket; issue?: LinearIssue; refs: RepoRefs; focus: number }): React.JSX.Element {
+  const { repo, refs } = props
+  const ticket = props.ticket ?? props.issue
+  if (!ticket) throw new Error('LaunchPanel: no ticket')
+  const isLinear = props.issue !== undefined
   const ids = useId()
   const [where, setWhere] = useState<'new' | 'existing'>('new')
   const [newBase, setNewBase] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [baseEdit, setBaseEdit] = useState<string | null>(null)
-  const [name, setName] = useState(() => defaultBranchName(ticket))
+  const [name, setName] = useState(() => (props.issue ? linearBranchName(props.issue) : defaultBranchName(ticket as Ticket)))
   const [startClaude, setStartClaude] = useState(true)
-  const [inProgress, setInProgress] = useState(ticket.status !== 'in_progress' && ticket.status !== 'in_review')
+  const [inProgress, setInProgress] = useState(props.ticket !== undefined && props.ticket.status !== 'in_progress' && props.ticket.status !== 'in_review')
   const [candidates, setCandidates] = useState<Candidates | null>(null)
   const [candidatesError, setCandidatesError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -75,7 +79,8 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
     setBusy(true)
     setError(null)
     try {
-      await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude })
+      if (isLinear) await runLinearLaunch(repo, { id: ticket.id, branch, target }, { startClaude })
+      else await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)
@@ -105,6 +110,7 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
   }, [props.focus, canLaunch])
 
   const meta = [PRIORITY_LABEL[ticket.priority], ...ticket.labels].join(' · ')
+  const openKey = ticketKey(isLinear ? 'linear' : 'local', ticket.id)
   const counts = worktree
     ? [worktree.dirty > 0 && plural(worktree.dirty, 'fichier mis de côté', 'fichiers mis de côté'), worktree.sessions > 0 && plural(worktree.sessions, 'session', 'sessions')]
         .filter(Boolean).join(' · ')
@@ -116,7 +122,7 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
         <span className="ticket-id mono">{ticket.id}</span>
         <h2>{ticket.title}</h2>
         <span className="launch-meta">{meta}</span>
-        <button className="link" onClick={() => useApp.getState().setOpenTicket(ticketKey('local', ticket.id))}>Voir et modifier le ticket</button>
+        <button className="link" onClick={() => useApp.getState().setOpenTicket(openKey)}>Voir et modifier le ticket</button>
       </div>
 
       <section className="launch-where" role="radiogroup" aria-labelledby={`${ids}-where`}>
@@ -196,10 +202,10 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
           <input type="checkbox" checked={startClaude} onChange={(e) => setStartClaude(e.target.checked)} />
           Démarrer Claude Code avec la description du ticket
         </label>
-        <label className="check">
+        {!isLinear && <label className="check">
           <input type="checkbox" checked={inProgress} onChange={(e) => setInProgress(e.target.checked)} />
           Passer le ticket « En cours »
-        </label>
+        </label>}
       </section>
 
       {error && <p className="launch-error" role="alert">{error}</p>}

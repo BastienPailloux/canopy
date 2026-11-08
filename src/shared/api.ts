@@ -57,7 +57,10 @@ export type BaseContent =
   | { kind: 'tooLarge'; size: number }
   | { kind: 'notBlob' }
 
-export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode }
+export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode
+  /** The session was launched from a Linear issue: warn once if Claude has no Linear MCP. */
+  expectLinear?: boolean
+}
 
 /** Payload of each event emitted by SessionManager, relayed to the renderer as `session:<key>`. */
 export interface SessionEvents {
@@ -68,6 +71,8 @@ export interface SessionEvents {
   /** The session's commands are complete: fetch `sessionCommands` again. */
   commandsChanged: { localId: string }
   state: { localId: string; state: SessionState; sessionId?: string; error?: string }
+  /** A non-blocking remark about the session, shown once. */
+  notice: { localId: string; text: string }
 }
 
 /** What a repo's own config would run or allow in a session. */
