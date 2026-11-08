@@ -75,6 +75,10 @@ function resultError(result: SDKResultMessage): string {
   return result.subtype === 'success' ? result.result : result.errors.join('\n')
 }
 
+/** The copies hold the user's documents: no other local user may read them. */
+const PRIVATE_DIR = 0o700
+const PRIVATE_FILE = 0o600
+
 /** A name of its own in `dir`, from the file's name with no path in it. */
 function freeName(dir: string, name: string): string {
   const cleaned = basename(name.replace(/\\/g, '/')).replace(/[\u0000-\u001f]/g, '')
@@ -110,7 +114,7 @@ export class SessionManager extends EventEmitter<EventMap> {
     super()
     if (deps.attachmentsDir) {
       rmSync(deps.attachmentsDir, { recursive: true, force: true })
-      mkdirSync(deps.attachmentsDir, { recursive: true })
+      mkdirSync(deps.attachmentsDir, { recursive: true, mode: PRIVATE_DIR })
     }
   }
 
@@ -139,7 +143,7 @@ export class SessionManager extends EventEmitter<EventMap> {
 
     let q: Query
     try {
-      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.copiesDir(localId)) })
+      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.makeCopiesDir(localId)) })
     } catch (err) {
       input.close()
       // Deferred so that the caller holds the localId before hearing about it.
@@ -303,15 +307,28 @@ export class SessionManager extends EventEmitter<EventMap> {
     return this.deps.attachmentsDir ? join(this.deps.attachmentsDir, localId) : undefined
   }
 
+  /** Made before Claude Code starts, which checks the directories it is given. Undefined if it cannot be made. */
+  private makeCopiesDir(localId: string): string | undefined {
+    const dir = this.copiesDir(localId)
+    if (!dir) return undefined
+    try {
+      mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR })
+      return dir
+    } catch (err) {
+      console.error('SessionManager: could not make the copies folder', err)
+      return undefined
+    }
+  }
+
   /** Copies each document into the session's folder. No copy at all if one fails: the message still goes. */
   private keepCopies(s: Session, documents: UserDocument[]): string[] {
     const dir = this.copiesDir(s.localId)
     if (!dir || documents.length === 0) return []
     try {
-      mkdirSync(dir, { recursive: true })
+      mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR })
       return documents.map((d) => {
         const path = join(dir, freeName(dir, d.name))
-        writeFileSync(path, Buffer.from(d.base64, 'base64'))
+        writeFileSync(path, Buffer.from(d.base64, 'base64'), { mode: PRIVATE_FILE })
         return path
       })
     } catch (err) {

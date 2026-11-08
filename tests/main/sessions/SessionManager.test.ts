@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -637,6 +637,30 @@ test('a document is copied into the session folder, which Claude is told of and 
   expect(isAttachmentNote(note?.text ?? '')).toBe(true)
   expect(note?.text).toContain(copy)
   expect(h.queries[0].options.additionalDirectories).toEqual([join(dir, id)])
+})
+
+test('the session folder exists before Claude Code starts, even with no document', () => {
+  const dir = tmpDir()
+  let seen: boolean | undefined
+  const h = setup({
+    attachmentsDir: dir,
+    query: (p) => {
+      seen = existsSync(p.options.additionalDirectories?.[0] ?? '')
+      return new FakeQuery(p.prompt, p.options)
+    }
+  })
+  h.m.start('/a', { content: content('hi') })
+  expect(seen).toBe(true)
+})
+
+test('copies are readable by the user alone', async () => {
+  const dir = tmpDir()
+  const h = setup({ attachmentsDir: dir })
+  const id = h.m.start('/a', { content: { text: '', documents: [PDF] } })
+  await tick()
+  expect(statSync(dir).mode & 0o777).toBe(0o700)
+  expect(statSync(join(dir, id)).mode & 0o777).toBe(0o700)
+  expect(statSync(join(dir, id, 'doc.pdf')).mode & 0o777).toBe(0o600)
 })
 
 test('a second document with the same name keeps the first copy', async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { MAX_DOCUMENT_BASE64 } from '../../../src/shared/sessionOptions'
+import { MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES } from '../../../src/shared/sessionOptions'
 import { assertContent, assertMode, parseDecision, parseStartOptions } from '../../../src/main/sessions/validate'
 
 const content = { text: 'hi' }
@@ -35,6 +35,15 @@ test('assertContent accepts PDF documents', () => {
   expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: 'AAAA' }] })).not.toThrow()
 })
 
+test('assertContent accepts a PDF of exactly the limit, and not one byte more', () => {
+  const exact = 'A'.repeat(MAX_DOCUMENT_BASE64 - 4) + 'AAA='
+  expect(Buffer.from(exact, 'base64').length).toBe(MAX_DOCUMENT_BYTES)
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: exact }] })).not.toThrow()
+  const over = 'A'.repeat(MAX_DOCUMENT_BASE64)
+  expect(Buffer.from(over, 'base64').length).toBe(MAX_DOCUMENT_BYTES + 1)
+  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: over }] })).toThrow()
+})
+
 test.each([
   ['null', null],
   ['a missing text', {}],
@@ -61,10 +70,6 @@ test('parseDecision keeps known fields only', () => {
   expect(parseDecision({ allow: true, always: true, updatedInput, x: 1 })).toEqual({ allow: true, always: true, updatedInput })
   expect(parseDecision({ allow: true })).toEqual({ allow: true })
   expect(parseDecision({ allow: false, message: 'Non', always: true })).toEqual({ allow: false, message: 'Non' })
-})
-
-test('assertContent accepts PDF documents', () => {
-  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: 'AAAA' }] })).not.toThrow()
 })
 
 test.each([
