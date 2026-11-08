@@ -1,8 +1,22 @@
 /** What the page holds and quitting would lose. Only the renderer knows: it reports it. */
 /** `tickets`: ticket editors with changes not written yet. */
 export interface UnsavedCounts { buffers: number; drafts: number; tickets: number }
-/** `linear`: Linear edits queued in main and not sent yet; kept on disk, sent once Linear can be reached. */
-export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number; linear: number }
+import type { LinearField, PendingEdit } from '../shared/linear'
+
+/**
+ * `linear`: Linear edits queued in main with a field that goes once Linear can be reached (kept on disk).
+ * `linearHeld`: Linear edits with a field held (conflict, refusal): it waits for Bastien's decision in the editor.
+ */
+export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number; linear: number; linearHeld: number }
+
+/** `linear` and `linearHeld` of main's queue; an entry can count in both. */
+export function linearCounts(pending: PendingEdit[]): Pick<RunningCounts, 'linear' | 'linearHeld'> {
+  const fields = (p: PendingEdit): LinearField[] => (Object.keys(p.change) as LinearField[]).filter((f) => p.change[f] !== undefined)
+  return {
+    linear: pending.filter((p) => fields(p).some((f) => p.held[f] === undefined)).length,
+    linearHeld: pending.filter((p) => fields(p).some((f) => p.held[f] !== undefined)).length,
+  }
+}
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
 
@@ -38,11 +52,13 @@ export function quitDetail(counts: RunningCounts): string {
     ...(drafts > 0 ? [plural(drafts, 'brouillon de message', 'brouillons de message')] : []),
     ...(tickets > 0 ? [plural(tickets, 'ticket pas encore enregistré', 'tickets pas encore enregistrés')] : [])
   ]
-  const { linear } = counts
+  const { linear, linearHeld } = counts
   return [
     ...(running.length > 0 ? [`Quitter arrêtera : ${running.join(', ')}.`] : []),
     ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : []),
-    ...(linear > 0 ? ['Des modifications Linear n’ont pas été envoyées. Elles restent en attente et partiront dès que Linear sera joignable.'] : [])
+    ...(linear + linearHeld > 0 ? ['Des modifications Linear n’ont pas été envoyées.'] : []),
+    ...(linear > 0 ? ['Elles restent en attente et partiront dès que Linear sera joignable.'] : []),
+    ...(linearHeld > 0 ? ['Certaines modifications Linear attendent ta décision dans l’éditeur.'] : [])
   ].join(' ')
 }
 
@@ -83,7 +99,7 @@ export function createQuitFlow(deps: QuitDeps): {
     async request() {
       if (quitting || asking) return
       const counts = deps.counts()
-      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets + counts.linear > 0) {
+      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets + counts.linear + counts.linearHeld > 0) {
         asking = true
         try {
           if (!(await deps.confirm(counts))) return

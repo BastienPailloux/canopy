@@ -25,7 +25,7 @@ import { installCli } from './installCli'
 import { broadcast, registerIpc, registerUpdateIpc } from './ipc'
 import { menuTemplate } from './menu'
 import { createOpenFolders } from './openFolders'
-import { createQuitFlow, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
+import { createQuitFlow, linearCounts, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
 import { TerminalManager } from './terminal/TerminalManager'
@@ -157,7 +157,7 @@ void app.whenReady().then(async () => {
     () => linearEdits.pending().map((p) => p.id))
   let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0 }
   const running = (): RunningCounts => ({
-    sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, linear: linearEdits.pending().length
+    sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
   })
   // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const quit = createQuitFlow({

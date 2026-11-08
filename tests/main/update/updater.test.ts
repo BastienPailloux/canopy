@@ -46,7 +46,7 @@ function setup(counts: Partial<RunningCounts> = {}) {
     now: () => Date.now(),
     setInterval: (fn, ms) => setInterval(fn, ms),
     broadcast,
-    counts: () => ({ sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0, linear: 0, ...counts }),
+    counts: () => ({ sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0, linear: 0, linearHeld: 0, ...counts }),
     confirm,
     finish,
     relaunch,
