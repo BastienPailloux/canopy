@@ -19,7 +19,7 @@ export interface RepoRefs {
 const NO_REFS: RepoRefs = { branches: [], worktrees: [], defaultBase: null }
 
 /** Read again whenever the tickets change: a launch changes both. */
-function useRepoRefs(repo: string, stamp: unknown): RepoRefs {
+export function useRepoRefs(repo: string, stamp: unknown): RepoRefs {
   const [refs, setRefs] = useState<RepoRefs>(NO_REFS)
   useEffect(() => {
     let live = true
