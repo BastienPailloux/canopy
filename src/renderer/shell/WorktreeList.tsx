@@ -81,7 +81,7 @@ function Row(props: { w: Worktree; ticketId?: string; label: string; idleMain: s
         {branchIcon}
       </button>
       {props.ticketId !== undefined && (
-        <button className="wt-ticket mono" title={`Ouvrir le ticket ${props.ticketId}`} data-testid="worktree-ticket"
+        <button className="wt-ticket mono" aria-label={`Ouvrir le ticket ${props.ticketId}`} title={`Ouvrir le ticket ${props.ticketId}`} data-testid="worktree-ticket"
           onClick={(e) => {
             e.stopPropagation()
             useApp.getState().setView('tickets')
@@ -177,7 +177,7 @@ export function WorktreeList({ repo, workspace, rail }: { repo: string; workspac
             {section.entries.map((e) => {
               const { path } = e.worktree
               return (
-                <Row key={path} w={e.worktree} ticketId={e.worktree.branch ? ticketByBranch.get(e.worktree.branch) : undefined} label={entryLabel(e, single)} idleMain={single ? 'Principal' : worktreeLabel(e.worktree)}
+                <Row key={path} w={e.worktree} ticketId={e.repo === repo && e.worktree.branch ? ticketByBranch.get(e.worktree.branch) : undefined} label={entryLabel(e, single)} idleMain={single ? 'Principal' : worktreeLabel(e.worktree)}
                   entry={entries[path]} ports={ports[path]} status={statuses[path] ?? 'idle'} active={path === active} rail={rail}
                   onPick={() => selectEntry(e)} onSwitch={() => setSwitching(e)} onRemove={() => setRemoving(e)} />
               )

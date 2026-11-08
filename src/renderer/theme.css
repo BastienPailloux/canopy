@@ -430,6 +430,10 @@ input:focus-visible {
   color: var(--fg-2);
   font-size: 10.5px;
 }
+.wt-ticket:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .wt-ticket:hover {
   color: var(--fg);
 }

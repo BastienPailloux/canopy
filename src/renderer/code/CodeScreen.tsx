@@ -6,6 +6,7 @@ import type { Navigate, Reveal } from './Editors'
 import { getShown, setShown } from './drafts'
 import { FileTree } from './FileTree'
 import { ResultsPanel, SearchPanel, type Found } from './SearchPanel'
+import { baseLost } from './baseText'
 import { useBranchBase } from './useBranchBase'
 import { useCodeData } from './useCodeData'
 import './code.css'
@@ -14,8 +15,6 @@ const UNKNOWN_BASE = 'Branche de comparaison inconnue'
 const SLOW_MS = 400
 
 const baseGone = (branch: string): string => `La branche « ${branch} » est introuvable : retour à la branche par défaut.`
-
-const baseLost = (branch: string): string => `La base « ${branch} » n'existe plus : retour à la branche par défaut.`
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
