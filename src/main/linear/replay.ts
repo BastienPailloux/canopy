@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { McpCaller } from './client'
 import type { CallToolResult } from './parse'
 
@@ -223,4 +223,19 @@ export function replayLinear(opts: ReplayOptions = {}): McpCaller {
     },
     async close() {},
   }
+}
+
+/**
+ * Test-only, like `CANOPY_FAKE_QUERY`: unpackaged with `CANOPY_FAKE_LINEAR=<fixtures dir>`, every connection replays
+ * that directory (one shared replay, so writes survive a reconnect). Never touches the network nor the browser, and
+ * `resume()` connects at once.
+ */
+export function selectLinearOpener(
+  real: (interactive: boolean) => Promise<McpCaller>,
+  o: { isPackaged: boolean; env: NodeJS.ProcessEnv },
+): (interactive: boolean) => Promise<McpCaller> {
+  const dir = o.isPackaged ? undefined : o.env.CANOPY_FAKE_LINEAR
+  if (!dir) return real
+  let caller: McpCaller | null = null
+  return async () => (caller ??= replayLinear({ fixtures: resolve(dir) }))
 }

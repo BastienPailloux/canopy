@@ -1,7 +1,8 @@
 /** What the page holds and quitting would lose. Only the renderer knows: it reports it. */
 /** `tickets`: ticket editors with changes not written yet. */
 export interface UnsavedCounts { buffers: number; drafts: number; tickets: number }
-export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number }
+/** `linear`: Linear edits queued in main and not sent yet; they are kept on disk and sent at the next launch. */
+export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number; linear: number }
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
 
@@ -37,9 +38,12 @@ export function quitDetail(counts: RunningCounts): string {
     ...(drafts > 0 ? [plural(drafts, 'brouillon de message', 'brouillons de message')] : []),
     ...(tickets > 0 ? [plural(tickets, 'ticket pas encore enregistré', 'tickets pas encore enregistrés')] : [])
   ]
+  const { linear } = counts
   return [
     ...(running.length > 0 ? [`Quitter arrêtera : ${running.join(', ')}.`] : []),
-    ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : [])
+    ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : []),
+    ...(linear === 1 ? ['1 modification Linear n’a pas encore été envoyée : elle le sera au prochain lancement.'] : []),
+    ...(linear > 1 ? [`${linear} modifications Linear n’ont pas encore été envoyées : elles le seront au prochain lancement.`] : [])
   ].join(' ')
 }
 
@@ -80,7 +84,7 @@ export function createQuitFlow(deps: QuitDeps): {
     async request() {
       if (quitting || asking) return
       const counts = deps.counts()
-      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets > 0) {
+      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets + counts.linear > 0) {
         asking = true
         try {
           if (!(await deps.confirm(counts))) return

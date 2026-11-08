@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import type { LinearComment, LinearIssue, LinearIssueDetail, LinearStatus, LinearUser } from '../../shared/linear'
+import type { LinearComment, LinearConnection, LinearIssue, LinearIssueDetail, LinearStatus, LinearUser } from '../../shared/linear'
 import type { AppStore } from '../appStore'
 import { LinearAuthProvider, waitForCallback } from './auth'
 import {
@@ -25,12 +25,7 @@ export interface McpCaller {
   close(): Promise<void>
 }
 
-export interface LinearConnection {
-  state: 'disconnected' | 'connected' | 'expired'
-  workspace?: string
-  email?: string
-  missingTools: string[]
-}
+export type { LinearConnection } from '../../shared/linear'
 
 /** Linear refused the stored tokens, refresh included: Bastien must connect again. */
 export class LinearExpiredError extends Error {

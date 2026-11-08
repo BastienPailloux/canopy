@@ -177,6 +177,11 @@ export class AppStore {
     this.save()
   }
 
+  /** Main worktree roots holding launched Linear issues. */
+  linearLinkRoots(): string[] {
+    return Object.keys(this.state.linearLinks)
+  }
+
   linearLinks(root: string): Record<string, LinearLink> {
     return { ...(this.state.linearLinks[root] ?? {}) }
   }

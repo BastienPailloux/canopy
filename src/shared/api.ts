@@ -4,6 +4,10 @@ import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashComman
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
+import type {
+  LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
+  LinearListState, LinearStatus, LinearUser, PendingEdit, SaveResult
+} from './linear'
 
 export interface RemovalRisks {
   dirty: number
@@ -233,6 +237,34 @@ export interface CanopyApi {
    * and is forgotten after this answer. Null: none.
    */
   branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
+  /** The Linear connection. Emits `linear:changed` `{}` on any connection, list or queue change. */
+  linearConnection(): Promise<LinearConnection>
+  /** Interactive: may open the browser for Linear's consent. Once connected, the queue is resent and the list refreshed. */
+  linearConnect(): Promise<LinearConnection>
+  /**
+   * Forgets the Linear tokens and the cached list; the links of launched issues stay. Rejects with
+   * `Des modifications Linear n'ont pas été envoyées.` while edits are queued, unless `force` (the queue is then dropped).
+   */
+  linearDisconnect(force?: boolean): Promise<void>
+  /** The cached list (no network); `repo` picks whose launched issues stay listed (linked, branch still local). */
+  linearList(repo: string): Promise<LinearListState>
+  /** Asks Linear again; an error keeps the last list and is reported in `error`. */
+  linearRefresh(repo: string): Promise<LinearListState>
+  linearAckDepartures(ids: string[]): Promise<void>
+  /** The issue with its sub-issues and comments, read from Linear. */
+  linearIssue(id: string): Promise<LinearIssueDetail>
+  linearTeamOptions(teamId: string): Promise<{ statuses: LinearStatus[]; labels: string[]; users: LinearUser[] }>
+  /** Queues the change and sends it; a `sent` save refreshes the list. */
+  linearSave(id: string, c: LinearChange): Promise<SaveResult>
+  /** Edits not sent yet (failed, held or in flight). */
+  linearPending(): Promise<PendingEdit[]>
+  /** Drops `fields` (every field when omitted) of the queued edit of `id`. */
+  linearDiscard(id: string, fields?: LinearField[]): Promise<void>
+  linearComment(id: string, body: string): Promise<LinearComment>
+  /** Creates the issue's branch like `launchTicket` and links it in Canopy only; nothing is written in Linear. */
+  linearLaunch(repo: string, req: LinearLaunchRequest): Promise<{ worktree: string; issue: LinearIssue }>
+  /** Launched Linear issues of `repo`'s main checkout, by issue id. */
+  linearLinks(repo: string): Promise<Record<string, LinearLink>>
   /** The config a session at `cwd` would load, and whether its repo approved exactly that config. */
   repoTrust(cwd: string): Promise<RepoTrust>
   /** Approves the config identified by `configHash` for all the worktrees of `cwd`'s repo. */

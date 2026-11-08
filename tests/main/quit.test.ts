@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import { createQuitFlow, parseUnsaved, quitDetail, updateDetail, type RunningCounts } from '../../src/main/quit'
 
-const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0 }
+const NONE = { sessions: 0, terminals: 0, buffers: 0, drafts: 0, tickets: 0, linear: 0 }
 
 function setup(partial: Partial<RunningCounts>, answer = true) {
   const counts = { ...NONE, ...partial }
@@ -72,7 +72,7 @@ test('the question says what stops and what is lost', () => {
   expect(quitDetail({ ...NONE, buffers: 2, drafts: 1 })).toBe('Seront perdus : 2 fichiers non enregistrés, 1 brouillon de message.')
   expect(quitDetail({ ...NONE, tickets: 1 })).toBe('Sera perdu : 1 ticket pas encore enregistré.')
   expect(quitDetail({ ...NONE, buffers: 1, tickets: 2 })).toBe('Seront perdus : 1 fichier non enregistré, 2 tickets pas encore enregistrés.')
-  expect(quitDetail({ sessions: 1, terminals: 0, buffers: 1, drafts: 0, tickets: 0 })).toBe('Quitter arrêtera : 1 session Claude en cours. Sera perdu : 1 fichier non enregistré.')
+  expect(quitDetail({ sessions: 1, terminals: 0, buffers: 1, drafts: 0, tickets: 0, linear: 0 })).toBe('Quitter arrêtera : 1 session Claude en cours. Sera perdu : 1 fichier non enregistré.')
 })
 
 test('finish stops everything and hands over without asking', () => {
@@ -82,7 +82,7 @@ test('finish stops everything and hands over without asking', () => {
   expect(h.flow.quitting).toBe(true)
 })
 test('update detail says what stops and that edits are kept', () => {
-  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1, tickets: 0 })).toBe(
+  expect(updateDetail({ sessions: 2, terminals: 1, buffers: 3, drafts: 1, tickets: 0, linear: 0 })).toBe(
     'Redémarrer arrêtera : 2 sessions Claude en cours, 1 terminal actif. Les fichiers non enregistrés et les brouillons seront conservés.')
 })
 
@@ -125,4 +125,14 @@ test('parseUnsaved takes the ticket count and refuses a bad one', () => {
   expect(parseUnsaved({ buffers: 1, drafts: 0, tickets: 2 })).toEqual({ buffers: 1, drafts: 0, tickets: 2 })
   expect(() => parseUnsaved({ buffers: 1, drafts: 0, tickets: -1 })).toThrow()
   expect(() => parseUnsaved({ buffers: 1, drafts: 0 })).toThrow()
+})
+
+test('pending Linear edits ask before quitting, and say they will be sent later', async () => {
+  const h = setup({ linear: 2 }, false)
+  await h.flow.request()
+  expect(h.confirm).toHaveBeenCalledOnce()
+  expect(h.calls).toEqual([])
+  expect(quitDetail({ ...NONE, linear: 1 })).toBe('1 modification Linear n’a pas encore été envoyée : elle le sera au prochain lancement.')
+  expect(quitDetail({ ...NONE, linear: 2, buffers: 1 })).toBe(
+    'Sera perdu : 1 fichier non enregistré. 2 modifications Linear n’ont pas encore été envoyées : elles le seront au prochain lancement.')
 })

@@ -1,4 +1,4 @@
-import { branchSlug, type TicketPriority, type TicketStatus } from './tickets'
+import { branchSlug, type LaunchTarget, type TicketPriority, type TicketStatus } from './tickets'
 
 export type LinearStatusType = 'triage' | 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' | 'duplicate'
 
@@ -109,3 +109,53 @@ export interface LinearListState {
   expired: boolean
   departures: Departure[]
 }
+
+export interface LinearConnection {
+  state: 'disconnected' | 'connected' | 'expired'
+  workspace?: string
+  email?: string
+  missingTools: string[]
+}
+
+/** Bastien's edit of a Linear issue: only the fields he changed. */
+export interface LinearChange {
+  title?: string
+  /** `base`: the description as Linear gave it when Bastien started editing; `text`: his version. */
+  description?: { base: string; text: string }
+  statusId?: string
+  priority?: TicketPriority
+  labels?: string[]
+  /** `null` removes the assignee. */
+  assigneeId?: string | null
+}
+
+export type LinearField = keyof LinearChange
+
+/**
+ * - `sent`: Linear saved every field of this save.
+ * - `pending`: some fields are not saved yet (network, expired or missing connection, a field Linear refused); they stay
+ *   queued, `reason` in French.
+ * - `conflict`: a colleague changed the same passage of the description; the description was not sent and stays queued.
+ *
+ * `issue` (always on `sent`, on the others when another field of the same save went through) is Linear's answer. A
+ * `save_issue` answer has no `parentId`, `cycle` nor `project` (always null there): do not trust those three fields
+ * from it, merge them with the cached copy.
+ */
+export type SaveResult =
+  | { kind: 'sent'; issue: LinearIssue }
+  | { kind: 'pending'; reason: string; issue?: LinearIssue }
+  | { kind: 'conflict'; field: 'description'; remote: string; mine: string; issue?: LinearIssue }
+
+export interface PendingEdit {
+  id: string
+  /** Every field not saved yet. */
+  change: LinearChange
+  /** Last failure of the whole send (network, connection); '' when none. */
+  error: string
+  /** Fields Linear would not take (conflict, refusal), with why. Not resent until changed again or `retryAll`. */
+  held: Partial<Record<LinearField, string>>
+  /** A description patch may already be applied (the answer was lost): resent only if Linear still has the base. */
+  uncertain: boolean
+}
+
+export interface LinearLaunchRequest { id: string; branch: string; target: LaunchTarget }

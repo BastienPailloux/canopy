@@ -1,10 +1,9 @@
 import { mainWorktreeRoot } from '../git/worktrees'
 import { startTicketBranch, type LaunchDeps } from '../tickets/launch'
-import type { LinearIssue } from '../../shared/linear'
-import type { LaunchTarget } from '../../shared/tickets'
+import type { LinearIssue, LinearLaunchRequest } from '../../shared/linear'
 import type { LinearClient } from './client'
 
-export interface LinearLaunchRequest { id: string; branch: string; target: LaunchTarget }
+export type { LinearLaunchRequest } from '../../shared/linear'
 
 const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
 
