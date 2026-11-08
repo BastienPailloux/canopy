@@ -16,6 +16,9 @@ import { Resizer } from './shell/Resizer'
 import { WorktreeList } from './shell/WorktreeList'
 import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
+import { connectTickets } from './tickets/ticketStore'
+import { TicketEditor } from './tickets/TicketEditor'
+import { TicketsScreen } from './tickets/TicketsScreen'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
 import { UpdateBanner } from './update/UpdateBanner'
@@ -105,12 +108,15 @@ function Main(): React.JSX.Element {
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   const workspace = useApp((s) => s.workspace)
+  const view = useApp((s) => s.view)
+  const openTicket = useApp((s) => s.openTicket)
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
   useEffect(() => connectUnsaved(), [])
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
+  useEffect(() => connectTickets(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
@@ -155,7 +161,9 @@ export function App(): React.JSX.Element {
       <WhatsNew />
       <Header />
       <div className="body">
-        {repo && workspace ? (
+        {repo && workspace && view === 'tickets' ? (
+          <main className="main tickets-view">{openTicket ? <TicketEditor id={openTicket} /> : <TicketsScreen />}</main>
+        ) : repo && workspace ? (
           <>
             <Sidebar repo={repo} workspace={workspace} />
             <main className="main"><Main /></main>
