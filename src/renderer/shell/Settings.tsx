@@ -10,7 +10,6 @@ interface KeyStatus { set: boolean; encryptionAvailable: boolean; readable: bool
 const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
 const PENDING_MESSAGE = /Des modifications Linear n.ont pas été envoyées/
-const DIM = { color: 'var(--fg-3)', fontSize: 12, lineHeight: 1.5 } as const
 
 /** The Linear connection: connect, who is connected, reconnect when expired, disconnect (asking when edits are unsent). */
 function LinearSettings(): React.JSX.Element {
@@ -58,11 +57,11 @@ function LinearSettings(): React.JSX.Element {
           {!confirming && <button type="button" className="secondary" onClick={() => void disconnect()}>Déconnecter</button>}
         </>
       )}
-      {state === 'expired' && <span style={DIM}>Connexion Linear expirée.</span>}
+      {state === 'expired' && <span className="linear-hint">Connexion Linear expirée.</span>}
       {state !== 'connected' && (
         <>
           <button type="button" className="secondary" disabled={connecting} onClick={() => void connect()}>{connectLabel}</button>
-          {state === 'disconnected' && <span style={DIM}>Canopy demande la lecture et l'écriture sur ton espace Linear.</span>}
+          {state === 'disconnected' && <span className="linear-hint">Canopy demande la lecture et l'écriture sur ton espace Linear.</span>}
         </>
       )}
       {confirming && (
@@ -73,7 +72,7 @@ function LinearSettings(): React.JSX.Element {
         </div>
       )}
       {missingTools.length > 0 && (
-        <span role="status" style={{ color: 'var(--warn)', fontSize: 12, lineHeight: 1.5 }}>
+        <span role="status" className="linear-warn">
           Linear a changé : outils manquants ({missingTools.join(', ')}). Certaines fonctions sont désactivées.
         </span>
       )}

@@ -38,6 +38,13 @@ export interface LinearIssueDetail extends LinearIssue {
   comments: LinearComment[]
 }
 
+export const LINEAR_NOTICE = 'Claude n’a pas accès à Linear dans cette session.'
+
+/** Whether a connected MCP server of a session's init message is Linear's. */
+export function hasLinearServer(servers: { name: string; status: string }[]): boolean {
+  return servers.some((s) => s.status === 'connected' && s.name.toLowerCase().includes('linear'))
+}
+
 export const LINEAR_MCP_NOTE = 'Le reste du ticket (commentaires, sous-tickets, pièces jointes) est accessible via le MCP Linear.'
 
 /** Canopy status group of a Linear status; null = hidden. */

@@ -9,6 +9,7 @@ import type {
 import type { SessionEvents, StartSessionOptions } from '../../shared/api'
 import { attachmentNote } from '../../shared/attachments'
 import { RepoNotTrustedError } from '../../shared/errors'
+import { hasLinearServer, LINEAR_NOTICE } from '../../shared/linear'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
 import { createInputQueue, type InputQueue } from './inputQueue'
 
@@ -108,12 +109,7 @@ function toUserMessage(c: UserContent, copies: string[] = []): SDKUserMessage {
   return { type: 'user', message: { role: 'user', content: [...text, ...images, ...documents, ...notes] }, parent_tool_use_id: null }
 }
 
-export const LINEAR_NOTICE = 'Claude n’a pas accès à Linear dans cette session.'
-
-/** Whether a connected MCP server of the session's init message is Linear's. */
-export function hasLinearServer(servers: { name: string; status: string }[]): boolean {
-  return servers.some((s) => s.status === 'connected' && s.name.toLowerCase().includes('linear'))
-}
+export { hasLinearServer }
 
 /** Runs concurrent Agent SDK sessions. Each one lives until `stop` or its own failure, whatever the UI does. */
 export class SessionManager extends EventEmitter<EventMap> {

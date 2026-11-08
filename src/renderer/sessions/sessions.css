@@ -444,7 +444,7 @@
 }
 .session-notice {
   margin: 0 0 8px;
-  color: var(--muted, inherit);
+  color: var(--fg-3);
   line-height: 1.5;
 }
 .composer {
