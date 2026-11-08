@@ -1,0 +1,234 @@
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  LINEAR_MCP_URL, LinearClient, LinearExpiredError, LinearNotConnectedError, REQUIRED_TOOLS, linearOpener, type McpCaller,
+} from '../../../src/main/linear/client'
+import { LinearError } from '../../../src/main/linear/parse'
+import type { ReplayOptions } from '../../../src/main/linear/replay'
+import { fakeLinear, type FakeLinear } from '../../helpers/fakeLinear'
+
+const TEAM = '78589deb-f061-45b7-b299-bb1c34d4b638'
+
+const memoryStore = () => {
+  const saved: unknown[] = []
+  return { saved, saveLinearAuth: (s: unknown) => { saved.push(s) } }
+}
+
+async function connected(opts: ReplayOptions = {}, tweak?: (f: FakeLinear) => void) {
+  const fake = fakeLinear(opts)
+  tweak?.(fake)
+  const store = memoryStore()
+  const open = vi.fn(async (_interactive: boolean): Promise<McpCaller> => fake)
+  const client = new LinearClient(open, store)
+  await client.connect()
+  return { client, fake, open, store }
+}
+
+const pages = (calls: FakeLinear['calls'], name: string) => calls.filter((c) => c.name === name).map((c) => c.args as Record<string, unknown>)
+
+describe('LinearClient connection', () => {
+  it('exports the server URL and the tools Canopy needs', () => {
+    expect(LINEAR_MCP_URL).toBe('https://mcp.linear.app/mcp')
+    expect(REQUIRED_TOOLS).toEqual(['whoami', 'list_issues', 'get_issue', 'save_issue', 'list_comments', 'save_comment', 'list_issue_statuses', 'list_issue_labels', 'list_users'])
+  })
+
+  it('starts disconnected; connect opens interactively and reads whoami', async () => {
+    const fake = fakeLinear()
+    const open = vi.fn(async () => fake)
+    const client = new LinearClient(open, memoryStore())
+    expect(client.connection()).toEqual({ state: 'disconnected', missingTools: [] })
+    await expect(client.connect()).resolves.toEqual({ state: 'connected', workspace: 'canopy', email: 'bastien.pailloux@hotmail.fr', missingTools: [] })
+    expect(open).toHaveBeenCalledWith(true)
+    expect(client.connection().state).toBe('connected')
+  })
+
+  it('missing tool is reported', async () => {
+    const { client } = await connected({}, (f) => {
+      const all = f.listTools.bind(f)
+      f.listTools = async () => (await all()).filter((t) => t.name !== 'save_issue')
+    })
+    expect(client.connection()).toMatchObject({ state: 'connected', missingTools: ['save_issue'] })
+  })
+
+  it('resume never opens the browser', async () => {
+    const fake = fakeLinear()
+    const open = vi.fn(async () => fake)
+    const client = new LinearClient(open, memoryStore())
+    await expect(client.resume()).resolves.toMatchObject({ state: 'connected', workspace: 'canopy' })
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(open).toHaveBeenCalledWith(false)
+  })
+
+  it('resume without stored tokens is disconnected, with refused tokens expired', async () => {
+    const none = new LinearClient(async () => { throw new LinearNotConnectedError() }, memoryStore())
+    await expect(none.resume()).resolves.toEqual({ state: 'disconnected', missingTools: [] })
+    const refused = new LinearClient(async () => { throw new UnauthorizedError() }, memoryStore())
+    await expect(refused.resume()).resolves.toEqual({ state: 'expired', missingTools: [] })
+  })
+
+  it('UnauthorizedError expires the connection and throws LinearExpiredError', async () => {
+    const opts: ReplayOptions = {}
+    const { client } = await connected(opts)
+    opts.failWith = new UnauthorizedError()
+    await expect(client.listMine()).rejects.toBeInstanceOf(LinearExpiredError)
+    expect(client.connection().state).toBe('expired')
+    opts.failWith = undefined
+    await expect(client.issueBrief('CAN-1')).rejects.toBeInstanceOf(LinearExpiredError)
+  })
+
+  it('a 401 from the transport also expires', async () => {
+    const opts: ReplayOptions = {}
+    const { client } = await connected(opts)
+    opts.failWith = Object.assign(new Error('Server returned 401 after successful authentication'), { code: 401 })
+    await expect(client.issueBrief('CAN-1')).rejects.toBeInstanceOf(LinearExpiredError)
+    expect(client.connection().state).toBe('expired')
+  })
+
+  it('other errors leave the connection alone', async () => {
+    const opts: ReplayOptions = {}
+    const { client } = await connected(opts)
+    opts.failWith = new Error('fetch failed')
+    await expect(client.listMine()).rejects.toThrow('fetch failed')
+    expect(client.connection().state).toBe('connected')
+  })
+
+  it('disconnect closes and clears linearAuth', async () => {
+    const { client, fake, store } = await connected()
+    const close = vi.spyOn(fake, 'close')
+    await client.disconnect()
+    expect(close).toHaveBeenCalled()
+    expect(store.saved).toEqual([null])
+    expect(client.connection()).toEqual({ state: 'disconnected', missingTools: [] })
+    await expect(client.listMine()).rejects.toBeInstanceOf(LinearNotConnectedError)
+  })
+
+  it('reconnecting closes the previous caller', async () => {
+    const first = fakeLinear()
+    const second = fakeLinear()
+    const close = vi.spyOn(first, 'close')
+    const open = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    const client = new LinearClient(open, memoryStore())
+    await client.connect()
+    await client.connect()
+    expect(close).toHaveBeenCalled()
+    await client.listMine()
+    expect(second.calls.some((c) => c.name === 'list_issues')).toBe(true)
+    expect(first.calls.some((c) => c.name === 'list_issues')).toBe(false)
+  })
+})
+
+describe('LinearClient reads', () => {
+  it('listMine follows the cursor', async () => {
+    const { client, fake } = await connected({ pageSize: 2 })
+    const issues = await client.listMine()
+    expect(issues.map((i) => i.id)).toEqual(['CAN-3', 'CAN-2', 'CAN-4', 'CAN-1'])
+    const calls = pages(fake.calls, 'list_issues')
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({ assignee: 'me' })
+    expect(calls[0].cursor).toBeUndefined()
+    expect(typeof calls[1].cursor).toBe('string')
+  })
+
+  it('a cursor that does not move is an error, not a loop', async () => {
+    const { client } = await connected({
+      mutate: (tool) => (tool === 'list_issues' ? { issues: [], hasNextPage: true, cursor: 'same' } : undefined),
+    })
+    await expect(client.listMine()).rejects.toThrow()
+  })
+
+  it('issue reads the detail with every child page and the comments', async () => {
+    const child = (n: number) => ({
+      id: `CAN-${n}0`, uuid: `u${n}`, title: `Child ${n}`, description: '', priority: { value: 0, name: 'No priority' }, url: 'https://x',
+      updatedAt: '2026-11-08T00:00:00.000Z', status: 'Todo', statusType: 'unstarted', labels: [], assignee: null, assigneeId: null,
+      team: 'Canopy', teamId: TEAM,
+    })
+    const { client, fake } = await connected({
+      mutate: (tool, args) => {
+        if (tool !== 'list_issues' || args.parentId === undefined) return undefined
+        return args.cursor === undefined ? { issues: [child(1)], hasNextPage: true, cursor: 'p2' } : { issues: [child(2)], hasNextPage: false }
+      },
+    })
+    const d = await client.issue('CAN-3')
+    expect(d.id).toBe('CAN-3')
+    expect(d.description).not.toContain('truncated')
+    expect(d.children).toEqual([
+      { id: 'CAN-10', title: 'Child 1', status: { id: null, name: 'Todo', type: 'unstarted' } },
+      { id: 'CAN-20', title: 'Child 2', status: { id: null, name: 'Todo', type: 'unstarted' } },
+    ])
+    expect(d.comments).toEqual([])
+    expect(pages(fake.calls, 'get_issue')[0]).toMatchObject({ id: 'CAN-3' })
+    expect((pages(fake.calls, 'get_issue')[0].fields as string[])).toContain('parentId')
+    expect(pages(fake.calls, 'list_issues').map((a) => a.parentId)).toEqual(['CAN-3', 'CAN-3'])
+    expect(pages(fake.calls, 'list_comments')[0]).toMatchObject({ issueId: 'CAN-3' })
+  })
+
+  it('unknown issue is notFound', async () => {
+    const { client } = await connected()
+    await expect(client.issue('CAN-9999')).rejects.toMatchObject({ name: 'LinearError', notFound: true })
+    await expect(client.issueBrief('CAN-9999')).rejects.toMatchObject({ notFound: true })
+  })
+
+  it('notFound is only trusted from get_issue', async () => {
+    const { client } = await connected({
+      mutate: (tool) => (tool === 'save_comment' ? { content: [{ type: 'text', text: 'Entity not found: parent' }], isError: true } : undefined),
+    })
+    const err = await client.comment('CAN-1', 'hi').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(LinearError)
+    expect((err as LinearError).notFound).toBe(false)
+  })
+
+  it('issueBrief reads one issue', async () => {
+    const { client } = await connected()
+    const i = await client.issueBrief('CAN-1')
+    expect(i).toMatchObject({ id: 'CAN-1', team: { id: TEAM, name: 'Canopy' }, parentId: null })
+  })
+
+  it('teamOptions gives the statuses in order, the labels and the users', async () => {
+    const { client, fake } = await connected()
+    const o = await client.teamOptions(TEAM)
+    expect(o.statuses.map((s) => s.name)).toEqual(['In Review', 'Done', 'Canceled', 'In Progress', 'Todo', 'Duplicate', 'Backlog'])
+    expect(o.labels).toEqual(['Improvement', 'Feature', 'Bug'])
+    expect(o.users.map((u) => u.name)).toContain('Bastien')
+    expect(pages(fake.calls, 'list_issue_statuses')[0]).toEqual({ team: TEAM })
+  })
+})
+
+describe('LinearClient writes', () => {
+  it('save sends the args with the id and returns the saved issue', async () => {
+    const { client, fake } = await connected()
+    const saved = await client.save('CAN-1', { title: 'Renamed', state: 'In Progress', priority: 2 })
+    expect(saved).toMatchObject({ id: 'CAN-1', title: 'Renamed', status: { name: 'In Progress', type: 'started' }, priority: 'high' })
+    expect(pages(fake.calls, 'save_issue')[0]).toEqual({ id: 'CAN-1', title: 'Renamed', state: 'In Progress', priority: 2 })
+    expect((await client.issueBrief('CAN-1')).title).toBe('Renamed')
+  })
+
+  it('a failed patch is a LinearError and saves nothing', async () => {
+    const { client } = await connected()
+    const before = await client.issueBrief('CAN-1')
+    const err = await client.save('CAN-1', { patch: [{ op: 'replace', old_string: 'no such text anywhere', new_string: 'x' }] }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(LinearError)
+    expect((err as Error).message).toContain('Patch failed, nothing was saved. Operation 1 (replace)')
+    expect((await client.issueBrief('CAN-1')).description).toBe(before.description)
+  })
+
+  it('comment posts on the issue and shows in the detail', async () => {
+    const { client, fake } = await connected()
+    const c = await client.comment('CAN-2', 'Hello **world**')
+    expect(c).toMatchObject({ body: 'Hello **world**', author: 'Bastien' })
+    expect(pages(fake.calls, 'save_comment')[0]).toEqual({ issueId: 'CAN-2', body: 'Hello **world**' })
+    expect((await client.issue('CAN-2')).comments.map((x) => x.body)).toEqual(['Hello **world**'])
+  })
+})
+
+describe('linearOpener', () => {
+  it('without stored tokens, the non-interactive open fails without the browser or the network', async () => {
+    const openExternal = vi.fn()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    try {
+      const open = linearOpener({ store: { linearAuth: () => null, saveLinearAuth: () => {} }, openExternal, version: '0.0.0' })
+      await expect(open(false)).rejects.toBeInstanceOf(LinearNotConnectedError)
+      expect(openExternal).not.toHaveBeenCalled()
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally { fetchSpy.mockRestore() }
+  })
+})

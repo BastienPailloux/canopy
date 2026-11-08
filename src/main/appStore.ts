@@ -12,11 +12,14 @@ export interface SecretCipher {
 
 /** Thrown when the key cannot be encrypted: it is never stored in clear. */
 export class EncryptionUnavailableError extends Error {
-  constructor() {
-    super("Le trousseau macOS n'est pas disponible : la clé API n'a pas été enregistrée.")
+  constructor(message = "Le trousseau macOS n'est pas disponible : la clé API n'a pas été enregistrée.") {
+    super(message)
     this.name = 'EncryptionUnavailableError'
   }
 }
+
+/** The OAuth state of the Linear connection (SDK client registration, tokens, PKCE verifier). */
+export interface LinearAuthState { client?: unknown; tokens?: unknown; verifier?: string }
 
 interface State {
   recentRepos: string[]
@@ -34,6 +37,8 @@ interface State {
   loginPath?: string
   /** The Anthropic API key, encrypted with `safeStorage` and base64 encoded. */
   apiKey?: string
+  /** `LinearAuthState` as JSON, encrypted with `safeStorage` and base64 encoded. */
+  linearAuth?: string
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -75,6 +80,7 @@ function sanitize(raw: unknown): State {
   if (isRecord(raw.prefs)) state.prefs = raw.prefs
   if (typeof raw.loginPath === 'string' && raw.loginPath !== '') state.loginPath = raw.loginPath
   if (typeof raw.apiKey === 'string' && raw.apiKey !== '') state.apiKey = raw.apiKey
+  if (typeof raw.linearAuth === 'string' && raw.linearAuth !== '') state.linearAuth = raw.linearAuth
   return state
 }
 
@@ -216,6 +222,35 @@ export class AppStore {
   apiKeyReadable(): boolean {
     if (this.state.apiKey === undefined) return true
     return this.decryptApiKey() !== null
+  }
+
+  /** The stored Linear OAuth state, or null when none is stored or it cannot be decrypted. */
+  linearAuth(): LinearAuthState | null {
+    if (this.state.linearAuth === undefined || !this.cipher?.isEncryptionAvailable()) return null
+    try {
+      const v: unknown = JSON.parse(this.cipher.decryptString(Buffer.from(this.state.linearAuth, 'base64')))
+      if (!isRecord(v)) return null
+      return {
+        ...(v.client !== undefined ? { client: v.client } : {}),
+        ...(v.tokens !== undefined ? { tokens: v.tokens } : {}),
+        ...(typeof v.verifier === 'string' ? { verifier: v.verifier } : {}),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** Stores the Linear OAuth state encrypted, or removes it with null. Throws `EncryptionUnavailableError` rather than store it in clear. */
+  saveLinearAuth(s: LinearAuthState | null): void {
+    if (s === null) {
+      delete this.state.linearAuth
+    } else {
+      if (!this.cipher?.isEncryptionAvailable()) {
+        throw new EncryptionUnavailableError("Le trousseau macOS n'est pas disponible : la connexion Linear n'a pas été enregistrée.")
+      }
+      this.state.linearAuth = this.cipher.encryptString(JSON.stringify(s)).toString('base64')
+    }
+    this.save()
   }
 
   get encryptionAvailable(): boolean {

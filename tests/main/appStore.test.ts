@@ -169,6 +169,55 @@ describe('AppStore API key', () => {
   })
 })
 
+describe('AppStore Linear auth', () => {
+  const cipher = (available = true) => ({
+    isEncryptionAvailable: () => available,
+    encryptString: (p: string) => Buffer.from(`enc:${p}`.split('').reverse().join('')),
+    decryptString: (b: Buffer) => b.toString().split('').reverse().join('').slice(4)
+  })
+  const state = { client: { client_id: 'cid-1' }, tokens: { access_token: 'lin-secret-token', refresh_token: 'lin-refresh' }, verifier: 'verif-1' }
+
+  it('linear auth is never stored in clear', () => {
+    const a = new AppStore(file, cipher())
+    expect(a.linearAuth()).toBeNull()
+    a.saveLinearAuth(state)
+    const raw = readFileSync(file, 'utf8')
+    for (const secret of ['lin-secret-token', 'lin-refresh', 'cid-1', 'verif-1']) expect(raw).not.toContain(secret)
+    expect(typeof JSON.parse(raw).linearAuth).toBe('string')
+    expect(new AppStore(file, cipher()).linearAuth()).toEqual(state)
+  })
+
+  it('unreadable linear auth reads as null', async () => {
+    new AppStore(file, cipher()).saveLinearAuth(state)
+    const broken = { ...cipher(), decryptString: () => { throw new Error('keychain locked') } }
+    expect(new AppStore(file, broken).linearAuth()).toBeNull()
+    expect(new AppStore(file, cipher(false)).linearAuth()).toBeNull()
+    expect(new AppStore(file).linearAuth()).toBeNull()
+    const notJson = { ...cipher(), decryptString: () => 'not json' }
+    expect(new AppStore(file, notJson).linearAuth()).toBeNull()
+    const notObject = { ...cipher(), decryptString: () => '[1]' }
+    expect(new AppStore(file, notObject).linearAuth()).toBeNull()
+    await writeFile(file, JSON.stringify({ linearAuth: 3 }))
+    expect(new AppStore(file, cipher()).linearAuth()).toBeNull()
+  })
+
+  it('refuses to store linear auth when encryption is unavailable', () => {
+    const a = new AppStore(file, cipher(false))
+    expect(() => a.saveLinearAuth(state)).toThrow("Le trousseau macOS n'est pas disponible : la connexion Linear n'a pas été enregistrée.")
+    expect(() => readFileSync(file, 'utf8')).toThrow()
+  })
+
+  it('null clears linear auth and keeps the API key', () => {
+    const a = new AppStore(file, cipher())
+    a.saveApiKey('sk-ant-secret')
+    a.saveLinearAuth(state)
+    a.saveLinearAuth(null)
+    expect(a.linearAuth()).toBeNull()
+    expect(readFileSync(file, 'utf8')).not.toContain('linearAuth')
+    expect(new AppStore(file, cipher()).apiKeyEnv()).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-secret' })
+  })
+})
+
 it('revoking a repo forgets its approvals, and survives a restart', () => {
   const store = new AppStore(file)
   store.approveConfig('/repo', 'h1')
