@@ -288,63 +288,85 @@ describe('LinearSync call volume', () => {
     expect(st.departures).toHaveLength(12)
   })
 
-  it('a launched issue deleted in Linear departs once as missing, its link is forgotten, and it is never looked up again', async () => {
+  it('a launched issue deleted in Linear departs once as missing, keeps its link, and is not looked up again', async () => {
     const f = fake(); f.mine = []
     f.briefs['L-1'] = issue('L-1', 'started', { id: 'u2', name: 'Other' })
-    let launched = ['L-1']
-    const forgotten: string[][] = []
-    const s = new LinearSync(file, f as never, () => launched, clock, () => [], (gone) => {
-      forgotten.push(gone)
-      launched = launched.filter((id) => !gone.includes(id))
-    })
+    const s = make(f, ['L-1'])
     expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['L-1'])
     delete f.briefs['L-1']
     const st = await s.refresh()
     expect(st.departures).toEqual([{ id: 'L-1', title: 'Title L-1', reason: 'missing' }])
-    expect(forgotten).toEqual([['L-1']])
     f.briefCalls.length = 0
+    s.ackDepartures(['L-1'])
     await s.refresh()
     await s.refresh()
     expect(f.briefCalls).toEqual([])
-    expect(s.state().departures.map((d) => d.id)).toEqual(['L-1'])
+    expect(s.state().departures).toEqual([])
+    expect(s.state().issues).toEqual([])
   })
 
-  it('a launched issue never listed and missing departs once under its ID, and is forgotten', async () => {
+  it('the not-found set survives a restart, and a launched issue never listed departs once under its ID', async () => {
     const f = fake(); f.mine = []
-    let launched = ['L-2']
-    const forgotten: string[][] = []
-    const s = new LinearSync(file, f as never, () => launched, clock, () => [], (gone) => {
-      forgotten.push(gone)
-      launched = launched.filter((id) => !gone.includes(id))
-    })
-    const st = await s.refresh()
+    const st = await make(f, ['L-2']).refresh()
     expect(st.departures).toEqual([{ id: 'L-2', title: 'L-2', reason: 'missing' }])
-    expect(forgotten).toEqual([['L-2']])
     f.briefCalls.length = 0
-    await s.refresh()
+    await make(f, ['L-2']).refresh()
     expect(f.briefCalls).toEqual([])
   })
 
-  it('a missing launched issue with an unsent edit is neither forgotten nor reported: it waits for Bastien', async () => {
+  it('a not-found launched issue that comes back in the list is listed again, and looked up again once it leaves', async () => {
+    const f = fake(); f.mine = []
+    const s = make(f, ['L-5'])
+    await s.refresh()
+    f.mine = [issue('L-5')]
+    expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['L-5'])
+    f.mine = []
+    f.briefs['L-5'] = issue('L-5', 'started', { id: 'u2', name: 'Other' })
+    f.briefCalls.length = 0
+    expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['L-5'])
+    expect(f.briefCalls).toEqual(['L-5'])
+  })
+
+  it('reconnecting (or another account) asks again for the issues not found', async () => {
+    const f = fake() as ReturnType<typeof fake> & { connection: () => { state: 'connected'; userId?: string } }
+    f.connection = () => ({ state: 'connected', userId: 'u1' })
+    f.mine = []
+    const s = make(f, ['L-6'])
+    await s.refresh()
+    f.briefs['L-6'] = issue('L-6')
+    s.reconnected()
+    expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['L-6'])
+    delete f.briefs['L-6']
+    await s.refresh()
+    f.briefs['L-6'] = issue('L-6')
+    f.connection = () => ({ state: 'connected', userId: 'u9' })
+    f.briefCalls.length = 0
+    expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['L-6'])
+    expect(f.briefCalls).toEqual(['L-6'])
+  })
+
+  it('a missing launched issue with an unsent edit is neither set aside nor reported: it waits for Bastien', async () => {
     const f = fake(); f.mine = []
     f.briefs['L-3'] = issue('L-3')
-    const forgotten: string[][] = []
-    const s = new LinearSync(file, f as never, () => ['L-3'], clock, () => ['L-3'], (gone) => { forgotten.push(gone) })
+    const s = new LinearSync(file, f as never, () => ['L-3'], clock, () => ['L-3'])
     await s.refresh()
     delete f.briefs['L-3']
     const st = await s.refresh()
     expect(st.issues.map((i) => i.id)).toEqual(['L-3'])
     expect(st.departures).toEqual([])
-    expect(forgotten).toEqual([])
+    f.briefCalls.length = 0
+    await s.refresh()
+    expect(f.briefCalls).toEqual(['L-3'])
   })
 
-  it('a lookup that fails forgets nothing', async () => {
+  it('a lookup that fails sets nothing aside', async () => {
     const f = fake(); f.mine = []
     f.briefs['L-4'] = new Error('network down')
-    const forgotten: string[][] = []
-    const s = new LinearSync(file, f as never, () => ['L-4'], clock, () => [], (gone) => { forgotten.push(gone) })
+    const s = make(f, ['L-4'])
     await s.refresh()
-    expect(forgotten).toEqual([])
+    f.briefCalls.length = 0
+    await s.refresh()
+    expect(f.briefCalls).toEqual(['L-4'])
   })
 })
 

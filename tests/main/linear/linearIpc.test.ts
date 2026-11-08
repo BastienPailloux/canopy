@@ -48,8 +48,7 @@ beforeEach(async () => {
   client = new LinearClient(vi.fn(async (): Promise<McpCaller> => fake), authStore)
   edits = new LinearEdits(join(dir, 'linear-pending.json'), client)
   linked = new LinkedIssues(store, localBranches)
-  sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids(), undefined, () => edits.pending().map((p) => p.id),
-    (ids) => linked.forget(ids))
+  sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids(), undefined, () => edits.pending().map((p) => p.id))
   events = []
   payloads = []
   handlers = new Map()
@@ -214,15 +213,17 @@ describe('registerLinearIpc', () => {
     expect(payloads).toContainEqual({})
   })
 
-  it('a launched issue deleted in Linear departs once and loses its link: no lookup on the next refreshes', async () => {
+  it('a launched issue Linear cannot find departs once and keeps its link: no lookup until a reconnect', async () => {
     store.setLinearLink(repo.path, 'CAN-9999', { branch: 'main', worktree: repo.path, base: 'main' })
     const st = await call('refresh', repo.path) as { departures: { id: string; reason: string }[] }
     expect(st.departures).toEqual([{ id: 'CAN-9999', title: 'CAN-9999', reason: 'missing' }])
-    expect(store.linearLinks(repo.path)['CAN-9999']).toBeUndefined()
+    expect(store.linearLinks(repo.path)['CAN-9999']).toMatchObject({ branch: 'main' })
     fake.calls.length = 0
     await call('refresh', repo.path)
     await call('refresh', repo.path)
     expect(fake.calls.filter((c) => c.name === 'get_issue')).toEqual([])
+    await call('connect')
+    await vi.waitFor(() => expect(fake.calls.filter((c) => c.name === 'get_issue').map((c) => (c.args as { id: string }).id)).toContain('CAN-9999'))
   })
 
   it('list reads the launched set again unless told the event changed no link', async () => {

@@ -108,7 +108,7 @@ export class LinkedIssues {
   private readonly byRoot = new Map<string, string[]>()
 
   constructor(
-    private readonly store: Pick<AppStore, 'linearLinks' | 'linearLinkRoots' | 'setLinearLink'>,
+    private readonly store: Pick<AppStore, 'linearLinks' | 'linearLinkRoots'>,
     private readonly branches: (root: string) => Promise<string[]>,
   ) {}
 
@@ -133,15 +133,6 @@ export class LinkedIssues {
     for (const [root, ids] of next) this.byRoot.set(root, ids)
   }
 
-  /** Drops the links of issues Linear says no longer exist (`LinearSync` reported them): they are never looked up again. */
-  forget(ids: string[]): void {
-    const gone = new Set(ids)
-    for (const [root, linkedIds] of this.byRoot) {
-      if (!linkedIds.some((id) => gone.has(id))) continue
-      for (const id of linkedIds) if (gone.has(id)) this.store.setLinearLink(root, id, null)
-      this.byRoot.set(root, linkedIds.filter((id) => !gone.has(id)))
-    }
-  }
 }
 
 type IpcClient = Pick<LinearClient, 'connection' | 'connect' | 'resume' | 'disconnect' | 'issue' | 'issueBrief' | 'teamOptions' | 'comment'>
@@ -151,7 +142,7 @@ export interface LinearIpcDeps {
   handle: (name: string, fn: (...args: unknown[]) => unknown) => void
   client: IpcClient
   edits: Pick<LinearEdits, 'save' | 'pending' | 'discard' | 'retryAll' | 'retryFailed' | 'onChange'>
-  sync: Pick<LinearSync, 'state' | 'refresh' | 'ackDepartures' | 'clear' | 'onChange'>
+  sync: Pick<LinearSync, 'state' | 'refresh' | 'ackDepartures' | 'clear' | 'onChange' | 'reconnected'>
   linked: Pick<LinkedIssues, 'recompute'>
   /** Where the links of launched issues are read. */
   store: Pick<AppStore, 'linearLinks'>
@@ -218,6 +209,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise
     const conn = await client.connect()
     checkConnection()
     if (conn.state === 'connected') {
+      sync.reconnected()
       void edits.retryAll().catch((e: unknown) => { log('linear retry failed', e) }).then(refreshLater)
     }
     return conn

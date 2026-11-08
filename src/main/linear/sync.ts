@@ -32,6 +32,11 @@ export class LinearSync {
   private departures: Departure[] = []
   /** Bastien's Linear user id, from `whoami` (the last one known): a launched issue kept with a new assignee still departs once unlaunched. */
   private me: string | null = null
+  /**
+   * Launched issues `get_issue` could not find: reported once, then not asked for again. Their link stays: « not found »
+   * also comes from a team access lost or another workspace. Asked again after a reconnect or an account change.
+   */
+  private missing = new Set<string>()
   private generation = 0
   private inflight: Promise<LinearListState> | null = null
   private listeners = new Set<(ids?: string[]) => void>()
@@ -46,8 +51,6 @@ export class LinearSync {
     private readonly now: () => Date = () => new Date(),
     /** Issues with an unsent edit: kept listed, even deleted in Linear (the last copy), until their queue is empty. */
     private readonly unsent: () => string[] = () => [],
-    /** Launched issues Linear says no longer exist: their link is to be dropped, so they are never looked up again. */
-    private readonly forget: (ids: string[]) => void = () => {},
   ) {
     this.load()
   }
@@ -90,8 +93,14 @@ export class LinearSync {
     this.expired = false
     this.departures = []
     this.me = null
+    this.missing.clear()
     try { rmSync(this.file, { force: true }) } catch (e) { console.error('linear cache removal failed', e) }
     for (const l of [...this.listeners]) l(undefined)
+  }
+
+  /** A connection was made again (maybe to another workspace): the issues not found are asked for again. */
+  reconnected(): void {
+    this.missing.clear()
   }
 
   refresh(): Promise<LinearListState> {
@@ -141,6 +150,8 @@ export class LinearSync {
     const unsent = this.pendingIds()
     const launched = new Set([...this.launched(), ...unsent])
     const prev = new Map(this.issues.map((i) => [i.id, i]))
+    if (me !== null && this.me !== null && me !== this.me) this.missing.clear()
+    const missing = new Set([...this.missing].filter((id) => launched.has(id) && !listedIds.has(id) && !unsent.has(id)))
     const kept: LinearIssue[] = []
     const newDepartures: Departure[] = []
 
@@ -153,11 +164,9 @@ export class LinearSync {
     }
 
     const gone = [...prev.values()].filter((old) => !listedIds.has(old.id))
-    const absent = [...launched].filter((id) => !listedIds.has(id) && !prev.has(id))
+    const absent = [...launched].filter((id) => !listedIds.has(id) && !prev.has(id) && !missing.has(id))
     const answers = await mapBatched([...gone.map((o) => o.id), ...absent], LOOKUP_BATCH, lookup)
     const answer = new Map([...gone.map((o) => o.id), ...absent].map((id, n) => [id, answers[n]]))
-    // Deleted in Linear: reported once, then its link goes, so it is never looked up again. Not while an edit waits.
-    const forgotten: string[] = []
 
     for (const old of gone) {
       const id = old.id
@@ -168,7 +177,7 @@ export class LinearSync {
       if (unsent.has(id)) { kept.push(old); continue }
       if (r === 'missing') {
         newDepartures.push({ id, title: old.title, reason: 'missing' })
-        if (launched.has(id)) forgotten.push(id)
+        if (launched.has(id)) missing.add(id)
         continue
       }
       if (statusGroup(r.status) === null) { newDepartures.push({ id, title: r.title, reason: 'canceled' }); continue }
@@ -180,7 +189,7 @@ export class LinearSync {
       const r = answer.get(id) ?? 'failed'
       if (r === 'missing' && !unsent.has(id)) {
         newDepartures.push({ id, title: id, reason: 'missing' })
-        forgotten.push(id)
+        missing.add(id)
       } else if (r !== 'missing' && r !== 'failed') kept.push(r)
     }
 
@@ -198,9 +207,7 @@ export class LinearSync {
     this.departures = [...this.departures.filter((d) => !back.has(d.id) && !fresh.has(d.id)), ...newDepartures]
     this.fetchedAt = this.now().toISOString()
     this.me = me
-    if (forgotten.length > 0) {
-      try { this.forget(forgotten) } catch (e) { console.error('linear link removal failed', e) }
-    }
+    this.missing = missing
   }
 
   private commit(ids?: string[]): void {
@@ -212,7 +219,7 @@ export class LinearSync {
     try {
       mkdirSync(dirname(this.file), { recursive: true })
       const tmp = `${this.file}.tmp`
-      writeFileSync(tmp, JSON.stringify({ issues: this.issues, fetchedAt: this.fetchedAt, departures: this.departures, me: this.me }), { mode: 0o600 })
+      writeFileSync(tmp, JSON.stringify({ issues: this.issues, fetchedAt: this.fetchedAt, departures: this.departures, me: this.me, missing: [...this.missing] }), { mode: 0o600 })
       renameSync(tmp, this.file)
     } catch { /* the cache is only an accelerator */ }
   }
@@ -227,6 +234,7 @@ export class LinearSync {
       this.fetchedAt = typeof raw.fetchedAt === 'string' ? raw.fetchedAt : null
       this.departures = Array.isArray(raw.departures) ? raw.departures.filter(isDeparture) : []
       this.me = typeof raw.me === 'string' ? raw.me : null
+      this.missing = new Set(Array.isArray(raw.missing) ? raw.missing.filter((id): id is string => typeof id === 'string') : [])
     } catch {
       try { renameSync(this.file, `${this.file}.corrupt-${Date.now()}`) } catch { /* ignore */ }
     }
