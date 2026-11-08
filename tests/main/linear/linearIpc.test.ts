@@ -24,6 +24,7 @@ let edits: LinearEdits
 let sync: LinearSync
 let linked: LinkedIssues
 let events: string[]
+let payloads: { ids?: string[] }[]
 let handlers: Map<string, (...args: unknown[]) => unknown>
 let refreshLinear: () => Promise<unknown>
 let authStore: { saveLinearAuth: ReturnType<typeof vi.fn<(s: unknown) => void>> }
@@ -50,12 +51,13 @@ beforeEach(async () => {
   sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids(), undefined, () => edits.pending().map((p) => p.id),
     (ids) => linked.forget(ids))
   events = []
+  payloads = []
   handlers = new Map()
   ;({ refresh: refreshLinear } = registerLinearIpc({
     handle: (name, fn) => { handlers.set(name, fn) },
     client, edits, sync, linked, store,
     launch: { tickets, store, activity: () => 'idle', sessions: () => 0, trusted: async () => false },
-    broadcast: (event) => { events.push(event) },
+    broadcast: (event, payload) => { events.push(event); if (event === 'linear:changed') payloads.push(payload as { ids?: string[] }) },
   }))
   await client.connect()
 })
@@ -186,7 +188,7 @@ describe('registerLinearIpc', () => {
     await client.save('CAN-1', { assignee: OTHER_USER }) // reassigned in Linear meanwhile
     await client.disconnect()
     expect(linked.ids()).toEqual([]) // nothing recomputed yet, as at an expired start
-    const refreshed = new Promise<void>((resolve) => { sync.onChange(resolve) })
+    const refreshed = new Promise<void>((resolve) => { sync.onChange(() => resolve()) })
     await call('connect')
     await refreshed
     const st = sync.state()
@@ -201,6 +203,17 @@ describe('registerLinearIpc', () => {
     expect((await call('refresh', repo.path) as { issues: unknown[] }).issues).toHaveLength(4)
   })
 
+  it('linear:changed names the issues touched: a save gives its id, a connection change none', async () => {
+    await call('refresh', repo.path)
+    payloads.length = 0
+    await call('save', 'CAN-2', { priority: 'high' })
+    await vi.waitFor(() => expect(payloads.some((p) => p.ids?.includes('CAN-2') && p.ids.length === 1)).toBe(true))
+    expect(payloads.every((p) => Array.isArray(p.ids))).toBe(true)
+    payloads.length = 0
+    await call('disconnect')
+    expect(payloads).toContainEqual({})
+  })
+
   it('a launched issue deleted in Linear departs once and loses its link: no lookup on the next refreshes', async () => {
     store.setLinearLink(repo.path, 'CAN-9999', { branch: 'main', worktree: repo.path, base: 'main' })
     const st = await call('refresh', repo.path) as { departures: { id: string; reason: string }[] }
@@ -210,6 +223,14 @@ describe('registerLinearIpc', () => {
     await call('refresh', repo.path)
     await call('refresh', repo.path)
     expect(fake.calls.filter((c) => c.name === 'get_issue')).toEqual([])
+  })
+
+  it('list reads the launched set again unless told the event changed no link', async () => {
+    const spy = vi.spyOn(linked, 'recompute')
+    await call('list', repo.path)
+    expect(spy).toHaveBeenCalledTimes(1)
+    await call('list', repo.path, false)
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 
   it('a sent save refreshes the list and emits linear:changed', async () => {

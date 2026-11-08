@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { LinearConnection, LinearLink, LinearListState, PendingEdit } from '../../shared/linear'
+import { changedIds, type LinearConnection, type LinearLink, type LinearListState, type PendingEdit } from '../../shared/linear'
 import { useApp } from '../store'
 
 interface LinearState {
@@ -57,25 +57,39 @@ export function refreshLinear(): Promise<void> {
   return mine.promise
 }
 
+/** Reads the followed repo's links again (after a launch: the issue's new branch). */
+export async function reloadLinearLinks(): Promise<void> {
+  const repo = followed
+  if (!repo) return
+  const links = await window.canopy.linearLinks(repo).catch(() => null)
+  if (links && followed === repo) useLinear.setState({ links })
+}
+
 /**
  * Keeps `useLinear` on the active repo: reads it on start and on a repo change, refreshes every 3 minutes while the
- * Tickets view is shown, on window focus, and re-reads (never refreshes) on `linear:changed`. Returns the stop function.
+ * Tickets view is shown, on window focus, and re-reads (never refreshes)
+ * on `linear:changed`: everything for an event naming no issue, else the list and the queue, the links only when a
+ * linked issue is named. Returns the stop function.
  */
 export function connectLinear(): () => void {
   let current: string | null = null
   let seq = 0
   let timer: ReturnType<typeof setInterval> | null = null
 
-  const read = async (): Promise<void> => {
+  /** `ids`: the issues an event named; omitted: read everything, branch listing and links included. */
+  const read = async (ids?: string[]): Promise<void> => {
     const repo = current
     const mine = ++seq
     const latest = (): boolean => current === repo && seq === mine
     const c = window.canopy
+    const known = useLinear.getState().links
+    // Listing every linked repo's branches costs git calls: only when the event may have changed a link.
+    const withLinks = ids === undefined || ids.some((id) => id in known)
     const [connection, list, pending, links] = await Promise.all([
       c.linearConnection().catch(() => null),
-      repo ? c.linearList(repo).catch(() => null) : Promise.resolve(null),
+      repo ? (ids === undefined ? c.linearList(repo) : c.linearList(repo, false)).catch(() => null) : Promise.resolve(null),
       c.linearPending().catch(() => null),
-      repo ? c.linearLinks(repo).catch(() => null) : Promise.resolve(null)
+      repo && withLinks ? c.linearLinks(repo).catch(() => null) : Promise.resolve(null)
     ])
     if (!latest()) return
     useLinear.setState((s) => ({
@@ -106,7 +120,7 @@ export function connectLinear(): () => void {
 
   const onFocus = (): void => { if (useApp.getState().view === 'tickets') void refresh() }
   window.addEventListener('focus', onFocus)
-  const off = window.canopy.on('linear:changed', () => { void read() })
+  const off = window.canopy.on('linear:changed', (p) => { void read(changedIds(p)) })
   follow(useApp.getState().repo)
   const unsub = useApp.subscribe((s, prev) => {
     if (s.repo !== prev.repo) follow(s.repo)

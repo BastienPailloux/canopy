@@ -125,7 +125,7 @@ export class LinearEdits {
   /** Discards asked during a send, applied once it settles; `null` = every field. */
   private readonly discards = new Map<string, Set<LinearField> | null>()
   private readonly tails = new Map<string, Promise<SaveResult | undefined>>()
-  private readonly listeners = new Set<() => void>()
+  private readonly listeners = new Set<(ids: string[]) => void>()
 
   constructor(private readonly file: string, private readonly client: Client) {
     const { entries, setAside } = this.load()
@@ -145,7 +145,7 @@ export class LinearEdits {
     const h = this.held.get(id)
     if (h) for (const f of fieldsOf(c)) delete h[f]
     this.persist()
-    this.emit()
+    this.emit(id)
     return this.schedule(id, false)
   }
 
@@ -181,10 +181,11 @@ export class LinearEdits {
     }
     this.drop(id, fields === undefined ? null : new Set(fields))
     this.persist()
-    this.emit()
+    this.emit(id)
   }
 
-  onChange(l: () => void): () => void {
+  /** `l` gets the issue whose queue changed. */
+  onChange(l: (ids: string[]) => void): () => void {
     this.listeners.add(l)
     return () => { this.listeners.delete(l) }
   }
@@ -260,7 +261,7 @@ export class LinearEdits {
     this.discards.delete(id)
     this.drop(id, discard === undefined ? new Set() : discard)
     this.persist()
-    this.emit()
+    this.emit(id)
 
     if (failure) return { kind: 'pending', reason: failure.reason, ...(out.issue ? { issue: out.issue } : {}) }
     if (out.conflict) return { kind: 'conflict', field: 'description', ...out.conflict, ...(out.issue ? { issue: out.issue } : {}) }
@@ -383,8 +384,8 @@ export class LinearEdits {
     return out
   }
 
-  private emit(): void {
-    for (const l of this.listeners) l()
+  private emit(id: string): void {
+    for (const l of this.listeners) l([id])
   }
 
   private setAside(): void {

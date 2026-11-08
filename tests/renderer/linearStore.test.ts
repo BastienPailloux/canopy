@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LinearIssue, LinearListState } from '../../src/shared/linear'
-import { connectLinear, refreshLinear, useLinear } from '../../src/renderer/tickets/linearStore'
+import { connectLinear, refreshLinear, reloadLinearLinks, useLinear } from '../../src/renderer/tickets/linearStore'
 import { useApp } from '../../src/renderer/store'
 
 const issue = { id: 'A-1', title: 'a', status: { id: null, name: 'En cours', type: 'started' }, priority: 'none', labels: [] } as unknown as LinearIssue
 const list = (over: Partial<LinearListState> = {}): LinearListState => ({ issues: [issue], fetchedAt: '2026-11-08T10:00:00', error: null, expired: false, departures: [], kept: [], ...over })
 
 describe('connectLinear', () => {
-  let changed: (() => void) | null
+  let changed: ((payload?: unknown) => void) | null
   let stop: (() => void) | null
   let refresh: ReturnType<typeof vi.fn>
   let listFn: ReturnType<typeof vi.fn>
@@ -26,7 +26,7 @@ describe('connectLinear', () => {
       canopy: {
         linearConnection: async () => ({ state: 'connected', missingTools: [] }),
         linearList: listFn, linearRefresh: refresh, linearPending: async () => [], linearLinks: async () => ({}),
-        on: (e: string, cb: () => void) => { if (e === 'linear:changed') changed = cb; return () => { changed = null } }
+        on: (e: string, cb: (payload?: unknown) => void) => { if (e === 'linear:changed') changed = cb; return () => { changed = null } }
       }
     })
   })
@@ -105,5 +105,36 @@ describe('connectLinear', () => {
     useApp.setState({ repo: '/other' })
     await flush()
     expect(useLinear.getState().links).toEqual({})
+  })
+
+  it('an event naming issues re-reads the list without the branch listing, and the links only for a linked issue', async () => {
+    const links = { 'A-1': { branch: 'b', worktree: 'w', base: 'x' } }
+    const linksFn = vi.fn(async () => links)
+    ;(window as any).canopy.linearLinks = linksFn
+    stop = connectLinear()
+    await flush()
+    listFn.mockClear(); linksFn.mockClear()
+    changed?.({ ids: ['B-7'] })
+    await flush()
+    expect(listFn).toHaveBeenCalledWith('/r', false)
+    expect(linksFn).not.toHaveBeenCalled()
+    changed?.({ ids: ['A-1'] })
+    await flush()
+    expect(linksFn).toHaveBeenCalledTimes(1)
+    listFn.mockClear(); linksFn.mockClear()
+    changed?.({})
+    await flush()
+    expect(listFn).toHaveBeenCalledWith('/r')
+    expect(linksFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloadLinearLinks reads the links of the followed repo', async () => {
+    const linksFn = vi.fn(async () => ({}))
+    ;(window as any).canopy.linearLinks = linksFn
+    stop = connectLinear()
+    await flush()
+    linksFn.mockClear()
+    await reloadLinearLinks()
+    expect(linksFn).toHaveBeenCalledWith('/r')
   })
 })

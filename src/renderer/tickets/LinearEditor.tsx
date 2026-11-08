@@ -9,6 +9,7 @@ import { Markdown } from '../sessions/Markdown'
 import {
   closeLinearSaver, commentDraft, conflictHint, createLinearSaver, setCommentDraft, linearSaverFor, notifyLinearSavers, trackLinearSaver, type SideChange, type TextKey
 } from './linearSave'
+import { createEditorReload } from './linearReload'
 import { useLinear } from './linearStore'
 import { Description } from './TicketEditor'
 
@@ -46,6 +47,11 @@ function Editor({ id }: { id: string }): React.JSX.Element {
   const live = useRef(true)
   const me = useLinear((s) => s.connection.userId)
   const link = useLinear((s) => s.links[id])
+  /** `updatedAt` of the list's copy: newer than the one shown means Linear changed it. */
+  const listedAt = useLinear((s) => s.list.issues.find((i) => i.id === id)?.updatedAt)
+  const shownAt = useRef<string | null>(null)
+  shownAt.current = detail?.updatedAt ?? null
+  const gate = useRef<ReturnType<typeof createEditorReload> | null>(null)
 
   /** Reads the issue and main's queue; typed text stays, the rest follows Linear. */
   const load = async (): Promise<void> => {
@@ -88,15 +94,22 @@ function Editor({ id }: { id: string }): React.JSX.Element {
       void refreshPending()
     })
     void load()
-    const off = window.canopy.on('linear:changed', () => { void load() })
+    // Made per effect run: a stopped gate never reads again (StrictMode runs this effect twice).
+    const g = createEditorReload({ id, reload: () => { void load() }, pending: () => { void refreshPending() }, knownAt: () => shownAt.current })
+    gate.current = g
+    const off = window.canopy.on('linear:changed', (p) => g.event(p))
     return () => {
       live.current = false
+      g.stop()
+      if (gate.current === g) gate.current = null
       off()
       offResult()
       // Closing sends what was typed; text that cannot go stays counted and comes back with the next editor.
       void closeLinearSaver(id, saver, () => !live.current)
     }
   }, [])
+
+  useEffect(() => { gate.current?.listed(listedAt) }, [listedAt, detail?.updatedAt])
 
   const teamId = detail?.team.id
   useEffect(() => {

@@ -3,6 +3,7 @@ import { launchMockupsSection, type Mockup } from '../../shared/mockups'
 import { branchSlug, launchPrompt, type LaunchRequest, type Ticket } from '../../shared/tickets'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
+import { reloadLinearLinks } from './linearStore'
 
 /** `<type>/<slug of the title>`, `feat` unless told otherwise. */
 export function defaultBranchName(t: Ticket, type?: string): string {
@@ -46,6 +47,8 @@ export async function runLaunch(
 export async function runLinearLaunch(repo: string, req: LinearLaunchRequest, o: { startClaude: boolean }): Promise<void> {
   const before = useApp.getState().repo
   const result = await window.canopy.linearLaunch(repo, req)
+  // Main's change event names the issue only when its row changed: the new link is read here.
+  void reloadLinearLinks()
   await showLaunched(repo, before, result.worktree)
   if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue), { expectLinear: true })
 }

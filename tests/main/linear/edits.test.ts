@@ -466,3 +466,19 @@ describe('LinearEdits: only the stuck field is held', () => {
     expect(fileEntries(file)).toEqual([expect.objectContaining({ id: 'CAN-2', change: { title: 'ok' } })])
   })
 })
+
+describe('LinearEdits change events', () => {
+  it('name the issue whose queue changed', async () => {
+    const { client, opts } = await setup()
+    const edits = new LinearEdits(tmpFile(), client)
+    const seen: (string[] | undefined)[] = []
+    edits.onChange((ids) => { seen.push(ids) })
+    await edits.save('CAN-2', { priority: 'high' })
+    opts.failWith = new Error('fetch failed')
+    await edits.save('CAN-1', { priority: 'low' })
+    edits.discard('CAN-1')
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((ids) => ids !== undefined && ids.length === 1)).toBe(true)
+    expect(new Set(seen.flat())).toEqual(new Set(['CAN-2', 'CAN-1']))
+  })
+})

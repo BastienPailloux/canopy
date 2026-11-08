@@ -243,7 +243,10 @@ export interface CanopyApi {
    * and is forgotten after this answer. Null: none.
    */
   branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
-  /** The Linear connection. Emits `linear:changed` `{}` on any connection, list or queue change. */
+  /**
+   * The Linear connection. Emits `linear:changed` `{ ids }` on a list or queue change (the issues touched, maybe none)
+   * and `{}` on a connection change (anything may have changed).
+   */
   linearConnection(): Promise<LinearConnection>
   /** Interactive: may open the browser for Linear's consent. Once connected, the queue is resent and the list refreshed. */
   linearConnect(): Promise<LinearConnection>
@@ -252,8 +255,11 @@ export interface CanopyApi {
    * `Des modifications Linear n'ont pas été envoyées.` while edits are queued, unless `force` (the queue is then dropped).
    */
   linearDisconnect(force?: boolean): Promise<void>
-  /** The cached list (no network); `repo` picks whose launched issues stay listed (linked, branch still local). */
-  linearList(repo: string): Promise<LinearListState>
+  /**
+   * The cached list (no network); `repo` picks whose launched issues stay listed (linked, branch still local).
+   * `links: false` skips reading the branches of every linked repo again (an event that changed no link).
+   */
+  linearList(repo: string, links?: boolean): Promise<LinearListState>
   /** Asks Linear again; an error keeps the last list and is reported in `error`. */
   linearRefresh(repo: string): Promise<LinearListState>
   linearAckDepartures(ids: string[]): Promise<void>

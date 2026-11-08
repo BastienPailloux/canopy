@@ -163,13 +163,14 @@ export interface LinearIpcDeps {
 }
 
 /**
- * The `linear:*` channels. Every argument is checked here; `linear:changed` `{}` goes out on any sync, queue or connection
- * change. Returns the refresh, for the other triggers (system resume).
+ * The `linear:*` channels. Every argument is checked here; `linear:changed` `{ ids }` goes out on a sync or queue change
+ * (the issues touched), `{}` on a connection change. Returns the refresh, for the other triggers (system resume).
  */
 export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise<LinearListState> } {
   const { client, edits, sync, linked, broadcast } = deps
   const log = deps.log ?? ((msg, e) => { console.error(msg, e) })
-  const changed = (): void => { broadcast('linear:changed', {}) }
+  /** `ids`: the issues touched; none: anything may have changed (connection), every reader reads again. */
+  const changed = (ids?: string[]): void => { broadcast('linear:changed', ids ? { ids } : {}) }
   sync.onChange(changed)
   edits.onChange(changed)
 
@@ -179,7 +180,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise
     const now = client.connection().state
     if (now === lastState) return
     lastState = now
-    changed()
+    changed(undefined)
   }
   const handle = (name: string, fn: (...args: unknown[]) => unknown): void => {
     deps.handle(`linear:${name}`, async (...args) => {
@@ -228,9 +229,9 @@ export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise
     if (force === true) for (const p of edits.pending()) edits.discard(p.id)
     sync.clear()
   })
-  handle('list', async (repo) => {
+  handle('list', async (repo, links) => {
     assertPath(repo)
-    await recompute()
+    if (links !== false) await recompute()
     return sync.state()
   })
   handle('refresh', async (repo) => {

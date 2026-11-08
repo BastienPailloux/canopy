@@ -9,6 +9,9 @@ vi.mock('../../src/renderer/sessions/sessionStore', () => ({
   askClaude: vi.fn((cwd: string, text: string, o?: { expectLinear?: boolean }) => { calls.push(`askClaude ${cwd} ${text}${o?.expectLinear ? ' expectLinear' : ''}`); return 'tab' })
 }))
 
+const reloadLinearLinks = vi.fn(async () => {})
+vi.mock('../../src/renderer/tickets/linearStore', () => ({ reloadLinearLinks }))
+
 const { defaultBranchName, launchText, runLaunch, runLinearLaunch } = await import('../../src/renderer/tickets/launchFlow')
 const { useApp } = await import('../../src/renderer/store')
 
@@ -139,6 +142,12 @@ describe('runLinearLaunch', () => {
     expect(patchTicket).not.toHaveBeenCalled()
     expect(useApp.getState().view).toBe('sessions')
     expect(useApp.getState().worktree).toBe(NEW.path)
+  })
+
+  it('reads the links again: the list shows the new branch', async () => {
+    reloadLinearLinks.mockClear()
+    await runLinearLaunch('/r', LREQ, { startClaude: false })
+    expect(reloadLinearLinks).toHaveBeenCalledTimes(1)
   })
 
   it('does not ask Claude when not asked to', async () => {

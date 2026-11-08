@@ -38,6 +38,16 @@ export interface LinearIssueDetail extends LinearIssue {
   comments: LinearComment[]
 }
 
+/**
+ * The issues a `linear:changed` event names (`{ ids }`); `undefined` (`{}` or anything else): anything may have
+ * changed, every reader reads again.
+ */
+export function changedIds(payload: unknown): string[] | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined
+  const ids = (payload as { ids?: unknown }).ids
+  return Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? ids : undefined
+}
+
 export const LINEAR_NOTICE = 'Claude n’a pas accès à Linear dans cette session.'
 
 /** Whether a connected MCP server of a session's init message is Linear's. */

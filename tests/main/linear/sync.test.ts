@@ -347,3 +347,25 @@ describe('LinearSync call volume', () => {
     expect(forgotten).toEqual([])
   })
 })
+
+describe('LinearSync change events', () => {
+  it('a refresh names the issues it changed, added, removed or reported; a clear names none (everything)', async () => {
+    const f = fake(); f.mine = [issue('E-1'), issue('E-2')]
+    const s = make(f)
+    const seen: (string[] | undefined)[] = []
+    s.onChange((ids) => { seen.push(ids) })
+    await s.refresh()
+    expect(seen.pop()?.sort()).toEqual(['E-1', 'E-2'])
+    await s.refresh()
+    expect(seen.pop()).toEqual([])
+    f.mine = [{ ...issue('E-1'), title: 'Renamed', updatedAt: '2026-02-01T00:00:00Z' }, issue('E-3')]
+    f.briefs['E-2'] = issue('E-2', 'started', { id: 'u2', name: 'Other' })
+    await s.refresh()
+    expect(seen.pop()?.sort()).toEqual(['E-1', 'E-2', 'E-3'])
+    s.ackDepartures(['E-2'])
+    expect(seen.pop()).toEqual(['E-2'])
+    s.clear()
+    expect(seen.pop()).toBeUndefined()
+    expect(seen).toEqual([])
+  })
+})

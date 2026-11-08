@@ -34,7 +34,9 @@ export class LinearSync {
   private me: string | null = null
   private generation = 0
   private inflight: Promise<LinearListState> | null = null
-  private listeners = new Set<() => void>()
+  private listeners = new Set<(ids?: string[]) => void>()
+  /** Issues the last sync changed, added, removed or reported departed. */
+  private touched: string[] = []
 
   constructor(
     private readonly file: string,
@@ -63,7 +65,8 @@ export class LinearSync {
     }
   }
 
-  onChange(l: () => void): () => void {
+  /** `l` gets the issues a change touched; none (`undefined`): anything may have changed. */
+  onChange(l: (ids?: string[]) => void): () => void {
     this.listeners.add(l)
     return () => { this.listeners.delete(l) }
   }
@@ -72,8 +75,9 @@ export class LinearSync {
     const drop = new Set(ids)
     const next = this.departures.filter((d) => !drop.has(d.id))
     if (next.length === this.departures.length) return
+    const acked = this.departures.filter((d) => drop.has(d.id)).map((d) => d.id)
     this.departures = next
-    this.commit()
+    this.commit(acked)
   }
 
   /** Wipes memory and disk (disconnect); a refresh already in flight is discarded. */
@@ -87,7 +91,7 @@ export class LinearSync {
     this.departures = []
     this.me = null
     try { rmSync(this.file, { force: true }) } catch (e) { console.error('linear cache removal failed', e) }
-    for (const l of [...this.listeners]) l()
+    for (const l of [...this.listeners]) l(undefined)
   }
 
   refresh(): Promise<LinearListState> {
@@ -112,6 +116,7 @@ export class LinearSync {
 
   private async run(): Promise<LinearListState> {
     const gen = this.generation
+    this.touched = []
     try {
       await this.sync(gen)
       if (gen !== this.generation) return this.state()
@@ -123,7 +128,7 @@ export class LinearSync {
       this.error = e instanceof Error ? e.message : String(e)
     }
     if (gen !== this.generation) return this.state()
-    this.commit()
+    this.commit(this.touched)
     return this.state()
   }
 
@@ -181,7 +186,13 @@ export class LinearSync {
 
     if (gen !== this.generation) return
     const order = new Map([...this.issues].map((i, n) => [i.id, n]))
-    this.issues = [...listed, ...kept].sort((a, b) => (order.get(a.id) ?? -1) - (order.get(b.id) ?? -1))
+    const next = [...listed, ...kept].sort((a, b) => (order.get(a.id) ?? -1) - (order.get(b.id) ?? -1))
+    const nextById = new Map(next.map((i) => [i.id, i]))
+    const touched = new Set(newDepartures.map((d) => d.id))
+    for (const i of next) if (JSON.stringify(prev.get(i.id)) !== JSON.stringify(i)) touched.add(i.id)
+    for (const id of prev.keys()) if (!nextById.has(id)) touched.add(id)
+    this.touched = [...touched]
+    this.issues = next
     const back = new Set(this.issues.map((i) => i.id))
     const fresh = new Set(newDepartures.map((d) => d.id))
     this.departures = [...this.departures.filter((d) => !back.has(d.id) && !fresh.has(d.id)), ...newDepartures]
@@ -192,9 +203,9 @@ export class LinearSync {
     }
   }
 
-  private commit(): void {
+  private commit(ids?: string[]): void {
     this.save()
-    for (const l of [...this.listeners]) l()
+    for (const l of [...this.listeners]) l(ids)
   }
 
   private save(): void {
