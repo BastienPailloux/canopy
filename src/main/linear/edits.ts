@@ -227,7 +227,17 @@ export class LinearEdits {
     if (fieldsOf(left).length > 0) this.queued.set(id, left)
     else this.queued.delete(id)
     this.sending.set(id, change)
-    this.persist() // records the fields in flight
+    // Write-before-send: an edit not on disk is never sent, or a crash after Linear applied it would lose it.
+    const unsaved = this.persist() // records the fields in flight
+    if (unsaved !== null) {
+      this.sending.delete(id)
+      this.queued.set(id, all)
+      const reason = `Impossible d’enregistrer la modification sur le disque : ${unsaved}`
+      // kept as a failed send: the next save, retryAll or retryFailed writes it again before sending
+      this.errors.set(id, reason)
+      this.emit(id)
+      return { kind: 'pending', reason }
+    }
 
     let out: Outcome
     let failure: SendFailure | null = null
@@ -427,16 +437,18 @@ export class LinearEdits {
     return { entries: good, setAside: bad }
   }
 
-  /** Atomic write (tmp + rename), owner-only. */
-  private persist(): void {
+  /** Atomic write (tmp + rename), owner-only. The error's message when it failed (logged), else `null`. */
+  private persist(): string | null {
     try {
       mkdirSync(dirname(this.file), { recursive: true })
       const tmp = `${this.file}.${process.pid}.tmp`
       const entries = this.pending().map((p) => ({ ...p, sending: fieldsOf(this.sending.get(p.id) ?? {}) }))
       writeFileSync(tmp, JSON.stringify({ entries }, null, 2), { mode: 0o600 })
       renameSync(tmp, this.file)
+      return null
     } catch (e) {
       console.error('linear-pending: write failed', e)
+      return e instanceof Error ? e.message : String(e)
     }
   }
 }

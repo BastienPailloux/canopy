@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -267,6 +267,39 @@ describe('LinearEdits', () => {
     const edits = new LinearEdits(tmpFile(), client)
     const r = await edits.save('CAN-2', { priority: 'high' })
     expect(r).toEqual({ kind: 'pending', reason: "Linear n'est pas connecté." })
+  })
+
+  it('an edit the queue could not write to disk is never sent, and goes once the disk works again', async () => {
+    const { fake, client } = await setup()
+    const dir = mkdtempSync(join(tmpdir(), 'canopy-edits-'))
+    dirs.push(dir)
+    // a regular file where the queue's folder should be: every write fails
+    const blocker = join(dir, 'blocked')
+    writeFileSync(blocker, '')
+    const file = join(blocker, 'linear-pending.json')
+    /** What the queue's file held when each save reached Linear. */
+    const onDisk: unknown[] = []
+    const recording = { issueBrief: (id: string) => client.issueBrief(id), save: (id: string, args: Record<string, unknown>) => {
+      onDisk.push(fileEntries(file))
+      return client.save(id, args)
+    } }
+    const edits = new LinearEdits(file, recording)
+    const r = await edits.save('CAN-2', { priority: 'high' })
+    expect(r.kind).toBe('pending')
+    if (r.kind === 'pending') expect(r.reason).toMatch(/^Impossible d’enregistrer la modification sur le disque : .+/)
+    expect(saves(fake.calls)).toEqual([])
+    expect(edits.pending()).toEqual([expect.objectContaining({ id: 'CAN-2', change: { priority: 'high' } })])
+
+    await edits.retryFailed()
+    await edits.retryAll()
+    expect(saves(fake.calls)).toEqual([])
+
+    rmSync(blocker)
+    mkdirSync(blocker)
+    expect(await edits.save('CAN-2', { title: 'Later' })).toMatchObject({ kind: 'sent' })
+    expect(onDisk).toEqual([[expect.objectContaining({ id: 'CAN-2', sending: ['title', 'priority'] })]])
+    expect(saves(fake.calls)).toEqual([{ id: 'CAN-2', title: 'Later', priority: 2 }])
+    expect(edits.pending()).toEqual([])
   })
 
   it('a corrupt file is kept aside and the queue starts empty', () => {
