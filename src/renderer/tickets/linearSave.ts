@@ -1,4 +1,4 @@
-import type { LinearChange, LinearField, LinearIssue, PendingEdit, SaveResult } from '../../shared/linear'
+import { UNCERTAIN_REASON, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'
 
 export type TextKey = 'title' | 'description'
 
@@ -228,6 +228,13 @@ export function createLinearSaver(
       return () => { listeners.delete(l) }
     }
   }
+}
+
+/** Why the description shows both versions: main's held reason, else an unchecked uncertain resend, else a colleague. */
+export function conflictHint(entry: PendingEdit | undefined): string {
+  if (entry?.held.description) return entry.held.description
+  if (entry?.uncertain) return UNCERTAIN_REASON
+  return 'Un collègue a modifié le même passage de la description.'
 }
 
 /** The Linear editors' savers: open ones, and closed ones whose text could not be sent. Quit asks while one holds text. */

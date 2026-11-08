@@ -6,6 +6,7 @@ import { LinearClient } from '../../../src/main/linear/client'
 import { LinearEdits } from '../../../src/main/linear/edits'
 import type { ReplayOptions } from '../../../src/main/linear/replay'
 import { fakeLinear } from '../../helpers/fakeLinear'
+import { LinearError } from '../../../src/main/linear/parse'
 
 const dirs: string[] = []
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
@@ -285,7 +286,7 @@ describe('LinearEdits: unknown outcome is never applied twice', () => {
     expect((await client.issueBrief('CAN-2')).description).toBe('A2\n\nB\n\nC')
     const [p] = edits.pending()
     expect(p.change).toEqual({ description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' } })
-    expect(p.held.description).toMatch(/Conflit/)
+    expect(p.held.description).toBe('Linear a peut-être déjà reçu cette modification : vérifie les deux versions.')
   })
 
   it.each([
@@ -361,6 +362,28 @@ describe('LinearEdits: only the stuck field is held', () => {
     }])
   })
 
+  it('a combined save Linear partly applied then refused: the description is re-read before going alone, never applied twice', async () => {
+    const { fake, client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB')
+    const partial = {
+      issueBrief: client.issueBrief.bind(client),
+      // applies the patch, then refuses the labels (whole save reported refused)
+      save: async (id: string, args: Record<string, unknown>) => {
+        const { labels, ...rest } = args
+        if (labels === undefined) return client.save(id, rest)
+        if (rest.patch !== undefined) await client.save(id, { patch: rest.patch })
+        throw new LinearError('Error: label refused', false)
+      },
+    }
+    const edits = new LinearEdits(tmpFile(), partial)
+    fake.calls.length = 0
+    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' }, labels: ['Bug'] })
+    expect((await client.issueBrief('CAN-2')).description).toBe('A\n\nB\n\nC')
+    expect(r).toMatchObject({ kind: 'pending', reason: expect.stringMatching(/label refused/) })
+    expect(saves(fake.calls).filter((a) => a.patch !== undefined)).toHaveLength(1)
+    expect(edits.pending()).toEqual([expect.objectContaining({ change: { labels: ['Bug'] }, held: { labels: expect.stringMatching(/label refused/) } })])
+  })
+
   it("discard(id, ['labels']) keeps the description pending", async () => {
     const { client, colleague } = await setup()
     await colleague('CAN-2', 'A3\n\nB')
@@ -405,5 +428,7 @@ describe('LinearEdits: only the stuck field is held', () => {
     const edits = new LinearEdits(file, { issueBrief: async () => { throw new Error('x') }, save: async () => { throw new Error('x') } })
     expect(edits.pending().map((p) => p.id)).toEqual(['CAN-2'])
     expect(readdirSync(join(file, '..')).some((f) => f.startsWith('linear-pending.json.corrupt-'))).toBe(true)
+    // written back at once: a restart before the next save still finds the good entries
+    expect(fileEntries(file)).toEqual([expect.objectContaining({ id: 'CAN-2', change: { title: 'ok' } })])
   })
 })

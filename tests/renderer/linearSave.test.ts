@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { LinearChange, LinearIssue, LinearIssueDetail, PendingEdit, SaveResult } from '../../src/shared/linear'
-import { closeLinearSaver, createLinearSaver, openLinearSaver, unsavedLinear } from '../../src/renderer/tickets/linearSave'
+import { closeLinearSaver, conflictHint, createLinearSaver, openLinearSaver, unsavedLinear } from '../../src/renderer/tickets/linearSave'
 
 const ISSUE: LinearIssueDetail = {
   id: 'ENG-1', uuid: 'u1', title: 'Titre', description: 'Avant\n', url: 'https://linear.app/x/issue/ENG-1',
@@ -259,5 +259,19 @@ describe('createLinearSaver', () => {
     await closeLinearSaver('ENG-9', second, () => true)
     expect(unsavedLinear()).toBe(0)
     expect(openLinearSaver('ENG-9', make)).not.toBe(first)
+  })
+})
+
+describe('conflictHint', () => {
+  const entry = (over: Partial<PendingEdit>): PendingEdit => ({ id: 'CAN-1', change: {}, error: '', held: {}, uncertain: false, ...over })
+  it('the held reason when there is one', () => {
+    expect(conflictHint(entry({ held: { description: 'Linear n’a pas appliqué la modification' } }))).toBe('Linear n’a pas appliqué la modification')
+  })
+  it('an uncertain resend not checked yet has its own text', () => {
+    expect(conflictHint(entry({ uncertain: true, error: 'Linear injoignable : socket hang up' })))
+      .toBe('Linear a peut-être déjà reçu cette modification : vérifie les deux versions.')
+  })
+  it('else a colleague changed the passage', () => {
+    expect(conflictHint(undefined)).toBe('Un collègue a modifié le même passage de la description.')
   })
 })

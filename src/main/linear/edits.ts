@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { LinearChange, LinearField, LinearIssue, PendingEdit, SaveResult } from '../../shared/linear'
+import { UNCERTAIN_REASON, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'
 import { PRIORITIES, type TicketPriority } from '../../shared/tickets'
 import { LinearExpiredError, LinearNotConnectedError, LinearOfflineError, type LinearClient } from './client'
 import { diffToPatch, rebase, sameDescription, type PatchOp } from './descriptionPatch'
@@ -120,12 +120,15 @@ export class LinearEdits {
   private readonly listeners = new Set<() => void>()
 
   constructor(private readonly file: string, private readonly client: Client) {
-    for (const e of this.load()) {
+    const { entries, setAside } = this.load()
+    for (const e of entries) {
       this.queued.set(e.id, e.change)
       if (e.error) this.errors.set(e.id, e.error)
       if (Object.keys(e.held).length > 0) this.held.set(e.id, e.held)
       if (e.uncertain && e.change.description) this.uncertain.add(e.id)
     }
+    // The file was moved aside: the good entries must be on disk again before anything else happens.
+    if (setAside && entries.length > 0) this.persist()
   }
 
   /** Queues `c` for `id` and sends it (after any send already in flight for `id`). A changed field is no longer held. */
@@ -286,7 +289,7 @@ export class LinearEdits {
       }
       out.read = remote
       const ops = decide(d, remote.description, uncertain)
-      if (ops === 'conflict') conflict(remote.description)
+      if (ops === 'conflict') conflict(remote.description, uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)
       else if (ops.length === 0) {
         out.done.push('description')
         out.descriptionNow = remote.description
@@ -327,7 +330,7 @@ export class LinearEdits {
       } catch (e) {
         if (isPatchFailure(e) && parts.has('description')) {
           // an anchor vanished between the read and the send: nothing was saved; re-read once, then it is a conflict
-          if (!reread) { reread = true; await plan() } else conflict(String(parts.get('description')?.remote ?? ''))
+          if (!reread) { reread = true; await plan() } else conflict(String(parts.get('description')?.remote ?? ''), uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)
           continue
         }
         if (!(e instanceof LinearError)) throw failed(e, fs)
@@ -336,13 +339,20 @@ export class LinearEdits {
           parts.clear()
           break
         }
-        // Linear refused the whole save: find the refused field(s), sending one field at a time
-        for (const [f, a] of entries) {
+        // Linear refused the whole save: find the refused field(s), sending one field at a time. Linear may have
+        // applied part of it anyway: the description is read and planned again first, so a patch never goes twice.
+        for (const [f] of entries) {
+          if (f === 'description') {
+            await plan()
+            if (!parts.has('description')) continue // already there, or now a conflict
+          }
+          const a = parts.get(f)
+          if (!a) continue
           try {
             saved([f], await this.client.save(id, argsOf([[f, a]])))
           } catch (e2) {
             if (!(e2 instanceof LinearError)) throw failed(e2, [f])
-            if (f === 'description' && isPatchFailure(e2)) conflict(String(a.remote ?? ''))
+            if (f === 'description' && isPatchFailure(e2)) conflict(String(a.remote ?? ''), uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)
             else out.held[f] = reasonOf(e2)
             parts.delete(f)
           }
@@ -361,18 +371,18 @@ export class LinearEdits {
   }
 
   /** The stored queue; an unreadable file, or its malformed entries, are kept aside in `<file>.corrupt-<ms>`. */
-  private load(): (PendingEdit & { sending: LinearField[] })[] {
+  private load(): { entries: (PendingEdit & { sending: LinearField[] })[]; setAside: boolean } {
     let text: string
     try {
       text = readFileSync(this.file, 'utf8')
     } catch {
-      return [] // no file yet
+      return { entries: [], setAside: false } // no file yet
     }
     let v: unknown
     try { v = JSON.parse(text) } catch { v = null }
     if (!isRecord(v) || !Array.isArray(v.entries)) {
       this.setAside()
-      return []
+      return { entries: [], setAside: true }
     }
     const good: (PendingEdit & { sending: LinearField[] })[] = []
     let bad = false
@@ -391,8 +401,8 @@ export class LinearEdits {
         sending,
       })
     }
-    if (bad) this.setAside() // the good entries are written back on the next save
-    return good
+    if (bad) this.setAside() // the good entries are written back by the constructor
+    return { entries: good, setAside: bad }
   }
 
   /** Atomic write (tmp + rename), owner-only. */

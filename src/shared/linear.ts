@@ -180,4 +180,7 @@ export interface PendingEdit {
   uncertain: boolean
 }
 
+/** A description resent after a lost answer no longer matches its base: the earlier send may have been applied. */
+export const UNCERTAIN_REASON = 'Linear a peut-être déjà reçu cette modification : vérifie les deux versions.'
+
 export interface LinearLaunchRequest { id: string; branch: string; target: LaunchTarget }

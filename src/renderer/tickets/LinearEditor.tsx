@@ -7,7 +7,7 @@ import { MAX_DESCRIPTION, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, type TicketPrio
 import { basename, useApp } from '../store'
 import { Markdown } from '../sessions/Markdown'
 import {
-  closeLinearSaver, createLinearSaver, linearSaverFor, notifyLinearSavers, trackLinearSaver, type SideChange, type TextKey
+  closeLinearSaver, conflictHint, createLinearSaver, linearSaverFor, notifyLinearSavers, trackLinearSaver, type SideChange, type TextKey
 } from './linearSave'
 import { useLinear } from './linearStore'
 import { Description } from './TicketEditor'
@@ -210,11 +210,7 @@ function Editor({ id }: { id: string }): React.JSX.Element {
           {conflict
             ? (
               <section className="linear-conflict" aria-label="Conflit sur la description">
-                <p className="editor-hint">
-                  {entry?.uncertain && !entry.held.description
-                    ? entry.error || 'L’envoi précédent n’a pas eu de réponse : il est peut-être déjà appliqué.'
-                    : entry?.held.description ?? 'Un collègue a modifié le même passage de la description.'}
-                </p>
+                <p className="editor-hint">{conflictHint(entry)}</p>
                 <div className="conflict-sides">
                   <div><h3>Version Linear</h3><pre>{conflict.remote}</pre></div>
                   <div><h3>Ta version</h3><pre>{conflict.mine}</pre></div>
