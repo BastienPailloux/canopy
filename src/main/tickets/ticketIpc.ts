@@ -3,9 +3,9 @@ import { isAbsolute } from 'node:path'
 import type { WebContents } from 'electron'
 import type { AppStore } from '../appStore'
 import { git } from '../git/exec'
-import { currentBranch } from '../git/switchBranch'
-import { hasRef, mainWorktreeRoot } from '../git/worktrees'
+import { mainWorktreeRoot } from '../git/worktrees'
 import type { TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
+import { branchBaseAt } from './branchBase'
 import type { TicketStore } from './store'
 import { watchTickets } from './watch'
 
@@ -14,6 +14,10 @@ const STATUSES: TicketStatus[] = ['backlog', 'todo', 'in_progress', 'in_review',
 const PRIORITIES: TicketPriority[] = ['urgent', 'high', 'medium', 'low', 'none']
 const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base']
 const MAX_LABEL = 50
+const MAX_TITLE = 200
+const MAX_DESCRIPTION = 100_000
+const MAX_SUBTASKS = 200
+const MAX_LABELS = 20
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const bad = (what: string): Error => new Error(`${what} invalide`)
@@ -26,28 +30,26 @@ function assertId(id: unknown): asserts id is string {
   if (typeof id !== 'string' || !ID_RE.test(id)) throw bad('Identifiant')
 }
 
-function optionalString(v: unknown, what: string): void {
-  if (typeof v !== 'string') throw bad(what)
-}
 
 /** Checks the fields present in `raw`; unknown keys are refused. */
 function parseFields(raw: unknown): Partial<TicketFields> {
   if (!isObject(raw)) throw bad('Ticket')
   for (const k of Object.keys(raw)) if (!(FIELD_KEYS as string[]).includes(k)) throw bad(`Champ ${k}`)
   const { title, description, status, priority, labels, subtasks, branch, worktree, base } = raw
-  if (title !== undefined) optionalString(title, 'Titre')
-  if (description !== undefined) optionalString(description, 'Description')
+  if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > MAX_TITLE)) throw bad('Titre')
+  if (description !== undefined && (typeof description !== 'string' || description.length > MAX_DESCRIPTION)) throw bad('Description')
   if (status !== undefined && !STATUSES.includes(status as TicketStatus)) throw bad('Statut')
   if (priority !== undefined && !PRIORITIES.includes(priority as TicketPriority)) throw bad('Priorité')
   if (labels !== undefined) {
-    if (!Array.isArray(labels) || labels.some((l) => typeof l !== 'string' || l === '' || l.length > MAX_LABEL)) throw bad('Étiquette')
+    if (!Array.isArray(labels) || labels.length > MAX_LABELS || labels.some((l) => typeof l !== 'string' || l === '' || l.length > MAX_LABEL)) throw bad('Étiquette')
   }
   if (subtasks !== undefined) {
-    if (!Array.isArray(subtasks) || subtasks.some((s) => !isObject(s) || typeof s.title !== 'string' || typeof s.done !== 'boolean')) throw bad('Sous-tâche')
+    if (!Array.isArray(subtasks) || subtasks.length > MAX_SUBTASKS ||
+      subtasks.some((s) => !isObject(s) || typeof s.title !== 'string' || s.title.length > MAX_TITLE || typeof s.done !== 'boolean')) throw bad('Sous-tâche')
   }
-  if (branch !== undefined) optionalString(branch, 'Branche')
-  if (worktree !== undefined) optionalString(worktree, 'Worktree')
-  if (base !== undefined) optionalString(base, 'Base')
+  if (branch !== undefined && typeof branch !== 'string') throw bad('Branche')
+  if (worktree !== undefined && (typeof worktree !== 'string' || !isAbsolute(worktree))) throw bad('Worktree')
+  if (base !== undefined && (typeof base !== 'string' || base === '' || base.startsWith('-'))) throw bad('Base')
   const out: Record<string, unknown> = {}
   for (const k of FIELD_KEYS) if (raw[k] !== undefined) out[k] = k === 'subtasks'
     ? (raw[k] as { title: string; done: boolean }[]).map((s) => ({ title: s.title, done: s.done }))
@@ -61,27 +63,13 @@ function parseNewTicket(raw: unknown): TicketFields {
   return { description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...f, title: f.title }
 }
 
-/** The base remembered for the branch checked out at `cwd`; forgotten once its branch is gone. */
-export async function branchBaseAt(store: AppStore, cwd: string): Promise<{ base: string } | { lost: string } | null> {
-  const root = await mainWorktreeRoot(cwd)
-  const branch = await currentBranch(cwd)
-  if (branch === null) return null
-  const base = store.branchBase(root, branch)
-  if (base === undefined) return null
-  if (await hasRef(root, `refs/heads/${base}`)) return { base }
-  store.setBranchBase(root, branch, null)
-  return { lost: base }
-}
-
 /** Names of the local branches of the repo. */
 export async function localBranches(repo: string): Promise<string[]> {
   const out = await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
   return out.split('\n').filter((b) => b !== '')
 }
 
-export function registerTicketIpc(
-  broadcast: (event: string, payload?: unknown) => void, tickets: TicketStore, store: AppStore
-): void {
+export function registerTicketIpc(tickets: TicketStore, store: AppStore): void {
   const handle = (name: string, fn: (...args: unknown[]) => unknown): void => {
     ipcMain.handle(`tickets:${name}`, (_e, ...args: unknown[]) => fn(...args))
   }
@@ -99,22 +87,30 @@ export function registerTicketIpc(
   })
   handle('labels', (repo) => { assertPath(repo); return tickets.labels(repo) })
 
-  // One watched repo per window; a later call replaces it.
-  const watched = new Map<number, () => void>()
+  // One watched repo per window; a later call replaces it. Events go to the owning window only.
+  const watched = new Map<number, { root: string; stop: () => void }>()
+  const latest = new Map<number, number>()
   const hooked = new Set<number>()
-  const unwatch = (id: number): void => { watched.get(id)?.(); watched.delete(id) }
+  const unwatch = (id: number): void => { watched.get(id)?.stop(); watched.delete(id) }
   ipcMain.handle('tickets:watch', async (e, repo: unknown) => {
     assertPath(repo)
     const sender: WebContents = e.sender
+    const id = sender.id
+    const seq = (latest.get(id) ?? 0) + 1
+    latest.set(id, seq)
     const root = await mainWorktreeRoot(repo)
-    if (sender.isDestroyed()) return
-    unwatch(sender.id)
-    if (!hooked.has(sender.id)) {
-      hooked.add(sender.id)
-      sender.once('destroyed', () => { unwatch(sender.id); hooked.delete(sender.id) })
+    // A newer call or a closed window won while git was answering.
+    if (latest.get(id) !== seq || sender.isDestroyed()) return
+    if (watched.get(id)?.root === root) return
+    unwatch(id)
+    if (!hooked.has(id)) {
+      hooked.add(id)
+      sender.once('destroyed', () => { unwatch(id); hooked.delete(id); latest.delete(id) })
     }
-    const stop = watchTickets(root, () => broadcast('tickets:changed', { repo: root }))
-    watched.set(sender.id, stop)
+    const stop = watchTickets(root, () => {
+      if (!sender.isDestroyed()) sender.send('canopy:event', 'tickets:changed', { repo: root })
+    })
+    watched.set(id, { root, stop })
   })
 
   ipcMain.handle('tickets:branchBase', (_e, cwd: unknown) => {

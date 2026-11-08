@@ -65,9 +65,8 @@ function sanitize(raw: unknown): State {
   if (isRecord(raw.branchBases)) {
     for (const [root, branches] of Object.entries(raw.branchBases)) {
       if (!isRecord(branches)) continue
-      const clean: Record<string, string> = {}
-      for (const [branch, base] of Object.entries(branches)) if (typeof base === 'string' && base !== '') clean[branch] = base
-      if (Object.keys(clean).length > 0) state.branchBases[root] = clean
+      const clean = Object.entries(branches).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1] !== '')
+      if (clean.length > 0) state.branchBases[root] = Object.fromEntries(clean)
     }
   }
   if (isRecord(raw.lastEntries)) {
@@ -149,11 +148,11 @@ export class AppStore {
 
   /** Remembers what `branch` was stacked on, or forgets it with null. */
   setBranchBase(root: string, branch: string, base: string | null): void {
-    const bases = { ...this.state.branchBases[root] }
-    if (base === null) delete bases[branch]
-    else bases[branch] = base
-    if (Object.keys(bases).length === 0) delete this.state.branchBases[root]
-    else this.state.branchBases[root] = bases
+    const bases = new Map(Object.entries(this.state.branchBases[root] ?? {}))
+    if (base === null) bases.delete(branch)
+    else bases.set(branch, base)
+    if (bases.size === 0) delete this.state.branchBases[root]
+    else this.state.branchBases[root] = Object.fromEntries(bases)
     this.save()
   }
 

@@ -228,3 +228,11 @@ test('remembers and prunes branch bases', async () => {
   await writeFile(file, JSON.stringify({ branchBases: ['x'] }))
   expect(new AppStore(file).branchBase('/a', 'x')).toBeUndefined()
 })
+
+test('a branch named __proto__ is a plain entry', () => {
+  const s = new AppStore(file)
+  s.setBranchBase('/r', '__proto__', 'main')
+  expect(s.branchBase('/r', '__proto__')).toBe('main')
+  expect(({} as Record<string, unknown>).main).toBeUndefined()
+  expect(new AppStore(file).branchBase('/r', '__proto__')).toBe('main')
+})

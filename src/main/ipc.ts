@@ -292,7 +292,7 @@ export function registerIpc(
   ipcMain.handle('shell:openExternal', (_e, url: unknown) => openExternalUrl(url, (u) => shell.openExternal(u)))
 
   registerCodeIpc(broadcast, lsp)
-  registerTicketIpc(broadcast, tickets, store)
+  registerTicketIpc(tickets, store)
 
   ipcMain.handle('worktree:list', async (_e, repo: unknown) => {
     assertPath(repo)

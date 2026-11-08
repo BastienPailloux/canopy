@@ -27,8 +27,7 @@ export function watchTickets(root: string, onChange: () => void): () => void {
     }
   })
   watcher.on('all', fire)
-  // A watcher that fails leaves the list as it is: the next write by the app refreshes it anyway.
-  watcher.on('error', () => undefined)
+  watcher.on('error', (e) => { console.error('[tickets] watcher', e) })
   return () => {
     stopped = true
     clearTimeout(timer)
