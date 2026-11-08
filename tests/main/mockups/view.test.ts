@@ -148,17 +148,9 @@ describe('needsLoad', () => {
 })
 
 describe('onViewDownload', () => {
-  const run = (url: string): { cancelled: boolean; opened: string[] } => {
-    const r = { cancelled: false, opened: [] as string[] }
-    onViewDownload({ cancel: () => { r.cancelled = true }, getURL: () => url }, (u) => { r.opened.push(u) })
-    return r
-  }
-
-  it('cancels every download and opens only http(s) ones in the browser', () => {
-    expect(run('https://claude.ai/file.zip')).toEqual({ cancelled: true, opened: ['https://claude.ai/file.zip'] })
-    expect(run('http://example.com/a')).toEqual({ cancelled: true, opened: ['http://example.com/a'] })
-    for (const u of ['blob:https://claude.ai/123', 'data:text/plain,hi', 'file:///etc/passwd', 'not a url']) {
-      expect(run(u), u).toEqual({ cancelled: true, opened: [] })
-    }
+  it('cancels every download and opens nothing', () => {
+    let cancelled = 0
+    onViewDownload({ cancel: () => { cancelled++ } })
+    expect(cancelled).toBe(1)
   })
 })

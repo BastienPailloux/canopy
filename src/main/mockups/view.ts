@@ -74,32 +74,24 @@ function elsewhere(currentUrl: string, mockupUrl: string): boolean {
   return parseArtifactUrl(currentUrl)?.id !== parseArtifactUrl(mockupUrl)?.id
 }
 
-/** A download asked by the view: cancelled, its URL opened in the browser if it is http(s). */
-export function onViewDownload(item: Pick<DownloadItem, 'cancel' | 'getURL'>, open: (url: string) => void): void {
+/** A download asked by the view: cancelled. Any frame can start one, so it never reaches the browser. */
+export function onViewDownload(item: Pick<DownloadItem, 'cancel'>): void {
   item.cancel()
-  const url = item.getURL()
-  let protocol = ''
-  try { protocol = new URL(url).protocol } catch { return }
-  if (protocol === 'https:' || protocol === 'http:') open(url)
 }
 
 /** The only permission the claude.ai pages get (their copy buttons). */
 const ALLOWED_PERMISSION = 'clipboard-sanitized-write'
 let partitionLocked = false
 
-/**
- * Denies the claude.ai partition every permission but the clipboard write, and sends its downloads to the browser,
- * once per process.
- */
-function lockPartition(openExternal: (url: string) => Promise<void>): void {
+/** Denies the claude.ai partition every permission but the clipboard write, and every download, once per process. */
+function lockPartition(): void {
   if (partitionLocked) return
   partitionLocked = true
   const s = session.fromPartition(MOCKUP_PARTITION)
   s.setPermissionRequestHandler((_wc, permission, callback) => { callback(permission === ALLOWED_PERMISSION) })
   s.setPermissionCheckHandler((_wc, permission) => permission === ALLOWED_PERMISSION)
-  s.on('will-download', (_e, item) => {
-    onViewDownload(item, (url) => { void openExternalUrl(url, openExternal).catch(() => undefined) })
-  })
+  // Any frame can start a download, artifact content included: cancel it, never hand it to the browser.
+  s.on('will-download', (_e, item) => { onViewDownload(item) })
 }
 
 /** Integer pixels, never negative. */
@@ -157,7 +149,7 @@ export class MockupViewManager {
     if (existing) return existing
     const win = BrowserWindow.fromWebContents(sender)
     if (!win || win.isDestroyed()) return null
-    lockPartition(this.deps.openExternal)
+    lockPartition()
     const view = new WebContentsView({
       webPreferences: { partition: MOCKUP_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false }
     })
