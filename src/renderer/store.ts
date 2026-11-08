@@ -53,6 +53,7 @@ interface AppState {
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
   setOpenTicket: (id: string | null) => void
+  setSelectedTicket: (id: string | null) => void
   setBase: (cwd: string, base: string | undefined) => void
 }
 
@@ -112,6 +113,7 @@ export const useApp = create<AppState>((set) => ({
   setWorktree: (worktree) => set({ worktree }),
   setView: (view) => set({ view }),
   setOpenTicket: (openTicket) => set({ openTicket }),
+  setSelectedTicket: (selectedTicket) => set({ selectedTicket }),
   setBase: (cwd, base) => set((s) => {
     const { [cwd]: _old, ...rest } = s.bases
     return { bases: base === undefined ? rest : { ...rest, [cwd]: base } }

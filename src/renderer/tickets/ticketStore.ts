@@ -7,9 +7,11 @@ interface TicketsState {
   repo: string | null
   entries: TicketListEntry[]
   error: string | null
+  /** False after a repo switch until its first read answers: an empty list then means nothing yet. */
+  loaded: boolean
 }
 
-export const useTickets = create<TicketsState>(() => ({ repo: null, entries: [], error: null }))
+export const useTickets = create<TicketsState>(() => ({ repo: null, entries: [], error: null, loaded: false }))
 
 /** Tickets not done; files that could not be read are not tickets. */
 export function openCount(entries: TicketListEntry[]): number {
@@ -25,33 +27,42 @@ export function groupByStatus(entries: TicketListEntry[], filter: 'all' | Ticket
     .filter((g) => g.tickets.length > 0)
 }
 
-/** Keeps `useTickets` on the active repo: loads its tickets, watches them and reloads on change. Returns the stop function. */
+/**
+ * Keeps `useTickets` on the active repo: loads its tickets, watches them and reloads on change. Returns the stop function.
+ * Only the latest read applies; a failed reload keeps the entries of the same repo and only reports its error.
+ */
 export function connectTickets(): () => void {
   let current: string | null = null
+  let seq = 0
 
   const load = async (repo: string): Promise<void> => {
+    const mine = ++seq
+    const latest = (): boolean => current === repo && seq === mine
     try {
       const entries = await window.canopy.listTickets(repo)
-      if (current === repo) useTickets.setState({ repo, entries, error: null })
+      if (latest()) useTickets.setState({ repo, entries, error: null, loaded: true })
     } catch (e) {
-      if (current === repo) useTickets.setState({ repo, entries: [], error: e instanceof Error ? e.message : String(e) })
+      if (latest()) useTickets.setState({ error: e instanceof Error ? e.message : String(e), loaded: true })
     }
   }
 
   const follow = (repo: string | null): void => {
     if (repo === current) return
     current = repo
-    useTickets.setState({ repo, entries: [], error: null })
+    seq++
+    useTickets.setState({ repo, entries: [], error: null, loaded: false })
     if (!repo) return
     void load(repo)
-    void window.canopy.watchTickets(repo).catch((e: unknown) => {
-      if (current === repo) useTickets.setState({ error: e instanceof Error ? e.message : String(e) })
-    })
+    // A change between that read and the watch starting would be missed: read again once it watches.
+    window.canopy.watchTickets(repo).then(
+      () => { if (current === repo) void load(repo) },
+      (e: unknown) => { if (current === repo) useTickets.setState({ error: e instanceof Error ? e.message : String(e) }) }
+    )
   }
 
   // `tickets:changed` carries the main root, which may differ from the repo path we follow: reload whatever is followed.
   const off = window.canopy.on('tickets:changed', () => { if (current) void load(current) })
   follow(useApp.getState().repo)
   const unsub = useApp.subscribe((s, prev) => { if (s.repo !== prev.repo) follow(s.repo) })
-  return () => { off(); unsub(); current = null }
+  return () => { off(); unsub(); current = null; seq++ }
 }
