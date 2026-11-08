@@ -95,3 +95,14 @@ export function linearLaunchPrompt(i: LinearIssue): string {
   parts.push(LINEAR_MCP_NOTE)
   return parts.join('\n\n')
 }
+
+/** A ticket that left the list; kept in the state until acknowledged. */
+export interface Departure { id: string; title: string; reason: 'reassigned' | 'canceled' | 'missing' }
+
+export interface LinearListState {
+  issues: LinearIssue[]
+  fetchedAt: string | null
+  error: string | null
+  expired: boolean
+  departures: Departure[]
+}
