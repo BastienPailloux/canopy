@@ -19,6 +19,8 @@ export const useLinear = create<LinearState>(() => ({
 }))
 
 export const REFRESH_MS = 180_000
+/** A focus within this long of the last good sync does not ask Linear again. */
+export const FOCUS_FRESH_MS = 30_000
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -67,7 +69,7 @@ export async function reloadLinearLinks(): Promise<void> {
 
 /**
  * Keeps `useLinear` on the active repo: reads it on start and on a repo change, refreshes every 3 minutes while the
- * Tickets view is shown, on window focus, and re-reads (never refreshes)
+ * Tickets view is shown, on window focus (unless the last good sync is under 30 s old), and re-reads (never refreshes)
  * on `linear:changed`: everything for an event naming no issue, else the list and the queue, the links only when a
  * linked issue is named. Returns the stop function.
  */
@@ -118,7 +120,12 @@ export function connectLinear(): () => void {
     void read().then(() => { if (current === repo && useApp.getState().view === 'tickets') return refresh() })
   }
 
-  const onFocus = (): void => { if (useApp.getState().view === 'tickets') void refresh() }
+  const onFocus = (): void => {
+    if (useApp.getState().view !== 'tickets') return
+    const at = useLinear.getState().list.fetchedAt
+    if (at !== null && Date.now() - Date.parse(at) < FOCUS_FRESH_MS) return
+    void refresh()
+  }
   window.addEventListener('focus', onFocus)
   const off = window.canopy.on('linear:changed', (p) => { void read(changedIds(p)) })
   follow(useApp.getState().repo)

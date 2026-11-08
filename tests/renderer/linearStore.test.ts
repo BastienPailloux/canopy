@@ -128,6 +128,24 @@ describe('connectLinear', () => {
     expect(linksFn).toHaveBeenCalledTimes(1)
   })
 
+  it('focus refreshes only when the last good sync is 30 s old or more', async () => {
+    vi.setSystemTime(new Date('2026-11-08T10:00:00.000Z'))
+    const fresh = async () => list({ fetchedAt: '2026-11-08T09:59:50.000Z' })
+    listFn.mockImplementation(fresh)
+    refresh.mockImplementation(fresh)
+    stop = connectLinear()
+    await flush()
+    const onFocus = (window.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(([e]) => e === 'focus')?.[1] as () => void
+    refresh.mockClear()
+    onFocus()
+    await flush()
+    expect(refresh).not.toHaveBeenCalled()
+    vi.setSystemTime(new Date('2026-11-08T10:00:21.000Z'))
+    onFocus()
+    await flush()
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
   it('reloadLinearLinks reads the links of the followed repo', async () => {
     const linksFn = vi.fn(async () => ({}))
     ;(window as any).canopy.linearLinks = linksFn
