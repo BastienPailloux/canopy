@@ -8,6 +8,8 @@ export const RELOAD_DEBOUNCE_MS = 300
  * and comment pages), so it is read again only when it may have changed in Linear: an event naming no issue
  * (connection), or a list copy newer than the version shown (a colleague, a resend by main). An event naming this
  * issue reads its queue only (local). Its own save answer is already shown: its list copy is not newer, nothing is read.
+ * An issue absent from the list (a sub-issue, one that left it) has no copy to compare: any other list or queue change
+ * reads it again.
  */
 export function createEditorReload(o: {
   id: string
@@ -17,6 +19,8 @@ export function createEditorReload(o: {
   pending: () => void
   /** `updatedAt` of the version shown; null: not loaded yet. */
   knownAt: () => string | null
+  /** The issue has no copy in the list. */
+  absent?: () => boolean
   delay?: number
 }): { event: (payload: unknown) => void; listed: (updatedAt: string | undefined) => void; stop: () => void } {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -41,6 +45,7 @@ export function createEditorReload(o: {
       const ids = changedIds(payload)
       if (ids === undefined) schedule('reload')
       else if (ids.includes(o.id)) schedule('pending')
+      else if (o.absent?.()) schedule('reload')
     },
     listed(updatedAt) {
       const known = o.knownAt()

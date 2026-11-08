@@ -51,6 +51,8 @@ function Editor({ id }: { id: string }): React.JSX.Element {
   const listedAt = useLinear((s) => s.list.issues.find((i) => i.id === id)?.updatedAt)
   const shownAt = useRef<string | null>(null)
   shownAt.current = detail?.updatedAt ?? null
+  const unlisted = useRef(false)
+  unlisted.current = listedAt === undefined
   const gate = useRef<ReturnType<typeof createEditorReload> | null>(null)
 
   /** Reads the issue and main's queue; typed text stays, the rest follows Linear. */
@@ -95,7 +97,7 @@ function Editor({ id }: { id: string }): React.JSX.Element {
     })
     void load()
     // Made per effect run: a stopped gate never reads again (StrictMode runs this effect twice).
-    const g = createEditorReload({ id, reload: () => { void load() }, pending: () => { void refreshPending() }, knownAt: () => shownAt.current })
+    const g = createEditorReload({ id, reload: () => { void load() }, pending: () => { void refreshPending() }, knownAt: () => shownAt.current, absent: () => unlisted.current })
     gate.current = g
     const off = window.canopy.on('linear:changed', (p) => g.event(p))
     return () => {

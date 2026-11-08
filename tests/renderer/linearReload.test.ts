@@ -5,6 +5,7 @@ describe('createEditorReload', () => {
   let reload: ReturnType<typeof vi.fn<() => void>>
   let pending: ReturnType<typeof vi.fn<() => void>>
   let knownAt: string | null
+  let absent: boolean
   let gate: ReturnType<typeof createEditorReload>
 
   beforeEach(() => {
@@ -12,7 +13,8 @@ describe('createEditorReload', () => {
     reload = vi.fn<() => void>()
     pending = vi.fn<() => void>()
     knownAt = '2026-11-08T10:00:00.000Z'
-    gate = createEditorReload({ id: 'CAN-1', reload, pending, knownAt: () => knownAt })
+    absent = false
+    gate = createEditorReload({ id: 'CAN-1', reload, pending, knownAt: () => knownAt, absent: () => absent })
   })
   afterEach(() => { gate.stop(); vi.useRealTimers() })
 
@@ -65,5 +67,21 @@ describe('createEditorReload', () => {
     gate.stop()
     await vi.advanceTimersByTimeAsync(1000)
     expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('an issue absent from the list (a sub-issue, one that left) reads again on any list change, once per burst', async () => {
+    absent = true
+    gate.event({ ids: ['CAN-2'] })
+    gate.event({ ids: [] })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('an issue absent from the list still reads only its queue on its own queue change (its save answer is shown)', async () => {
+    absent = true
+    gate.event({ ids: ['CAN-1'] })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(reload).not.toHaveBeenCalled()
+    expect(pending).toHaveBeenCalledTimes(1)
   })
 })
