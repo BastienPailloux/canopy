@@ -351,9 +351,9 @@ export function interrupt(id: string): void {
 export function setMode(id: string, mode: PermissionMode): void {
   rememberMode(mode)
   patchTab(id, { mode })
-  // Tabs never started are sessions to come: they follow the latest pick too.
+  // A tab with no process starts one with its next message, a resumed one too: it follows the latest pick.
   for (const t of Object.values(useSessions.getState().tabs)) {
-    if (t.id !== id && !t.localId && !t.sessionId && t.mode !== mode) patchTab(t.id, { mode })
+    if (t.id !== id && !t.localId && t.mode !== mode) patchTab(t.id, { mode })
   }
   const localId = tabOf(id)?.localId
   if (localId) void window.canopy.setSessionMode(localId, mode).catch((e: unknown) => patchTab(id, { error: errorText(e) }))

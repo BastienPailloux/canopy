@@ -400,6 +400,13 @@ describe('session mode', () => {
     expect(useSessions.getState().tabs[running].mode).toBe('auto')
   })
 
+  it('applies the choice to a past session reopened but not restarted yet', async () => {
+    await openSession(CWD, PAST)
+    const resumed = activeTab().id
+    setMode(newTab(CWD), 'plan')
+    expect(useSessions.getState().tabs[resumed].mode).toBe('plan')
+  })
+
   it('sends the chosen mode with the first message', async () => {
     ensureTab(CWD)
     setMode(activeTab().id, 'acceptEdits')
