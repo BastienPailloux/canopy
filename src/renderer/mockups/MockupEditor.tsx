@@ -7,12 +7,12 @@ import type { Ticket } from '../../shared/tickets'
 import { Conversation } from '../sessions/Conversation'
 import { useSessions } from '../sessions/sessionStore'
 import { useApp } from '../store'
-import { KIND_LABEL } from './AddMockupDialog'
-import { applyPublished, chatTab, sendEdit, watchPublishes } from './mockupChat'
+import { chatTab, sendEdit, usePublishError } from './mockupChat'
 import { StatusPill } from './MockupCard'
 import { MockupWebView } from './MockupWebView'
-import { useTicketList } from './MockupsScreen'
-import { attachToSession, dropMockup, linkedTicket, ticketWorktree, upsertMockup, useMockups } from './mockupStore'
+import {
+  attachToSession, dropMockup, KIND_LABEL, linkedTicket, ticketWorktree, upsertMockup, useMockups, useTicketList
+} from './mockupStore'
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -42,19 +42,11 @@ function Editor(props: { repo: string; cwd: string | null; mockup: Mockup | null
   const branchWorktree = useApp((s) => ticketWorktree(ticket, s.worktrees))
   const [panel, setPanel] = useState<'claude' | 'props'>('claude')
   const [tabId, setTabId] = useState(() => (cwd ? chatTab(cwd, m?.id ?? 'new') : undefined))
-  const [error, setError] = useState<string | null>(null)
+  const error = usePublishError((s) => s.text)
 
-  // What the async handlers below must read: the mockup as it is now, not as when they were set up.
+  // What the title handler must read: the mockup as it is now, not as when it was set up.
   const current = useRef(m)
   current.current = m
-
-  // Publishes of this conversation: reload the view, register variants, or (creation) become the mockup.
-  useEffect(() => {
-    if (!tabId || !cwd) return
-    return watchPublishes(tabId, (urls) => {
-      applyPublished(repo, cwd, current.current, urls).catch((e: unknown) => setError(`Maquette publiée non enregistrée : ${message(e)}`))
-    })
-  }, [repo, cwd, tabId])
 
   // The page title names the mockup until the user gives it a name.
   useEffect(() => window.canopy.on('mockups:title', (p) => {
@@ -83,7 +75,11 @@ function Editor(props: { repo: string; cwd: string | null; mockup: Mockup | null
             </button>
           </div>
         </div>
-        {error && <p className="mockups-error" role="alert">{error}</p>}
+        {error && (
+          <p className="mockups-error" role="alert">
+            {error} <button className="link" onClick={() => usePublishError.setState({ text: null })}>Fermer</button>
+          </p>
+        )}
         <MockupWebView url={m?.url ?? null}>
           <div className="mockup-view-invite">
             <h2>Nouvelle maquette</h2>
@@ -97,7 +93,7 @@ function Editor(props: { repo: string; cwd: string | null; mockup: Mockup | null
           <button role="tab" aria-selected={panel === 'props'} onClick={() => setPanel('props')}>Propriétés</button>
         </div>
         {panel === 'claude'
-          ? <Chat cwd={cwd} mockup={m} tabId={tabId} onTab={setTabId} />
+          ? <Chat repo={repo} cwd={cwd} mockup={m} tabId={tabId} onTab={setTabId} />
           : m
             ? <Properties repo={repo} mockup={m} ticket={ticket} tickets={tickets} onRemoved={props.onBack} />
             : <p className="mockup-side-note">La maquette sera enregistrée dans Canopy dès que Claude l’aura publiée.</p>}
@@ -114,7 +110,7 @@ function Editor(props: { repo: string; cwd: string | null; mockup: Mockup | null
 }
 
 /** The conversation of the mockup's tab, and its own small composer. */
-function Chat(props: { cwd: string | null; mockup: Mockup | null; tabId: string | undefined; onTab: (id: string) => void }): React.JSX.Element {
+function Chat(props: { repo: string; cwd: string | null; mockup: Mockup | null; tabId: string | undefined; onTab: (id: string) => void }): React.JSX.Element {
   const { cwd, mockup } = props
   const ids = useId()
   const tab = useSessions((s) => (props.tabId ? s.tabs[props.tabId] : undefined))
@@ -128,7 +124,7 @@ function Chat(props: { cwd: string | null; mockup: Mockup | null; tabId: string 
     setSending(true)
     setText('')
     try {
-      const r = await sendEdit(cwd, mockup, t, variant && !!mockup, props.onTab)
+      const r = await sendEdit(props.repo, cwd, mockup, t, variant && !!mockup, props.onTab)
       if (r.sent) setVariant(false)
       else setText((now) => (now === '' ? t : now))
     } finally {

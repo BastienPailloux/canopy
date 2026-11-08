@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { MOCKUP_STATUS_LABEL, mockupLine, shownStatus, type Mockup } from '../../shared/mockups'
 import type { Ticket } from '../../shared/tickets'
 import { basename, useApp } from '../store'
-import { useTickets } from '../tickets/ticketStore'
 import { AddMockupDialog } from './AddMockupDialog'
 import { MockupCard, MockupTemplate, TicketRef } from './MockupCard'
 import {
-  attachToSession, filterMockups, launchFromMockup, linkedTicket, relativeTime, sessionTarget, useMockups, type MockupFilter
+  attachToSession, filterMockups, launchFromMockup, linkedTicket, relativeTime, sessionTarget, useMockups, useTicketList,
+  type MockupFilter
 } from './mockupStore'
+import { startCreation } from './mockupChat'
 
 const FILTERS: { id: MockupFilter; label: string }[] = [
   { id: 'all', label: 'Toutes' },
@@ -16,12 +17,6 @@ const FILTERS: { id: MockupFilter; label: string }[] = [
 ]
 
 const plural = (n: number): string => (n > 1 ? `${n} maquettes liées` : `${n} maquette liée`)
-
-/** The repo's tickets, archived ones included: a mockup linked to one must know it is archived. */
-export function useTicketList(): Ticket[] {
-  const entries = useTickets((s) => s.entries)
-  return useMemo(() => entries.flatMap((e) => (e.kind === 'ticket' ? [e.ticket] : [])), [entries])
-}
 
 /** Screen 4: the repo's mockups as cards, and the selected one's detail. */
 export function MockupsScreen(): React.JSX.Element {
@@ -36,7 +31,7 @@ export function MockupsScreen(): React.JSX.Element {
   const shown = filterMockups(list, filter, { tickets, branch })
   const selected = list.find((m) => m.id === selectedId) ?? null
   const app = useApp.getState()
-  const create = (): void => { app.setPendingMockupTicket(null); app.setOpenMockup('new') }
+  const create = (): void => startCreation(null)
   const addButtons = (
     <>
       <button className="secondary" onClick={() => setAdding(true)}>+ Ajouter un lien</button>

@@ -2,9 +2,7 @@ import { useRef, useState } from 'react'
 import { MAX_MOCKUP_TITLE, parseArtifactUrl, type Mockup, type MockupKind } from '../../shared/mockups'
 import { useModal } from '../shell/useModal'
 import { useTickets } from '../tickets/ticketStore'
-import { upsertMockup } from './mockupStore'
-
-export const KIND_LABEL: Record<MockupKind, string> = { web: 'Web', phone: 'Téléphone' }
+import { KIND_LABEL, upsertMockup } from './mockupStore'
 
 /** « + Ajouter un lien »: a claude.ai mockup link, an optional title, its template and ticket. */
 export function AddMockupDialog(props: {

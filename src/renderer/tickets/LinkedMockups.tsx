@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { shownStatus, type Mockup } from '../../shared/mockups'
 import { AddMockupDialog } from '../mockups/AddMockupDialog'
 import { MockupTemplate } from '../mockups/MockupCard'
-import { useTicketList } from '../mockups/MockupsScreen'
-import { linkedTicket, upsertMockup, useMockups } from '../mockups/mockupStore'
+import { startCreation } from '../mockups/mockupChat'
+import { linkedTicket, upsertMockup, useMockups, useTicketList } from '../mockups/mockupStore'
 import { useApp } from '../store'
 
 /** Screen 3b, « Maquettes liées »: the ticket's mockups, and a menu to link one, add a link or have Claude make one. */
@@ -27,11 +27,7 @@ export function LinkedMockups(props: { repo: string; ticket: string }): React.JS
     app.setOpenMockup(m.id)
     app.setView('mockups')
   }
-  const generate = (): void => {
-    app.setPendingMockupTicket(ticket)
-    app.setOpenMockup('new')
-    app.setView('mockups')
-  }
+  const generate = (): void => startCreation(ticket)
 
   return (
     <section className="linked-mockups" aria-label="Maquettes liées">

@@ -31,7 +31,11 @@ export function MockupWebView(props: { url: string | null; children?: React.Reac
       if (!shown) {
         shown = true
         last = key
-        window.canopy.showMockupView(url, b).catch((e: unknown) => setError({ url, text: e instanceof Error ? e.message : String(e) }))
+        window.canopy.showMockupView(url, b).catch((e: unknown) => {
+          // Not shown: the next layout change tries again.
+          shown = false
+          setError({ url, text: e instanceof Error ? e.message : String(e) })
+        })
       } else if (key !== last) {
         last = key
         void window.canopy.setMockupViewBounds(b).catch(() => undefined)

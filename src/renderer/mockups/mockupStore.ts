@@ -1,9 +1,11 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
-import type { Mockup } from '../../shared/mockups'
+import type { Mockup, MockupKind } from '../../shared/mockups'
 import type { Ticket } from '../../shared/tickets'
 import type { Worktree } from '../../shared/types'
 import { ensureTab, setDraftText, useSessions } from '../sessions/sessionStore'
 import { useApp } from '../store'
+import { useTickets } from '../tickets/ticketStore'
 
 interface MockupsState {
   /** The repo the list belongs to (as given to the main process). */
@@ -24,6 +26,14 @@ export interface FilterContext {
   tickets: Ticket[]
   /** Branch of the active worktree, null if detached or none. */
   branch: string | null
+}
+
+export const KIND_LABEL: Record<MockupKind, string> = { web: 'Web', phone: 'Téléphone' }
+
+/** The repo's tickets, archived ones included: a mockup linked to one must know it is archived. */
+export function useTicketList(): Ticket[] {
+  const entries = useTickets((s) => s.entries)
+  return useMemo(() => entries.flatMap((e) => (e.kind === 'ticket' ? [e.ticket] : [])), [entries])
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
