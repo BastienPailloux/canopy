@@ -18,6 +18,7 @@ import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from
 import { basename, useApp, worktreeLabel } from './store'
 import { connectTickets } from './tickets/ticketStore'
 import { connectLinear } from './tickets/linearStore'
+import { LinearEditor } from './tickets/LinearEditor'
 import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
@@ -107,17 +108,13 @@ function Main(): React.JSX.Element {
   )
 }
 
-/** The editor of the open ticket; Linear tickets have none yet. */
-function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element {
+/** The editor of the open ticket, local or Linear. */
+function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element | null {
   if (k === 'new') return <TicketEditor id="new" />
   const p = parseTicketKey(k)
   if (p?.source === 'local') return <TicketEditor id={p.id} />
-  return (
-    <div className="placeholder">
-      <p>Ticket Linear — éditeur à venir</p>
-      <button className="link" onClick={() => useApp.getState().setOpenTicket(null)}>Retour à la liste</button>
-    </div>
-  )
+  if (p?.source === 'linear') return <LinearEditor id={p.id} />
+  return null
 }
 
 export function App(): React.JSX.Element {
