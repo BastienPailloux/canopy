@@ -52,7 +52,7 @@ async function newTicket(title: string, description = ''): Promise<void> {
 
 async function openLaunchPanel(id: string): Promise<void> {
   await nav('Tickets').click()
-  await page.getByTestId(`ticket-${id}`).click()
+  await page.getByTestId(`ticket-${id}`).getByRole('button', { name: /Lancer/ }).click()
 }
 
 test('create and edit a ticket', async () => {
@@ -76,6 +76,11 @@ test('create and edit a ticket', async () => {
   expect(text).toContain('Ajouter la recherche')
   expect(text).toContain('Chercher dans les fichiers')
   expect(git(repo.path, 'status', '--porcelain')).toBe('')
+
+  // Clicking a row opens the ticket for editing.
+  await group.getByTestId('ticket-REP-1').click()
+  await expect(page.getByRole('navigation', { name: "Fil d'Ariane" })).toContainText('REP-1')
+  await expect(page.getByLabel('Titre', { exact: true })).toHaveValue('Ajouter la recherche')
 })
 
 test('launch into a new worktree', async () => {

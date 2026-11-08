@@ -56,7 +56,7 @@ Chaque ligne : identifiant (mono), titre, priorité, labels, puis à droite :
 - si le ticket a une branche lancée et que cette branche existe encore : le nom de la branche en lien, qui ouvre la vue Sessions sur son worktree ;
 - sinon : bouton « ▶ Lancer ».
 
-Cliquer sur une ligne la sélectionne et remplit le panneau de droite. « Lancer » sur une ligne fait pareil et met le focus sur le bouton de lancement. Aucune sélection : le panneau invite à choisir un ticket.
+Cliquer sur une ligne ouvre le ticket en modification (écran 3b) **[Bastien]**. « Lancer » sur une ligne remplit le panneau de droite avec ce ticket et met le focus sur le bouton de lancement. Aucune sélection : le panneau invite à cliquer sur « Lancer ».
 
 Panneau de droite :
 

@@ -48,13 +48,13 @@ function Row(props: {
   t: Ticket
   selected: boolean
   linked: Worktree | null
-  onSelect: () => void
+  onOpen: () => void
   onLaunch: () => void
   onOpenLinked: (w: Worktree) => void
 }): React.JSX.Element {
   const { t, linked } = props
   return (
-    <div className="ticket-row" role="row" aria-selected={props.selected} data-testid={`ticket-${t.id}`} onClick={props.onSelect}>
+    <div className="ticket-row" role="row" aria-selected={props.selected} data-testid={`ticket-${t.id}`} title="Ouvrir le ticket" onClick={props.onOpen}>
       <span className="ticket-id mono">{t.id}</span>
       <span className="ticket-title" title={t.title}>{t.title}</span>
       {t.priority !== 'none' && <span className="ticket-priority">{PRIORITY_LABEL[t.priority]}</span>}
@@ -142,7 +142,7 @@ export function TicketsScreen(): React.JSX.Element {
                   )}
                 {open && g.tickets.map((t) => (
                   <Row key={t.id} t={t} selected={t.id === selectedId} linked={linkedWorktree(t, refs)}
-                    onSelect={() => { select(t.id); setFocusReq(null) }}
+                    onOpen={() => { select(t.id); setFocusReq(null); app.setOpenTicket(t.id) }}
                     onLaunch={() => { select(t.id); setFocusReq((r) => ({ id: t.id, seq: (r?.seq ?? 0) + 1 })) }}
                     onOpenLinked={openLinked} />
                 ))}
@@ -154,7 +154,7 @@ export function TicketsScreen(): React.JSX.Element {
       <aside className="launch-panel" aria-label="Lancement">
         {selected && repo
           ? <LaunchPanel key={`${repo}\0${selected.id}`} repo={repo} ticket={selected} refs={refs} focus={focusReq?.id === selected.id ? focusReq.seq : 0} />
-          : <p className="launch-empty">Choisis un ticket pour le lancer.</p>}
+          : <p className="launch-empty">Clique sur « Lancer » à côté d’un ticket pour préparer son lancement.</p>}
       </aside>
     </div>
   )
