@@ -219,3 +219,30 @@ test('startBranchIn rejects a base or branch starting with a dash', async () => 
   await expect(startBranchIn(repo.path, 'x', '--orphan')).rejects.toThrow()
   await expect(startBranchIn(repo.path, '-x', 'main')).rejects.toThrow()
 })
+
+test('startBranchIn from a remote branch sets no upstream', async () => {
+  repo = await createRepo({ remote: true })
+  await startBranchIn(repo.path, 'feat/r', 'origin/main')
+  expect(current(repo.path)).toBe('feat/r')
+  expect(() => g(repo!.path, 'rev-parse', '--abbrev-ref', 'feat/r@{upstream}')).toThrow()
+})
+
+test('startBranchIn with a missing base leaves files and stash alone', async () => {
+  repo = await createRepo()
+  await writeFile(join(repo.path, 'README.md'), 'edited\n')
+  await expect(startBranchIn(repo.path, 'feat/b', 'nope')).rejects.toThrow()
+  expect(current(repo.path)).toBe('main')
+  expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('edited\n')
+  expect(stashes(repo.path)).toBe('')
+})
+
+test('startBranchIn puts changes back when the switch fails after setting them aside', async () => {
+  repo = await createRepo()
+  await writeFile(join(repo.path, 'README.md'), 'edited\n')
+  await writeFile(join(repo.path, 'new.txt'), 'new\n')
+  await expect(startBranchIn(repo.path, 'feat/bad..name', 'main')).rejects.toThrow()
+  expect(current(repo.path)).toBe('main')
+  expect(await readFile(join(repo.path, 'README.md'), 'utf8')).toBe('edited\n')
+  expect(await readFile(join(repo.path, 'new.txt'), 'utf8')).toBe('new\n')
+  expect(stashes(repo.path)).toBe('')
+})

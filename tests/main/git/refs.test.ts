@@ -107,13 +107,12 @@ const commitAt = (cwd: string, file: string, date: string): void => {
 
 test('mostAdvancedBranch picks most commits ahead, then most recent', async () => {
   repo = await createRepo()
-  const a = await createWorktree(repo.path, { name: 'a', branch: 'feat/a', base: 'main' })
-  const b = await createWorktree(repo.path, { name: 'b', branch: 'feat/b', base: 'main' })
   const c = await createWorktree(repo.path, { name: 'c', branch: 'feat/c', base: 'main' })
-  const wt = (w: unknown): string => (typeof w === 'string' ? w : (w as { path: string }).path)
-  for (let i = 0; i < 2; i++) commitAt(wt(a), `a${i}`, '2030-01-01T00:00:00Z')
-  for (let i = 0; i < 3; i++) commitAt(wt(b), `b${i}`, '2030-01-02T00:00:00Z')
-  for (let i = 0; i < 3; i++) commitAt(wt(c), `c${i}`, '2030-01-03T00:00:00Z')
+  const b = await createWorktree(repo.path, { name: 'b', branch: 'feat/b', base: 'main' })
+  const a = await createWorktree(repo.path, { name: 'a', branch: 'feat/a', base: 'main' })
+  for (let i = 0; i < 3; i++) commitAt(c.path, `c${i}`, '2030-01-03T00:00:00Z')
+  for (let i = 0; i < 3; i++) commitAt(b.path, `b${i}`, '2030-01-02T00:00:00Z')
+  for (let i = 0; i < 2; i++) commitAt(a.path, `a${i}`, '2030-01-04T00:00:00Z')
   expect(await mostAdvancedBranch(repo.path, 'main')).toEqual({ branch: 'feat/c', ahead: 3 })
 })
 
