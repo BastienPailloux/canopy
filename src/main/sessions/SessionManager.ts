@@ -286,7 +286,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     copiesDir: string | undefined
   ): Options {
     // The injected env alone: it already holds the login shell env (USER included) and never ELECTRON_RUN_AS_NODE.
-    const env = { ...this.deps.env() }
+    // The Artifact tool (mockups on claude.ai) only exists with CLAUDE_CODE_ARTIFACT=1.
+    const env: NodeJS.ProcessEnv = { ...this.deps.env(), CLAUDE_CODE_ARTIFACT: '1' }
     delete env.ELECTRON_RUN_AS_NODE
     const pathToClaudeCodeExecutable = this.deps.pathToClaudeCodeExecutable?.()
     return {

@@ -827,10 +827,17 @@ test('env is the injected env alone: process.env does not leak back in', () => {
     const h = setup({ env: { PATH: '/x', ANTHROPIC_API_KEY: 'k' } })
     h.m.start('/a', { content: content('hi') })
     const env = h.queries[0].options.env
-    expect(env).toEqual({ PATH: '/x', ANTHROPIC_API_KEY: 'k' })
+    expect(env).toEqual({ PATH: '/x', ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_ARTIFACT: '1' })
   } finally {
     vi.unstubAllEnvs()
   }
+})
+
+test('every session gets the Artifact tool, whatever the shell env says', () => {
+  const h = setup({ env: { PATH: '/x', CLAUDE_CODE_ARTIFACT: '0' } })
+  h.m.start('/a', { content: content('hi') })
+  h.m.start('/b', { content: content('hi'), resumeId: 'r1' })
+  for (const q of h.queries) expect(q.options.env?.CLAUDE_CODE_ARTIFACT).toBe('1')
 })
 
 test('runningCount counts sessions mid-turn or waiting, not idle ones', async () => {
