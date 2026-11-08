@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allowedInView, clampBounds, MockupViewManager, mockupViewOverride, parseBounds } from '../../../src/main/mockups/view'
+import { allowedInView, clampBounds, MockupViewManager, mockupViewOverride, navigationAction, parseBounds } from '../../../src/main/mockups/view'
 
 const SHORT = 'WcXTxNhxSWaDL28ttqjZye'
 
@@ -62,5 +62,26 @@ describe('allowedInView', () => {
       'file:///etc/passwd', 'javascript:alert(1)', 'about:blank', 'not a url']) {
       expect(allowedInView(u), u).toBe(false)
     }
+  })
+})
+
+describe('navigationAction', () => {
+  const claude = `https://claude.ai/artifact/${SHORT}`
+  const away = 'https://example.com/page'
+
+  it('a main-frame link off claude.ai is cancelled and opened in the browser', () => {
+    expect(navigationAction({ kind: 'navigate', isMainFrame: true, url: away })).toBe('external')
+    expect(navigationAction({ kind: 'navigate', isMainFrame: true, url: claude })).toBe('allow')
+  })
+
+  it('a main-frame redirect off claude.ai is only cancelled: no browser without a gesture', () => {
+    expect(navigationAction({ kind: 'redirect', isMainFrame: true, url: away })).toBe('cancel')
+    expect(navigationAction({ kind: 'redirect', isMainFrame: true, url: 'http://claude.ai/' })).toBe('cancel')
+    expect(navigationAction({ kind: 'redirect', isMainFrame: true, url: claude })).toBe('allow')
+  })
+
+  it('subframes are left alone', () => {
+    expect(navigationAction({ kind: 'navigate', isMainFrame: false, url: away })).toBe('allow')
+    expect(navigationAction({ kind: 'redirect', isMainFrame: false, url: away })).toBe('allow')
   })
 })

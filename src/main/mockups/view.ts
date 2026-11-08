@@ -21,6 +21,17 @@ export function allowedInView(url: string): boolean {
   return VIEW_HOSTS.includes(host) || VIEW_HOST_SUFFIXES.some((s) => host.endsWith(s))
 }
 
+export interface NavigationEvent { kind: 'navigate' | 'redirect'; isMainFrame: boolean; url: string }
+
+/**
+ * What the view does with a navigation: subframes and allowed pages go on; a main-frame navigation elsewhere is
+ * cancelled and, only when the user started it (a link, not a redirect), opened in the browser.
+ */
+export function navigationAction(n: NavigationEvent): 'allow' | 'cancel' | 'external' {
+  if (!n.isMainFrame || allowedInView(n.url)) return 'allow'
+  return n.kind === 'navigate' ? 'external' : 'cancel'
+}
+
 /** The only permission the claude.ai pages get (their copy buttons). */
 const ALLOWED_PERMISSION = 'clipboard-sanitized-write'
 let partitionLocked = false
@@ -99,13 +110,14 @@ export class MockupViewManager {
       toBrowser(url)
       return { action: 'deny' }
     })
-    const guard = (e: { preventDefault: () => void }, url: string): void => {
-      if (allowedInView(url)) return
+    const guard = (e: { preventDefault: () => void; url: string; isMainFrame: boolean }, kind: NavigationEvent['kind']): void => {
+      const action = navigationAction({ kind, isMainFrame: e.isMainFrame, url: e.url })
+      if (action === 'allow') return
       e.preventDefault()
-      toBrowser(url)
+      if (action === 'external') toBrowser(e.url)
     }
-    wc.on('will-navigate', (e) => { guard(e, e.url) })
-    wc.on('will-redirect', (e) => { guard(e, e.url) })
+    wc.on('will-navigate', (e) => { guard(e, 'navigate') })
+    wc.on('will-redirect', (e) => { guard(e, 'redirect') })
     wc.on('page-title-updated', (_e, title) => {
       const url = entry.url
       if (url === null || sender.isDestroyed()) return
@@ -157,9 +169,14 @@ export class MockupViewManager {
     this.entries.get(sender.id)?.view.setVisible(false)
   }
 
+  /** Reloads the mockup shown; a view gone to another artifact meanwhile loads the mockup's URL again. */
   reload(sender: WebContents): void {
     const e = this.entries.get(sender.id)
-    if (e && e.url !== null) e.view.webContents.reload()
+    if (!e || e.url === null) return
+    const wc = e.view.webContents
+    if (parseArtifactUrl(wc.getURL())?.id !== parseArtifactUrl(e.url)?.id) {
+      void wc.loadURL(this.deps.override ?? e.url).catch(() => undefined)
+    } else wc.reload()
   }
 }
 
