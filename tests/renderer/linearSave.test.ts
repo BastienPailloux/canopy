@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { LinearChange, LinearIssue, LinearIssueDetail, PendingEdit, SaveResult } from '../../src/shared/linear'
-import { closeLinearSaver, conflictHint, createLinearSaver, openLinearSaver, unsavedLinear } from '../../src/renderer/tickets/linearSave'
+import {
+  closeLinearSaver, commentDraft, conflictHint, createLinearSaver, openLinearSaver, setCommentDraft, unsavedLinear
+} from '../../src/renderer/tickets/linearSave'
 
 const ISSUE: LinearIssueDetail = {
   id: 'ENG-1', uuid: 'u1', title: 'Titre', description: 'Avant\n', url: 'https://linear.app/x/issue/ENG-1',
@@ -273,5 +275,49 @@ describe('conflictHint', () => {
   })
   it('else a colleague changed the passage', () => {
     expect(conflictHint(undefined)).toBe('Un collègue a modifié le même passage de la description.')
+  })
+})
+
+describe('stranded savers', () => {
+  it('two closed editors of one issue with unsent text: none is lost, each comes back, the count matches', async () => {
+    let fail = true
+    const send = async (c: LinearChange): Promise<SaveResult> => fail
+      ? Promise.reject(new Error('réseau'))
+      : { kind: 'sent', issue: answer({ title: c.title ?? ISSUE.title, description: c.description?.text ?? ISSUE.description }) }
+    const make = () => createLinearSaver('ENG-8', ISSUE, send)
+    // two editors of ENG-8 at once (the second opened while the first was still sending on close)
+    const older = openLinearSaver('ENG-8', make)
+    const newer = openLinearSaver('ENG-8', make)
+    expect(newer).not.toBe(older)
+    older.text('description', 'Ancien texte')
+    newer.text('title', 'Nouveau titre')
+    await closeLinearSaver('ENG-8', older, () => true)
+    await closeLinearSaver('ENG-8', newer, () => true)
+    expect(unsavedLinear()).toBe(2)
+
+    const first = openLinearSaver('ENG-8', make)
+    expect(first).toBe(newer) // the newest text first
+    fail = false
+    await closeLinearSaver('ENG-8', first, () => true)
+    expect(unsavedLinear()).toBe(1)
+    const second = openLinearSaver('ENG-8', make)
+    expect(second).toBe(older)
+    expect(second.value('description')).toBe('Ancien texte')
+    await closeLinearSaver('ENG-8', second, () => true)
+    expect(unsavedLinear()).toBe(0)
+  })
+})
+
+describe('comment drafts', () => {
+  it('a comment being typed counts as unsaved and is kept for the next editor of the issue', () => {
+    const before = unsavedLinear()
+    expect(commentDraft('ENG-5')).toBe('')
+    setCommentDraft('ENG-5', 'Mon commentaire')
+    expect(unsavedLinear()).toBe(before + 1)
+    expect(commentDraft('ENG-5')).toBe('Mon commentaire')
+    setCommentDraft('ENG-5', '   ')
+    expect(unsavedLinear()).toBe(before)
+    setCommentDraft('ENG-5', '')
+    expect(commentDraft('ENG-5')).toBe('')
   })
 })

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createSaver, notifySavers, trackSaver } from '../../src/renderer/tickets/editorSave'
-import { closeLinearSaver, createLinearSaver, notifyLinearSavers, trackLinearSaver } from '../../src/renderer/tickets/linearSave'
+import { closeLinearSaver, createLinearSaver, notifyLinearSavers, setCommentDraft, trackLinearSaver } from '../../src/renderer/tickets/linearSave'
 import { connectUnsaved } from '../../src/renderer/unsaved'
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -34,5 +34,16 @@ it('counts the Linear editors holding typed text, not what main already queued',
   notifyLinearSavers()
   expect(reportUnsaved).toHaveBeenLastCalledWith({ buffers: 0, drafts: 0, tickets: 0 })
   await closeLinearSaver('ENG-1', saver, () => true)
+  stop()
+})
+
+it('counts a Linear comment being typed', () => {
+  const reportUnsaved = vi.fn(async () => {})
+  vi.stubGlobal('window', { canopy: { reportUnsaved } })
+  const stop = connectUnsaved()
+  setCommentDraft('ENG-3', 'À envoyer')
+  expect(reportUnsaved).toHaveBeenLastCalledWith({ buffers: 0, drafts: 0, tickets: 1 })
+  setCommentDraft('ENG-3', '')
+  expect(reportUnsaved).toHaveBeenLastCalledWith({ buffers: 0, drafts: 0, tickets: 0 })
   stop()
 })

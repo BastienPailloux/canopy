@@ -7,7 +7,7 @@ import { MAX_DESCRIPTION, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, type TicketPrio
 import { basename, useApp } from '../store'
 import { Markdown } from '../sessions/Markdown'
 import {
-  closeLinearSaver, conflictHint, createLinearSaver, linearSaverFor, notifyLinearSavers, trackLinearSaver, type SideChange, type TextKey
+  closeLinearSaver, commentDraft, conflictHint, createLinearSaver, setCommentDraft, linearSaverFor, notifyLinearSavers, trackLinearSaver, type SideChange, type TextKey
 } from './linearSave'
 import { useLinear } from './linearStore'
 import { Description } from './TicketEditor'
@@ -319,17 +319,21 @@ function SubIssues(props: { items: LinearIssueDetail['children'] }): React.JSX.E
 
 function Comments(props: { id: string; items: LinearComment[]; onAdded: (c: LinearComment) => void }): React.JSX.Element {
   const ids = useId()
-  const [body, setBody] = useState('')
+  // A comment typed in an earlier editor of this issue comes back; it counts as unsaved until posted.
+  const [body, setBodyState] = useState(() => commentDraft(props.id))
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const empty = body.trim() === ''
+  const setBody = (v: string): void => { setBodyState(v); setCommentDraft(props.id, v) }
   const send = async (): Promise<void> => {
     if (empty || sending) return
     setSending(true)
     setError(null)
+    const sent = body
     try {
-      props.onAdded(await window.canopy.linearComment(props.id, body))
-      setBody('')
+      props.onAdded(await window.canopy.linearComment(props.id, sent))
+      // Only what was posted is cleared: text typed during the send stays.
+      if (commentDraft(props.id) === sent) setBody('')
     } catch (e) {
       setError(message(e))
     } finally {

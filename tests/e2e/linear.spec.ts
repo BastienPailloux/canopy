@@ -229,3 +229,12 @@ test('settings show the account; disconnecting with a pending edit asks first', 
   await expect(settings).toContainText('Déconnecter quand même ?')
   await expect(settings.getByTestId('linear-account')).toBeVisible()
 })
+
+test('a comment being typed survives closing the editor', async () => {
+  await launch()
+  await openLinear('CAN-2')
+  await page.getByLabel('Ajouter un commentaire').fill('Pas encore posté')
+  await page.getByRole('button', { name: 'Retour' }).click()
+  await page.getByTestId('ticket-linear-CAN-2').click()
+  await expect(page.getByLabel('Ajouter un commentaire')).toHaveValue('Pas encore posté')
+})

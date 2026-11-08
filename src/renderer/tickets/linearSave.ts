@@ -239,20 +239,31 @@ export function conflictHint(entry: PendingEdit | undefined): string {
 
 /** The Linear editors' savers: open ones, and closed ones whose text could not be sent. Quit asks while one holds text. */
 const open = new Set<LinearSaver>()
-/** Closed editors' savers still holding text, by issue id: the next editor of the issue takes them back. */
-const stranded = new Map<string, LinearSaver>()
+/**
+ * Closed editors' savers still holding text, by issue id, oldest first: the next editor of the issue takes the newest,
+ * the others wait their turn. None is ever dropped, so every one counted at quit can be reopened.
+ */
+const stranded = new Map<string, LinearSaver[]>()
+/** Comments being typed and not posted, by issue id: kept when the editor closes, counted at quit. */
+const comments = new Map<string, string>()
 const watchers = new Set<() => void>()
 
 export function notifyLinearSavers(): void { for (const w of watchers) w() }
 
-/** The saver an editor of `id` should use: the one a closed editor left with unsent text, or a new one. No side effect. */
+const unstrand = (id: string, s: LinearSaver): void => {
+  const left = (stranded.get(id) ?? []).filter((x) => x !== s)
+  if (left.length > 0) stranded.set(id, left)
+  else stranded.delete(id)
+}
+
+/** The saver an editor of `id` should use: the newest one a closed editor left with unsent text, or a new one. No side effect. */
 export function linearSaverFor(id: string, make: () => LinearSaver): LinearSaver {
-  return stranded.get(id) ?? make()
+  return stranded.get(id)?.at(-1) ?? make()
 }
 
 /** Counts `s`, the saver of an open editor of `id`. */
 export function trackLinearSaver(id: string, s: LinearSaver): void {
-  if (stranded.get(id) === s) stranded.delete(id)
+  unstrand(id, s)
   open.add(s)
   notifyLinearSavers()
 }
@@ -270,12 +281,28 @@ export function openLinearSaver(id: string, make: () => LinearSaver): LinearSave
 export async function closeLinearSaver(id: string, s: LinearSaver, closed: () => boolean): Promise<void> {
   await s.commit().catch(() => null)
   if (!closed()) return
-  if (s.unsent()) stranded.set(id, s)
-  else open.delete(s)
+  if (s.unsent()) {
+    unstrand(id, s)
+    stranded.set(id, [...(stranded.get(id) ?? []), s])
+  } else {
+    unstrand(id, s)
+    open.delete(s)
+  }
   notifyLinearSavers()
 }
 
-export const unsavedLinear = (): number => [...open].filter((s) => s.unsent()).length
+/** The comment being typed on `id` ('' when none). */
+export const commentDraft = (id: string): string => comments.get(id) ?? ''
+
+export function setCommentDraft(id: string, text: string): void {
+  if (text === '') comments.delete(id)
+  else comments.set(id, text)
+  notifyLinearSavers()
+}
+
+/** Linear editors' text not handed over, and comments typed and not posted. */
+export const unsavedLinear = (): number =>
+  [...open].filter((s) => s.unsent()).length + [...comments.values()].filter((t) => t.trim() !== '').length
 
 export function onLinearSaversChange(l: () => void): () => void {
   watchers.add(l)
