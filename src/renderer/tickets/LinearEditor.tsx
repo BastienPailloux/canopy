@@ -1,9 +1,9 @@
 import { useEffect, useId, useReducer, useRef, useState } from 'react'
 import {
-  linearBranchName, readableDescription,
+  LINEAR_MAX_TITLE, linearBranchName, readableDescription,
   type LinearComment, type LinearField, type LinearIssue, type LinearIssueDetail, type LinearStatus, type LinearUser, type PendingEdit
 } from '../../shared/linear'
-import { MAX_DESCRIPTION, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, type TicketPriority, ticketKey } from '../../shared/tickets'
+import { MAX_DESCRIPTION, PRIORITIES, PRIORITY_LABEL, type TicketPriority, ticketKey } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { Markdown } from '../sessions/Markdown'
 import {
@@ -128,7 +128,7 @@ function Editor({ id }: { id: string }): React.JSX.Element {
   const side = saver.side()
   const statusId = side.statusId ?? p?.statusId ?? detail.status.id ?? options?.statuses.find((s) => s.name === detail.status.name)?.id ?? ''
   const priority = side.priority ?? p?.priority ?? detail.priority
-  const labels = side.labels ?? p?.labels ?? detail.labels
+  const labels = side.labels?.next ?? p?.labels?.next ?? detail.labels
   const assigneeId = side.assigneeId !== undefined ? side.assigneeId : p?.assigneeId !== undefined ? p.assigneeId : detail.assignee?.id ?? null
   const users = options?.users ?? (detail.assignee ? [detail.assignee] : [])
 
@@ -203,7 +203,7 @@ function Editor({ id }: { id: string }): React.JSX.Element {
 
           <label className="editor-label" htmlFor={`${ids}-title`}>Titre</label>
           <input id={`${ids}-title`} className="editor-title" value={saver.value('title')} placeholder="Titre du ticket"
-            spellCheck={false} maxLength={MAX_TITLE}
+            spellCheck={false} maxLength={LINEAR_MAX_TITLE}
             onChange={(e) => type('title', e.target.value)} onBlur={() => commit('title')} />
           {held('title')}
 
@@ -250,7 +250,7 @@ function Editor({ id }: { id: string }): React.JSX.Element {
           </select>
         </label>
         {held('priority')}
-        <LabelPicker value={labels} known={options?.labels ?? []} onChange={(l) => change({ labels: l })} />
+        <LabelPicker value={labels} known={options?.labels ?? []} onChange={(l) => change({ labels: { base: labels, next: l } })} />
         {held('labels')}
         <label className="prop">
           <span>Assigné</span>

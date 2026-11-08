@@ -73,13 +73,16 @@ describe('registerLinearIpc', () => {
 
   it('unknown LinearChange key refused', async () => {
     await expect(call('save', 'CAN-1', { status: 'Done' })).rejects.toThrow(/invalide/)
-    await expect(call('save', 'CAN-1', { title: 'x'.repeat(201) })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { title: 'x'.repeat(1001) })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { title: '  ' })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { description: { base: '', text: 'x'.repeat(100_001) } })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { description: 'plain' })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { description: { base: 'x'.repeat(100_001), text: '' } })).rejects.toThrow(/invalide/)
-    await expect(call('save', 'CAN-1', { labels: Array.from({ length: 21 }, (_, i) => `l${i}`) })).rejects.toThrow(/invalide/)
-    await expect(call('save', 'CAN-1', { labels: ['x'.repeat(51)] })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { labels: ['Bug'] })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { labels: { base: [], next: Array.from({ length: 101 }, (_, i) => `l${i}`) } })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { labels: { base: Array.from({ length: 101 }, (_, i) => `l${i}`), next: [] } })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { labels: { base: [], next: ['x'.repeat(201)] } })).rejects.toThrow(/invalide/)
+    await expect(call('save', 'CAN-1', { labels: { base: [1], next: [] } })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { priority: 'p1' })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', { assigneeId: 3 })).rejects.toThrow(/invalide/)
     await expect(call('save', 'CAN-1', {})).rejects.toThrow(/invalide/)
@@ -90,6 +93,14 @@ describe('registerLinearIpc', () => {
     await expect(call('launch', repo.path, { id: 'CAN-1', branch: 'feat/x', target: { kind: 'other', base: 'main' } })).rejects.toThrow(/invalide/)
     expect(saves()).toBe(0)
     expect(edits.pending()).toEqual([])
+  })
+
+  it('Linear limits, not the local ones: a long title and many labels go through validation', async () => {
+    opts.failWith = new Error('fetch failed') // queued, not sent: only validation matters here
+    await expect(call('save', 'CAN-1', { title: 'x'.repeat(1000) })).resolves.toMatchObject({ kind: 'pending' })
+    await expect(call('save', 'CAN-1', { title: 'x'.repeat(1001) })).rejects.toThrow(/invalide/)
+    const many = Array.from({ length: 100 }, (_, i) => `${'l'.repeat(190)}${i}`)
+    await expect(call('save', 'CAN-1', { labels: { base: [], next: many } })).resolves.toMatchObject({ kind: 'pending' })
   })
 
   it('disconnect refuses with pending edits', async () => {
@@ -201,7 +212,7 @@ describe('registerLinearIpc', () => {
     opts.failWith = new Error('fetch failed')
     await call('save', 'CAN-1', { title: 'Hors ligne' })
     opts.failWith = undefined
-    await call('save', 'CAN-2', { labels: ['Nope'] }) // refused by Linear: held, Bastien decides
+    await call('save', 'CAN-2', { labels: { base: [], next: ['Nope'] } }) // refused by Linear: held, Bastien decides
     fake.calls.length = 0
     await call('refresh', repo.path)
     await vi.waitFor(() => expect(edits.pending().map((p) => p.id)).toEqual(['CAN-2']))

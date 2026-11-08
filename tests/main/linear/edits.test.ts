@@ -48,9 +48,43 @@ describe('LinearEdits', () => {
   it('maps status, labels, assignee and title to save_issue names', async () => {
     const { fake, client } = await setup()
     const edits = new LinearEdits(tmpFile(), client)
-    const r = await edits.save('CAN-2', { title: 'New title', statusId: 'In Progress', labels: ['Bug'], assigneeId: null })
+    const r = await edits.save('CAN-2', { title: 'New title', statusId: 'In Progress', labels: { base: [], next: ['Bug'] }, assigneeId: null })
     expect(r).toMatchObject({ kind: 'sent', issue: { title: 'New title', labels: ['Bug'], assignee: null } })
     expect(saves(fake.calls)).toEqual([{ id: 'CAN-2', title: 'New title', state: 'In Progress', labels: ['Bug'], assignee: null }])
+  })
+
+  it("labels: Bastien's additions and removals go on top of Linear's current set, a colleague's label stays", async () => {
+    const { fake, client } = await setup()
+    await client.save('CAN-2', { labels: ['Bug', 'Feature'] })
+    const edits = new LinearEdits(tmpFile(), client)
+    // read by the editor: [Bug, Feature]; a colleague then added Improvement; Bastien removes Bug and adds nothing else
+    await client.save('CAN-2', { labels: ['Bug', 'Feature', 'Improvement'] })
+    fake.calls.length = 0
+    const r = await edits.save('CAN-2', { labels: { base: ['Bug', 'Feature'], next: ['Feature'] } })
+    expect(r).toMatchObject({ kind: 'sent', issue: { labels: ['Feature', 'Improvement'] } })
+    expect(saves(fake.calls)).toEqual([{ id: 'CAN-2', labels: ['Feature', 'Improvement'] }])
+
+    fake.calls.length = 0
+    await expect(edits.save('CAN-2', { labels: { base: ['Feature'], next: ['Feature', 'Bug'] } }))
+      .resolves.toMatchObject({ kind: 'sent', issue: { labels: ['Feature', 'Improvement', 'Bug'] } })
+  })
+
+  it('labels already as Bastien wants them in Linear: nothing sent', async () => {
+    const { fake, client } = await setup()
+    await client.save('CAN-2', { labels: ['Bug'] })
+    fake.calls.length = 0
+    const edits = new LinearEdits(tmpFile(), client)
+    await expect(edits.save('CAN-2', { labels: { base: [], next: ['Bug'] } })).resolves.toMatchObject({ kind: 'sent' })
+    expect(saves(fake.calls)).toEqual([])
+  })
+
+  it('queued label edits chain from the first base', async () => {
+    const { client, opts } = await setup()
+    opts.failWith = new Error('fetch failed')
+    const edits = new LinearEdits(tmpFile(), client)
+    await edits.save('CAN-2', { labels: { base: ['A'], next: ['A', 'B'] } })
+    await edits.save('CAN-2', { labels: { base: ['A', 'B'], next: ['B'] } })
+    expect(edits.pending()[0].change).toEqual({ labels: { base: ['A'], next: ['B'] } })
   })
 
   it('colleague edit elsewhere is kept', async () => {
@@ -162,7 +196,7 @@ describe('LinearEdits', () => {
   it('retryFailed resends only the entries whose last send failed, never the held fields', async () => {
     const { fake, client, opts } = await setup()
     const edits = new LinearEdits(tmpFile(), client)
-    await edits.save('CAN-2', { labels: ['Nope'] }) // refused: held
+    await edits.save('CAN-2', { labels: { base: [], next: ['Nope'] } }) // refused: held
     opts.failWith = new Error('fetch failed')
     await edits.save('CAN-3', { priority: 'low' })
     opts.failWith = undefined
@@ -354,11 +388,11 @@ describe('LinearEdits: only the stuck field is held', () => {
   it('refused label + status change: status sent, labels held with the error', async () => {
     const { fake, client } = await setup()
     const edits = new LinearEdits(tmpFile(), client)
-    const r = await edits.save('CAN-2', { labels: ['Nope'], statusId: 'In Progress' })
+    const r = await edits.save('CAN-2', { labels: { base: [], next: ['Nope'] }, statusId: 'In Progress' })
     expect(r).toMatchObject({ kind: 'pending', reason: expect.stringMatching(/refusé.*Nope/), issue: { status: { name: 'In Progress' } } })
     expect(saves(fake.calls)).toContainEqual({ id: 'CAN-2', state: 'In Progress' })
     expect(edits.pending()).toEqual([{
-      id: 'CAN-2', change: { labels: ['Nope'] }, error: '', held: { labels: expect.stringMatching(/unknown label Nope/) }, uncertain: false,
+      id: 'CAN-2', change: { labels: { base: [], next: ['Nope'] } }, error: '', held: { labels: expect.stringMatching(/unknown label Nope/) }, uncertain: false,
     }])
   })
 
@@ -377,11 +411,11 @@ describe('LinearEdits: only the stuck field is held', () => {
     }
     const edits = new LinearEdits(tmpFile(), partial)
     fake.calls.length = 0
-    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' }, labels: ['Bug'] })
+    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' }, labels: { base: [], next: ['Bug'] } })
     expect((await client.issueBrief('CAN-2')).description).toBe('A\n\nB\n\nC')
     expect(r).toMatchObject({ kind: 'pending', reason: expect.stringMatching(/label refused/) })
     expect(saves(fake.calls).filter((a) => a.patch !== undefined)).toHaveLength(1)
-    expect(edits.pending()).toEqual([expect.objectContaining({ change: { labels: ['Bug'] }, held: { labels: expect.stringMatching(/label refused/) } })])
+    expect(edits.pending()).toEqual([expect.objectContaining({ change: { labels: { base: [], next: ['Bug'] } }, held: { labels: expect.stringMatching(/label refused/) } })])
   })
 
   it("discard(id, ['labels']) keeps the description pending", async () => {
@@ -389,7 +423,7 @@ describe('LinearEdits: only the stuck field is held', () => {
     await colleague('CAN-2', 'A3\n\nB')
     const file = tmpFile()
     const edits = new LinearEdits(file, client)
-    await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A2\n\nB' }, labels: ['Nope'] })
+    await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A2\n\nB' }, labels: { base: [], next: ['Nope'] } })
     expect(Object.keys(edits.pending()[0].held).sort()).toEqual(['description', 'labels'])
     edits.discard('CAN-2', ['labels'])
     expect(edits.pending()).toEqual([{

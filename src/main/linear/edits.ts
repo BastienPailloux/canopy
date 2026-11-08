@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { UNCERTAIN_REASON, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'
+import { UNCERTAIN_REASON, applyLabels, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'
 import { PRIORITIES, type TicketPriority } from '../../shared/tickets'
 import { LinearExpiredError, LinearNotConnectedError, LinearOfflineError, type LinearClient } from './client'
 import { diffToPatch, rebase, sameDescription, type PatchOp } from './descriptionPatch'
@@ -16,7 +16,8 @@ const PLAIN: { field: Exclude<LinearField, 'description'>; arg: string; value: (
   { field: 'title', arg: 'title', value: (c) => c.title },
   { field: 'statusId', arg: 'state', value: (c) => c.statusId },
   { field: 'priority', arg: 'priority', value: (c) => (c.priority === undefined ? undefined : PRIORITY_VALUE[c.priority]) },
-  { field: 'labels', arg: 'labels', value: (c) => c.labels },
+  // computed on Linear's current set in `send`
+  { field: 'labels', arg: 'labels', value: () => undefined },
   { field: 'assigneeId', arg: 'assignee', value: (c) => c.assigneeId },
 ]
 const FIELDS: LinearField[] = ['title', 'description', 'statusId', 'priority', 'labels', 'assigneeId']
@@ -32,8 +33,15 @@ function merge(older: LinearChange | undefined, newer: LinearChange | undefined)
   if (older?.description && newer?.description && newer.description.base === older.description.text) {
     out.description = { base: older.description.base, text: newer.description.text }
   }
+  // Labels changed again from the queued set: still relative to the first base.
+  if (older?.labels && newer?.labels && sameSet(newer.labels.base, older.labels.next)) {
+    out.labels = { base: older.labels.base, next: newer.labels.next }
+  }
   return out
 }
+
+const sameSet = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x) => b.includes(x))
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((l) => typeof l === 'string')
 
 function only(c: LinearChange, keep: (f: LinearField) => boolean): LinearChange {
   const out: Record<string, unknown> = {}
@@ -71,7 +79,7 @@ function validChange(v: unknown): v is LinearChange {
       case 'title': case 'statusId': if (typeof x !== 'string') return false; break
       case 'description': if (!isRecord(x) || typeof x.base !== 'string' || typeof x.text !== 'string') return false; break
       case 'priority': if (!PRIORITIES.includes(x as TicketPriority)) return false; break
-      case 'labels': if (!Array.isArray(x) || !x.every((l) => typeof l === 'string')) return false; break
+      case 'labels': if (!isRecord(x) || !isStrings(x.base) || !isStrings(x.next)) return false; break
       case 'assigneeId': if (x !== null && typeof x !== 'string') return false; break
       default: return false
     }
@@ -320,6 +328,19 @@ export class LinearEdits {
       new SendFailure(reasonOf(e), fs.includes('description') && !notApplied(e), out)
 
     await plan()
+    if (c.labels) {
+      // Bastien's additions and removals on Linear's current set: a colleague's label added meanwhile stays.
+      let current: LinearIssue
+      try {
+        current = out.read ?? await this.client.issueBrief(id)
+      } catch (e) {
+        throw new SendFailure(reasonOf(e), false, out)
+      }
+      out.read ??= current
+      const target = applyLabels(current.labels, c.labels)
+      if (sameSet(target, current.labels)) out.done.push('labels')
+      else parts.set('labels', { labels: target })
+    }
     let reread = false
     while (parts.size > 0) {
       const entries = [...parts]

@@ -1,6 +1,8 @@
 import { isAbsolute } from 'node:path'
-import type { LinearChange, LinearField, LinearLaunchRequest, LinearListState } from '../../shared/linear'
-import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_TITLE, PRIORITIES, type LaunchTarget, type TicketPriority } from '../../shared/tickets'
+import {
+  LINEAR_MAX_LABEL, LINEAR_MAX_LABELS, LINEAR_MAX_TITLE, type LinearChange, type LinearField, type LinearLaunchRequest, type LinearListState,
+} from '../../shared/linear'
+import { MAX_DESCRIPTION, PRIORITIES, type LaunchTarget, type TicketPriority } from '../../shared/tickets'
 import type { AppStore } from '../appStore'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { clearSharedReads } from '../git/sharedReads'
@@ -22,6 +24,9 @@ const bad = (what: string): Error => new Error(`${what} invalide`)
 const isRef = (v: unknown): v is string => typeof v === 'string' && v !== '' && v.length <= MAX_REF
 const isRefArg = (v: unknown): v is string => typeof v === 'string' && v !== '' && !v.startsWith('-')
 
+const isLabelList = (v: unknown): v is string[] => Array.isArray(v) && v.length <= LINEAR_MAX_LABELS &&
+  v.every((l) => typeof l === 'string' && l !== '' && l.length <= LINEAR_MAX_LABEL)
+
 function assertPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
 }
@@ -39,7 +44,7 @@ export function parseChange(raw: unknown): LinearChange {
   const { title, description, statusId, priority, labels, assigneeId } = raw
   const out: LinearChange = {}
   if (title !== undefined) {
-    if (typeof title !== 'string' || title.trim() === '' || title.length > MAX_TITLE) throw bad('Titre')
+    if (typeof title !== 'string' || title.trim() === '' || title.length > LINEAR_MAX_TITLE) throw bad('Titre')
     out.title = title
   }
   if (description !== undefined) {
@@ -56,9 +61,8 @@ export function parseChange(raw: unknown): LinearChange {
     out.priority = priority as TicketPriority
   }
   if (labels !== undefined) {
-    if (!Array.isArray(labels) || labels.length > MAX_LABELS ||
-      labels.some((l) => typeof l !== 'string' || l === '' || l.length > MAX_LABEL)) throw bad('Étiquette')
-    out.labels = [...labels] as string[]
+    if (!isObject(labels) || !isLabelList(labels.base) || !isLabelList(labels.next)) throw bad('Étiquette')
+    out.labels = { base: [...labels.base], next: [...labels.next] }
   }
   if (assigneeId !== undefined) {
     if (assigneeId !== null && !isRef(assigneeId)) throw bad('Assigné')

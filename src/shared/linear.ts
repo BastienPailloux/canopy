@@ -146,7 +146,11 @@ export interface LinearChange {
   description?: { base: string; text: string }
   statusId?: string
   priority?: TicketPriority
-  labels?: string[]
+  /**
+   * `base`: the labels the editor showed when Bastien changed them; `next`: his set. Main applies what he added and
+   * removed (`base` -> `next`) to Linear's current set, so a colleague's label added meanwhile stays.
+   */
+  labels?: { base: string[]; next: string[] }
   /** `null` removes the assignee. */
   assigneeId?: string | null
 }
@@ -178,6 +182,19 @@ export interface PendingEdit {
   held: Partial<Record<LinearField, string>>
   /** A description patch may already be applied (the answer was lost): resent only if Linear still has the base. */
   uncertain: boolean
+}
+
+/** Linear's own limits (not the local tickets' ones). */
+export const LINEAR_MAX_TITLE = 1000
+export const LINEAR_MAX_LABELS = 100
+export const LINEAR_MAX_LABEL = 200
+
+/** `current` with what Bastien added and removed between `base` and `next`; Linear's order kept, additions last. */
+export function applyLabels(current: string[], change: { base: string[]; next: string[] }): string[] {
+  const removed = new Set(change.base.filter((l) => !change.next.includes(l)))
+  const added = change.next.filter((l) => !change.base.includes(l))
+  const kept = current.filter((l) => !removed.has(l))
+  return [...kept, ...added.filter((l) => !kept.includes(l))]
 }
 
 /** A description resent after a lost answer no longer matches its base: the earlier send may have been applied. */
