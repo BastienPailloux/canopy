@@ -118,7 +118,10 @@ export interface LinearListState {
 }
 
 export interface LinearConnection {
-  state: 'disconnected' | 'connected' | 'expired'
+  /** `offline`: tokens are stored but Linear could not be reached; every refresh tries them again. */
+  state: 'disconnected' | 'connected' | 'expired' | 'offline'
+  /** Why the connection is `offline`, in French. */
+  error?: string
   workspace?: string
   email?: string
   /** Bastien's Linear user id, from `whoami`. */

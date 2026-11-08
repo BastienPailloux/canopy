@@ -3,6 +3,7 @@ import { PREFIX_RE } from '../../shared/tickets'
 import { useApp } from '../store'
 import { ACCOUNT_CHANGED } from './AccountFooter'
 import { useLinear } from '../tickets/linearStore'
+import type { LinearConnection } from '../../shared/linear'
 import { useModal } from './useModal'
 
 interface KeyStatus { set: boolean; encryptionAvailable: boolean; readable: boolean }
@@ -13,7 +14,10 @@ const PENDING_MESSAGE = /Des modifications Linear n.ont pas été envoyées/
 
 /** The Linear connection: connect, who is connected, reconnect when expired, disconnect (asking when edits are unsent). */
 function LinearSettings(): React.JSX.Element {
-  const connection = useLinear((s) => s.connection)
+  return <LinearSettingsView connection={useLinear((s) => s.connection)} />
+}
+
+export function LinearSettingsView({ connection }: { connection: LinearConnection }): React.JSX.Element {
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -51,14 +55,14 @@ function LinearSettings(): React.JSX.Element {
   return (
     <div className="linear-settings" data-testid="linear-settings">
       <span className="title">Linear</span>
-      {state === 'connected' && (
-        <>
-          <span data-testid="linear-account">{[workspace, email].filter(Boolean).join(' · ')}</span>
-          {!confirming && <button type="button" className="secondary" onClick={() => void disconnect()}>Déconnecter</button>}
-        </>
-      )}
+      {state === 'connected' && <span data-testid="linear-account">{[workspace, email].filter(Boolean).join(' · ')}</span>}
       {state === 'expired' && <span className="linear-hint">Connexion Linear expirée.</span>}
-      {state !== 'connected' && (
+      {/* Tokens are stored: Canopy tries them again on every refresh, nothing to connect. */}
+      {state === 'offline' && <span className="linear-hint" role="status">{connection.error ?? 'Linear injoignable.'} Nouvel essai au prochain rafraîchissement.</span>}
+      {(state === 'connected' || state === 'offline') && !confirming && (
+        <button type="button" className="secondary" onClick={() => void disconnect()}>Déconnecter</button>
+      )}
+      {(state === 'disconnected' || state === 'expired') && (
         <>
           <button type="button" className="secondary" disabled={connecting} onClick={() => void connect()}>{connectLabel}</button>
           {state === 'disconnected' && <span className="linear-hint">Canopy demande la lecture et l'écriture sur ton espace Linear.</span>}

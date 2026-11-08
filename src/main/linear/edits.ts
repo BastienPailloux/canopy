@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { LinearChange, LinearField, LinearIssue, PendingEdit, SaveResult } from '../../shared/linear'
 import { PRIORITIES, type TicketPriority } from '../../shared/tickets'
-import { LinearExpiredError, LinearNotConnectedError, type LinearClient } from './client'
+import { LinearExpiredError, LinearNotConnectedError, LinearOfflineError, type LinearClient } from './client'
 import { diffToPatch, rebase, sameDescription, type PatchOp } from './descriptionPatch'
 import { LinearError, LinearFormatError } from './parse'
 
@@ -51,10 +51,11 @@ const isPatchFailure = (e: unknown): boolean => e instanceof LinearError && e.me
 
 /** The request was refused before reaching Linear, or Linear refused it: nothing was saved. */
 const notApplied = (e: unknown): boolean =>
-  e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearError
+  e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearOfflineError || e instanceof LinearError
 
 function reasonOf(e: unknown): string {
-  if (e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearFormatError) return e.message
+  if (e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearOfflineError ||
+    e instanceof LinearFormatError) return e.message
   if (e instanceof LinearError) return `Linear a refusé la modification : ${e.message}`
   return `Linear injoignable : ${e instanceof Error ? e.message : String(e)}`
 }

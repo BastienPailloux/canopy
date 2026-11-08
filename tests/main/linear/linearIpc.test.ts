@@ -226,6 +226,38 @@ describe('registerLinearIpc', () => {
     await vi.waitFor(() => expect(edits.pending()).toEqual([]))
   })
 
+  it('started offline: a refresh tries the stored tokens again, then resends the queue', async () => {
+    opts.failWith = new Error('fetch failed')
+    await call('save', 'CAN-1', { title: 'Hors ligne' })
+    await client.disconnect()
+    await client.resume()
+    expect(client.connection()).toMatchObject({ state: 'offline', error: expect.stringMatching(/injoignable/) })
+    const down = await call('refresh', repo.path) as { error: string | null }
+    expect(down.error).toMatch(/Linear injoignable : fetch failed/)
+    expect(client.connection().state).toBe('offline')
+
+    opts.failWith = undefined
+    events.length = 0
+    fake.calls.length = 0
+    const up = await call('refresh', repo.path) as { error: string | null; issues: unknown[] }
+    expect(up.error).toBeNull()
+    expect(up.issues).toHaveLength(4)
+    expect(client.connection().state).toBe('connected')
+    expect(events).toContain('linear:changed')
+    await vi.waitFor(() => expect(edits.pending()).toEqual([]))
+    expect(fake.calls.filter((c) => c.name === 'save_issue').map((c) => c.args)).toEqual([{ id: 'CAN-1', title: 'Hors ligne' }])
+  })
+
+  it('a send while offline is not uncertain: nothing reached Linear', async () => {
+    await client.disconnect()
+    opts.failWith = new Error('fetch failed')
+    await client.resume()
+    opts.failWith = undefined
+    const r = await call('save', 'CAN-1', { description: { base: 'a', text: 'b' } }) as { kind: string; reason: string }
+    expect(r).toMatchObject({ kind: 'pending', reason: expect.stringMatching(/injoignable/) })
+    expect(edits.pending()[0].uncertain).toBe(false)
+  })
+
   it('launch links the issue and follows it', async () => {
     const r = await call('launch', repo.path, { id: 'CAN-2', branch: 'feat/can-2', target: { kind: 'new', base: 'main' } }) as { worktree: string; issue: { id: string } }
     expect(r.issue.id).toBe('CAN-2')
@@ -247,6 +279,19 @@ describe('startLinear', () => {
       log: () => undefined,
     })
     expect(calls).toEqual(['links', 'resume', 'event', 'retry', 'refresh'])
+  })
+
+  it('offline at start: no resend, but the list records why it is stale', async () => {
+    const calls: string[] = []
+    await startLinear({
+      client: { resume: async () => { calls.push('resume'); return { state: 'offline', error: 'Linear injoignable : x', missingTools: [] } } },
+      linked: { recompute: async () => { calls.push('links') } },
+      edits: { retryAll: async () => { calls.push('retry') } },
+      sync: { refresh: async () => { calls.push('refresh'); return sync.state() } },
+      broadcast: () => { calls.push('event') },
+      log: () => undefined,
+    })
+    expect(calls).toEqual(['links', 'resume', 'event', 'refresh'])
   })
 
   it('stays quiet when not connected and never throws', async () => {

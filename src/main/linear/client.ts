@@ -43,6 +43,16 @@ export class LinearNotConnectedError extends Error {
   }
 }
 
+/** Tokens are stored but Linear could not be reached when resuming: nothing was sent. */
+export class LinearOfflineError extends Error {
+  constructor(reason: string) {
+    super(reason)
+    this.name = 'LinearOfflineError'
+  }
+}
+
+const offlineReason = (e: unknown): string => `Linear injoignable : ${e instanceof Error ? e.message : String(e)}`
+
 /** The SDK's own error, or the transport's 401 after a refresh that did not help. */
 const isUnauthorized = (e: unknown): boolean =>
   e instanceof UnauthorizedError || (typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 401)
@@ -72,7 +82,10 @@ export class LinearClient {
     return this.start(true, ++this.generation)
   }
 
-  /** Stored tokens only: never opens the browser. No tokens = disconnected, refused tokens = expired. */
+  /**
+   * Stored tokens only: never opens the browser. No tokens = disconnected, refused tokens = expired, Linear unreachable
+   * (or any other failure) = offline with the reason: the tokens stay, a later resume tries them again. Never throws.
+   */
   async resume(): Promise<LinearConnection> {
     const gen = ++this.generation
     try {
@@ -89,7 +102,9 @@ export class LinearClient {
         this.conn = { state: 'expired', missingTools: [] }
         return this.connection()
       }
-      throw e
+      await this.drop()
+      this.conn = { state: 'offline', error: offlineReason(e), missingTools: [] }
+      return this.connection()
     }
   }
 
@@ -140,7 +155,11 @@ export class LinearClient {
 
   private async call(tool: string, args: Record<string, unknown>): Promise<unknown> {
     const caller = this.caller
-    if (!caller) throw this.conn.state === 'expired' ? new LinearExpiredError() : new LinearNotConnectedError()
+    if (!caller) {
+      if (this.conn.state === 'expired') throw new LinearExpiredError()
+      if (this.conn.state === 'offline') throw new LinearOfflineError(this.conn.error ?? offlineReason('?'))
+      throw new LinearNotConnectedError()
+    }
     const r = await this.guard(caller, () => caller.callTool(tool, args))
     try {
       return toolJson(tool, r)

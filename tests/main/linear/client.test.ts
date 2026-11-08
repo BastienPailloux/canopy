@@ -1,7 +1,7 @@
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  LINEAR_MCP_URL, LinearClient, LinearExpiredError, LinearNotConnectedError, REQUIRED_TOOLS, linearOpener, type McpCaller,
+  LINEAR_MCP_URL, LinearClient, LinearExpiredError, LinearNotConnectedError, LinearOfflineError, REQUIRED_TOOLS, linearOpener, type McpCaller,
 } from '../../../src/main/linear/client'
 import { LinearError } from '../../../src/main/linear/parse'
 import type { ReplayOptions } from '../../../src/main/linear/replay'
@@ -64,6 +64,17 @@ describe('LinearClient connection', () => {
     await expect(none.resume()).resolves.toEqual({ state: 'disconnected', missingTools: [] })
     const refused = new LinearClient(async () => { throw new UnauthorizedError() }, memoryStore())
     await expect(refused.resume()).resolves.toEqual({ state: 'expired', missingTools: [] })
+  })
+
+  it('resume that cannot reach Linear with stored tokens is offline with the reason, and a later resume connects', async () => {
+    const opts: ReplayOptions = { failWith: new Error('fetch failed') }
+    const fake = fakeLinear(opts)
+    const client = new LinearClient(async () => fake, memoryStore())
+    await expect(client.resume()).resolves.toEqual({ state: 'offline', error: 'Linear injoignable : fetch failed', missingTools: [] })
+    await expect(client.listMine()).rejects.toBeInstanceOf(LinearOfflineError)
+    await expect(client.listMine()).rejects.toThrow('Linear injoignable : fetch failed')
+    opts.failWith = undefined
+    await expect(client.resume()).resolves.toMatchObject({ state: 'connected', workspace: 'canopy' })
   })
 
   it('UnauthorizedError expires the connection and throws LinearExpiredError', async () => {

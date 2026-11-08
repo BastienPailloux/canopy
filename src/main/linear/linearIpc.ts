@@ -130,7 +130,7 @@ export class LinkedIssues {
   }
 }
 
-type IpcClient = Pick<LinearClient, 'connection' | 'connect' | 'disconnect' | 'issue' | 'issueBrief' | 'teamOptions' | 'comment'>
+type IpcClient = Pick<LinearClient, 'connection' | 'connect' | 'resume' | 'disconnect' | 'issue' | 'issueBrief' | 'teamOptions' | 'comment'>
 
 export interface LinearIpcDeps {
   /** Registers `fn` for the IPC channel `name` (`ipcMain.handle` without the event). */
@@ -177,6 +177,11 @@ export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise
   /** The only way this module refreshes: the launched set is always current first, so no launched issue departs by mistake. */
   const refresh = async (): ReturnType<typeof sync.refresh> => {
     await recompute()
+    if (client.connection().state === 'offline') {
+      // Tokens stored but Linear was unreachable: try them again first (never the browser).
+      await client.resume().catch((e: unknown) => { log('linear resume failed', e) })
+      checkConnection()
+    }
     const st = await sync.refresh()
     // Linear answered: the edits that failed (network, connection) go now; held fields wait for Bastien.
     if (st.error === null) void edits.retryFailed().catch((e: unknown) => { log('linear retry failed', e) })
@@ -270,6 +275,11 @@ export async function startLinear(deps: {
     return
   }
   deps.broadcast('linear:changed', {})
+  if (state === 'offline') {
+    // The cached list shows with the reason; the next refresh tries the tokens again.
+    try { await deps.sync.refresh() } catch (e) { log('linear refresh failed', e) }
+    return
+  }
   if (state !== 'connected') return
   try { await deps.edits.retryAll() } catch (e) { log('linear retry failed', e) }
   try { await deps.sync.refresh() } catch (e) { log('linear refresh failed', e) }

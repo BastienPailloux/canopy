@@ -139,7 +139,7 @@ test('editing a description sends one save_issue with a patch', async () => {
   expect(await saveCalls()).toHaveLength(1)
 })
 
-test('a failed send stays pending across a restart, then goes through', async () => {
+test('a failed send stays pending across an offline restart, then goes on ⟳ once Linear is back', async () => {
   await launch()
   await openLinear('CAN-1')
   await writeFile(failFlag(), '')
@@ -150,15 +150,25 @@ test('a failed send stays pending across a restart, then goes through', async ()
   await page.getByRole('button', { name: 'Retour' }).click()
   await expect(page.getByTestId('ticket-linear-CAN-1').locator('.pending-mark')).toHaveText('non envoyé')
 
+  // Restarted while Linear is unreachable: the cached list shows, with why it is stale.
   await closeApp(app!)
   await launch()
   await openList()
   await expect(page.getByTestId('ticket-linear-CAN-1').locator('.pending-mark')).toHaveText('non envoyé')
+  await expect(page.getByTestId('linear-sync')).toContainText(/Linear · liste du \d\d:\d\d — Linear injoignable/)
   expect(await saveCalls()).toHaveLength(0)
+  // The tokens are stored: Settings never asks to connect.
+  await page.getByRole('button', { name: 'Réglages' }).click()
+  const settings = page.getByTestId('linear-settings')
+  await expect(settings).toContainText('Linear injoignable')
+  await expect(settings.getByRole('button', { name: 'Déconnecter', exact: true })).toBeVisible()
+  await expect(settings).not.toContainText('Connecter Linear')
+  await page.keyboard.press('Escape')
 
+  // Linear is back: ⟳ tries the stored tokens again, the list is fresh and the queued edit goes.
   await rm(failFlag())
-  // Main resends the queue at start and on every connect (a plain refresh does not).
-  await page.evaluate(() => window.canopy.linearConnect())
+  await page.getByRole('button', { name: 'Rafraîchir Linear' }).click()
+  await expect(page.getByTestId('linear-sync')).toContainText('synchro à l’instant')
   await expect.poll(saveCalls).toHaveLength(1)
   expect((await saveCalls())[0].args.patch).toBeTruthy()
   await expect(page.getByTestId('ticket-linear-CAN-1').locator('.pending-mark')).toHaveCount(0)
