@@ -290,3 +290,20 @@ test('a branch named __proto__ is a plain entry', () => {
   expect(({} as Record<string, unknown>).main).toBeUndefined()
   expect(new AppStore(file).branchBase('/r', '__proto__')).toBe('main')
 })
+
+describe('linearLinks', () => {
+  it('stores, replaces, clears, validates on load and prunes with the branches', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'canopy-links-')), 'state.json')
+    const s = new AppStore(file)
+    s.setLinearLink('/r', 'CAN-1', { branch: 'feat/a', worktree: '/w/a', base: 'main' })
+    s.setLinearLink('/r', 'CAN-2', { branch: 'feat/b', worktree: '/w/b', base: 'main' })
+    expect(new AppStore(file).linearLinks('/r')['CAN-1']).toEqual({ branch: 'feat/a', worktree: '/w/a', base: 'main' })
+    s.pruneBranchBases('/r', ['feat/b'])
+    expect(Object.keys(s.linearLinks('/r'))).toEqual(['CAN-2'])
+    s.setLinearLink('/r', 'CAN-2', null)
+    expect(s.linearLinks('/r')).toEqual({})
+    await writeFile(file, JSON.stringify({ linearLinks: { '/r': { A: { branch: 1 }, B: { branch: 'b', worktree: 'w', base: 'x' } }, '/q': 4 } }))
+    expect(new AppStore(file).linearLinks('/r')).toEqual({ B: { branch: 'b', worktree: 'w', base: 'x' } })
+    expect(new AppStore(file).linearLinks('/q')).toEqual({})
+  })
+})

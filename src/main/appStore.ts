@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { LinearLink } from '../shared/linear'
 
 const MAX_RECENT = 10
 
@@ -30,6 +31,8 @@ interface State {
   repoBases: Record<string, string>
   /** Base of a stacked branch, by main worktree root then branch. */
   branchBases: Record<string, Record<string, string>>
+  /** Launched Linear issues, by main worktree root then issue id. */
+  linearLinks: Record<string, Record<string, LinearLink>>
   /** Worktree last selected in each recent folder. */
   lastEntries: Record<string, string>
   prefs: Record<string, unknown>
@@ -46,7 +49,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -72,6 +75,18 @@ function sanitize(raw: unknown): State {
       if (!isRecord(branches)) continue
       const clean = Object.entries(branches).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1] !== '')
       if (clean.length > 0) state.branchBases[root] = Object.fromEntries(clean)
+    }
+  }
+  if (isRecord(raw.linearLinks)) {
+    for (const [root, links] of Object.entries(raw.linearLinks)) {
+      if (!isRecord(links)) continue
+      const clean: Record<string, LinearLink> = {}
+      for (const [id, l] of Object.entries(links)) {
+        if (isRecord(l) && typeof l.branch === 'string' && typeof l.worktree === 'string' && typeof l.base === 'string') {
+          clean[id] = { branch: l.branch, worktree: l.worktree, base: l.base }
+        }
+      }
+      if (Object.keys(clean).length > 0) state.linearLinks[root] = clean
     }
   }
   if (isRecord(raw.lastEntries)) {
@@ -162,15 +177,42 @@ export class AppStore {
     this.save()
   }
 
-  /** Forgets the bases of branches that no longer exist. */
-  pruneBranchBases(root: string, existing: string[]): void {
-    const bases = this.state.branchBases[root]
-    if (bases === undefined) return
-    const keep = Object.entries(bases).filter(([b]) => existing.includes(b))
-    if (keep.length === Object.keys(bases).length) return
-    if (keep.length === 0) delete this.state.branchBases[root]
-    else this.state.branchBases[root] = Object.fromEntries(keep)
+  linearLinks(root: string): Record<string, LinearLink> {
+    return { ...(this.state.linearLinks[root] ?? {}) }
+  }
+
+  /** Links a Linear issue to its launched branch, or forgets the link with null. */
+  setLinearLink(root: string, id: string, link: LinearLink | null): void {
+    const links = new Map(Object.entries(this.state.linearLinks[root] ?? {}))
+    if (link === null) links.delete(id)
+    else links.set(id, { ...link })
+    if (links.size === 0) delete this.state.linearLinks[root]
+    else this.state.linearLinks[root] = Object.fromEntries(links)
     this.save()
+  }
+
+  /** Forgets the bases and Linear links of branches that no longer exist. */
+  pruneBranchBases(root: string, existing: string[]): void {
+    let changed = false
+    const bases = this.state.branchBases[root]
+    if (bases !== undefined) {
+      const keep = Object.entries(bases).filter(([b]) => existing.includes(b))
+      if (keep.length !== Object.keys(bases).length) {
+        changed = true
+        if (keep.length === 0) delete this.state.branchBases[root]
+        else this.state.branchBases[root] = Object.fromEntries(keep)
+      }
+    }
+    const links = this.state.linearLinks[root]
+    if (links !== undefined) {
+      const keep = Object.entries(links).filter(([, l]) => existing.includes(l.branch))
+      if (keep.length !== Object.keys(links).length) {
+        changed = true
+        if (keep.length === 0) delete this.state.linearLinks[root]
+        else this.state.linearLinks[root] = Object.fromEntries(keep)
+      }
+    }
+    if (changed) this.save()
   }
 
   /** Remembers the worktree selected in `folder`. Folders that left the recents are dropped: nothing reopens them. */

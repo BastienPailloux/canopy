@@ -28,6 +28,9 @@ export interface LinearIssue {
   updatedAt: string
 }
 
+/** Where a launched Linear issue lives; kept in Canopy's own state, never in Linear. */
+export interface LinearLink { branch: string; worktree: string; base: string }
+
 export interface LinearComment { id: string; author: string; body: string; createdAt: string }
 
 export interface LinearIssueDetail extends LinearIssue {
