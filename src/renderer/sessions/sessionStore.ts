@@ -4,6 +4,7 @@ import type { RepoTrust, SessionEvents } from '../../shared/api'
 import { isRepoNotTrusted } from '../../shared/errors'
 import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
+import { preferredMode, rememberMode } from './modePreference'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
 
 export type TabState = SessionState | 'draft'
@@ -85,7 +86,7 @@ function addTab(cwd: string, fields: Partial<SessionTab>): string {
     resumable: false,
     transcript: emptyTranscript(),
     draft: { text: '', images: [] },
-    mode: 'default',
+    mode: preferredMode(),
     commands: [],
     models: [],
     ...fields
@@ -346,8 +347,14 @@ export function interrupt(id: string): void {
   })
 }
 
+/** The user's pick: it applies to this tab and to every session started afterwards. */
 export function setMode(id: string, mode: PermissionMode): void {
+  rememberMode(mode)
   patchTab(id, { mode })
+  // Tabs never started are sessions to come: they follow the latest pick too.
+  for (const t of Object.values(useSessions.getState().tabs)) {
+    if (t.id !== id && !t.localId && !t.sessionId && t.mode !== mode) patchTab(t.id, { mode })
+  }
   const localId = tabOf(id)?.localId
   if (localId) void window.canopy.setSessionMode(localId, mode).catch((e: unknown) => patchTab(id, { error: errorText(e) }))
 }

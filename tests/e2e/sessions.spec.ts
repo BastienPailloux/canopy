@@ -518,6 +518,17 @@ test('a plan shows as Markdown, and a refusal carries the feedback', async () =>
   await expect(page.getByTestId('tool-card')).toContainText('Ajoute des tests')
 })
 
+test('a new session starts in auto, then in the mode last picked', async () => {
+  await launch(true)
+  await expect(page.getByLabel('Mode')).toHaveValue('auto')
+  await page.getByLabel('Mode').selectOption('plan')
+  await page.getByRole('button', { name: '+ Nouvelle session' }).click()
+  await expect(page.getByLabel('Mode')).toHaveValue('plan')
+  await closeApp(app)
+  await launch(true)
+  await expect(page.getByLabel('Mode')).toHaveValue('plan')
+})
+
 test('the mode selector leaves plan once a plan is over', async () => {
   await launch(true)
   await page.getByLabel('Mode').selectOption('plan')
