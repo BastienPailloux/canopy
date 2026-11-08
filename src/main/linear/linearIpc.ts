@@ -276,7 +276,7 @@ export async function startLinear(deps: {
   client: Pick<LinearClient, 'resume'>
   linked: Pick<LinkedIssues, 'recompute'>
   edits: Pick<LinearEdits, 'retryAll'>
-  sync: Pick<LinearSync, 'refresh'>
+  sync: Pick<LinearSync, 'refresh' | 'markExpired'>
   broadcast: (event: string, payload: unknown) => void
   log?: (msg: string, e: unknown) => void
 }): Promise<void> {
@@ -290,6 +290,8 @@ export async function startLinear(deps: {
     log('linear resume failed', e)
     return
   }
+  // Refused tokens: the header says so now, not « synchro il y a N min » until a manual refresh.
+  if (state === 'expired') deps.sync.markExpired()
   deps.broadcast('linear:changed', {})
   if (state === 'offline') {
     // The cached list shows with the reason; the next refresh tries the tokens again.

@@ -73,6 +73,24 @@ describe('LinearSync', () => {
     expect(st.issues).toHaveLength(1)
   })
 
+  it('markExpired shows the expired connection over the cached list, without asking Linear', async () => {
+    const f = fake(); f.mine = [issue('A-1')]
+    await make(f).refresh()
+    const listed = { list: 0 }
+    const f2 = { ...fake(), listMine: async () => { listed.list++; return [] } }
+    const s = make(f2 as never)
+    const changes: (string[] | undefined)[] = []
+    s.onChange((ids) => { changes.push(ids) })
+    s.markExpired()
+    const st = s.state()
+    expect(st.expired).toBe(true)
+    expect(st.error).toBe(new LinearExpiredError().message)
+    expect(st.issues.map((i) => i.id)).toEqual(['A-1'])
+    expect(changes).toEqual([undefined])
+    expect(listed.list).toBe(0)
+    expect(f2.briefCalls).toEqual([])
+  })
+
   it('cache survives a restart', async () => {
     const f = fake(); f.mine = [issue('A-1'), issue('A-2')]
     await make(f).refresh()

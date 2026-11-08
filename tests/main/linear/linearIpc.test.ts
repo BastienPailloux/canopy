@@ -341,7 +341,7 @@ describe('startLinear', () => {
       client: { resume: async () => { calls.push('resume'); return { state: 'connected', missingTools: [] } } },
       linked: { recompute: async () => { calls.push('links') } },
       edits: { retryAll: async () => { calls.push('retry') } },
-      sync: { refresh: async () => { calls.push('refresh'); return sync.state() } },
+      sync: { refresh: async () => { calls.push('refresh'); return sync.state() }, markExpired: () => { calls.push('expired') } },
       broadcast: () => { calls.push('event') },
       log: () => undefined,
     })
@@ -354,11 +354,24 @@ describe('startLinear', () => {
       client: { resume: async () => { calls.push('resume'); return { state: 'offline', error: 'Linear injoignable : x', missingTools: [] } } },
       linked: { recompute: async () => { calls.push('links') } },
       edits: { retryAll: async () => { calls.push('retry') } },
-      sync: { refresh: async () => { calls.push('refresh'); return sync.state() } },
+      sync: { refresh: async () => { calls.push('refresh'); return sync.state() }, markExpired: () => { calls.push('expired') } },
       broadcast: () => { calls.push('event') },
       log: () => undefined,
     })
     expect(calls).toEqual(['links', 'resume', 'event', 'refresh'])
+  })
+
+  it('expired at start: the list shows it at once, without a call to Linear', async () => {
+    const calls: string[] = []
+    await startLinear({
+      client: { resume: async () => { calls.push('resume'); return { state: 'expired', missingTools: [] } } },
+      linked: { recompute: async () => { calls.push('links') } },
+      edits: { retryAll: async () => { calls.push('retry') } },
+      sync: { refresh: async () => { calls.push('refresh'); return sync.state() }, markExpired: () => { calls.push('expired') } },
+      broadcast: () => { calls.push('event') },
+      log: () => undefined,
+    })
+    expect(calls).toEqual(['links', 'resume', 'expired', 'event'])
   })
 
   it('stays quiet when not connected and never throws', async () => {
@@ -368,7 +381,7 @@ describe('startLinear', () => {
       client: { resume: async () => { throw new Error('keychain locked') } },
       linked: { recompute: async () => { calls.push('links') } },
       edits: { retryAll: async () => { calls.push('retry') } },
-      sync: { refresh: async () => { calls.push('refresh'); return sync.state() } },
+      sync: { refresh: async () => { calls.push('refresh'); return sync.state() }, markExpired: () => { calls.push('expired') } },
       broadcast: () => undefined,
       log,
     })

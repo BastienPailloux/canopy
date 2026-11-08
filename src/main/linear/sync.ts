@@ -98,6 +98,16 @@ export class LinearSync {
     for (const l of [...this.listeners]) l(undefined)
   }
 
+  /**
+   * The stored tokens were refused (at start): the cached list shows the expired connection at once, without a call to
+   * Linear. The next successful refresh (after a reconnect) clears it.
+   */
+  markExpired(): void {
+    this.expired = true
+    this.error = new LinearExpiredError().message
+    for (const l of [...this.listeners]) l(undefined)
+  }
+
   /** A connection was made again (maybe to another workspace): the issues not found are asked for again. */
   reconnected(): void {
     this.missing.clear()
