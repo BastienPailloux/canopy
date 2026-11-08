@@ -366,6 +366,7 @@ button.link:hover { text-decoration: underline; }
   background: var(--control);
   color: var(--fg);
 }
+.prop-field select:disabled { opacity: 0.6; }
 .prop-field .mono { font-size: 12px; }
 .mockup-remove {
   height: 34px;
