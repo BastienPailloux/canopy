@@ -21,7 +21,7 @@ npm run build        # build electron-vite vers out/
 
 Un seul test : `npx vitest run tests/main/quit.test.ts` ou `npx playwright test tests/e2e/sessions.spec.ts`.
 
-Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte.
+Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E.
 
 `.npmrc` impose `legacy-peer-deps=true` : ne pas le retirer.
 
@@ -39,11 +39,12 @@ scripts/release/  calcul de version et notes de release (exécuté en CI)
 build/        icônes, entitlements, CLI `canopy` (shell script copié dans le bundle)
 ```
 
-- **IPC** : le contrat est dans `src/shared/api.ts` (`CanopyApi`). Ajouter une méthode = la déclarer dans `api.ts`, l'exposer dans `src/preload/index.ts` (`ipcRenderer.invoke('domaine:action', …)`), la gérer dans `src/main/ipc.ts`. Les événements main → renderer passent par le canal unique `canopy:event` (`broadcast`).
+- **IPC** : le contrat est dans `src/shared/api.ts` (`CanopyApi`). Ajouter une méthode = la déclarer dans `api.ts`, l'exposer dans `src/preload/index.ts` (`ipcRenderer.invoke('domaine:action', …)`), la gérer dans `src/main/ipc.ts` (ou dans le module `*Ipc.ts` du domaine, comme `tickets/ticketIpc.ts` et `linear/linearIpc.ts`). Les événements main → renderer passent par le canal unique `canopy:event` (`broadcast`).
 - **Renderer** : jamais d'accès Node direct, tout passe par `window.canopy`. L'état vit dans des stores Zustand par domaine (`sessionStore`, `terminalStore`, `ticketStore`…).
 - **Binaires natifs** (SDK Claude, node-pty, ripgrep, serveur LSP) sont en `asarUnpack` dans `electron-builder.yml`. Toute nouvelle dépendance qui spawn un binaire doit y être ajoutée, sinon elle casse uniquement en build packagé.
 - **Worktrees** : créés par défaut sous `<repo>/.worktrees/` (ignoré par git). `.canopy/config.json` décrit le setup et les services lancés par « Tester la PR » ; le port est fourni via `PORT`.
 - **Tickets** : fichiers Markdown dans `.tickets/` du checkout principal, hors git.
+- **Linear** : connecteur dans `src/main/linear/`, uniquement via le serveur MCP officiel (`https://mcp.linear.app/mcp`, OAuth avec enregistrement dynamique, jeton chiffré par `safeStorage`). Les modifications passent par une file sur disque (`linear-pending.json`) et la description part en `patch` : ne jamais envoyer une description complète. Comportement réel du serveur : `tests/fixtures/linear/README.md`.
 
 ## Conventions de code
 

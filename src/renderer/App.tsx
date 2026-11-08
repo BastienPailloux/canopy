@@ -20,6 +20,9 @@ import { MockupEditor } from './mockups/MockupEditor'
 import { MockupsScreen } from './mockups/MockupsScreen'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectTickets } from './tickets/ticketStore'
+import { connectLinear } from './tickets/linearStore'
+import { LinearEditor } from './tickets/LinearEditor'
+import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
 import { connectUnsaved } from './unsaved'
@@ -108,6 +111,15 @@ function Main(): React.JSX.Element {
   )
 }
 
+/** The editor of the open ticket, local or Linear. */
+function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element | null {
+  if (k === 'new') return <TicketEditor id="new" />
+  const p = parseTicketKey(k)
+  if (p?.source === 'local') return <TicketEditor id={p.id} />
+  if (p?.source === 'linear') return <LinearEditor id={p.id} />
+  return null
+}
+
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   const workspace = useApp((s) => s.workspace)
@@ -121,6 +133,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => connectTickets(), [])
+  useEffect(() => connectLinear(), [])
   useEffect(() => connectMockups(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
@@ -167,7 +180,7 @@ export function App(): React.JSX.Element {
       <Header />
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
-          <main className="main tickets-view">{openTicket ? <TicketEditor id={openTicket} /> : <TicketsScreen />}</main>
+          <main className="main tickets-view">{openTicket ? <OpenTicket k={openTicket} /> : <TicketsScreen />}</main>
         ) : repo && workspace && view === 'mockups' ? (
           <main className="main mockups-view">{openMockup ? <MockupEditor id={openMockup} /> : <MockupsScreen />}</main>
         ) : repo && workspace ? (

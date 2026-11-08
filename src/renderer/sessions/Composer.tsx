@@ -139,6 +139,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
 
   return (
     <div className="composer-wrap">
+      {tab.notice && <p className="session-notice" role="status">{tab.notice}</p>}
       {tab.error && <p className="session-error" role="alert">{tab.error}</p>}
       <div className={dragging ? 'composer dragging' : 'composer'} onDragOver={onDragOver}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false) }} onDrop={onDrop}>

@@ -112,3 +112,18 @@ export interface LaunchCandidate {
   dirty: number
   sessions: number
 }
+
+/** Where a ticket comes from. */
+export type TicketSource = 'local' | 'linear'
+
+/** Unique key of a ticket across sources, e.g. `linear:ENG-482`. */
+export type TicketKey = `${TicketSource}:${string}`
+
+export function ticketKey(source: TicketSource, id: string): TicketKey {
+  return `${source}:${id}`
+}
+
+export function parseTicketKey(k: string): { source: TicketSource; id: string } | null {
+  const m = /^(local|linear):(.+)$/.exec(k)
+  return m ? { source: m[1] as TicketSource, id: m[2] } : null
+}

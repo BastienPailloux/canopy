@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { LinearLink } from '../shared/linear'
 
 const MAX_RECENT = 10
 
@@ -12,11 +13,14 @@ export interface SecretCipher {
 
 /** Thrown when the key cannot be encrypted: it is never stored in clear. */
 export class EncryptionUnavailableError extends Error {
-  constructor() {
-    super("Le trousseau macOS n'est pas disponible : la clé API n'a pas été enregistrée.")
+  constructor(message = "Le trousseau macOS n'est pas disponible : la clé API n'a pas été enregistrée.") {
+    super(message)
     this.name = 'EncryptionUnavailableError'
   }
 }
+
+/** The OAuth state of the Linear connection (SDK client registration, tokens, PKCE verifier); `expired`: Linear refused the tokens. */
+export interface LinearAuthState { client?: unknown; tokens?: unknown; verifier?: string; expired?: boolean }
 
 interface State {
   recentRepos: string[]
@@ -27,6 +31,8 @@ interface State {
   repoBases: Record<string, string>
   /** Base of a stacked branch, by main worktree root then branch. */
   branchBases: Record<string, Record<string, string>>
+  /** Launched Linear issues, by main worktree root then issue id. */
+  linearLinks: Record<string, Record<string, LinearLink>>
   /** Worktree last selected in each recent folder. */
   lastEntries: Record<string, string>
   prefs: Record<string, unknown>
@@ -34,6 +40,8 @@ interface State {
   loginPath?: string
   /** The Anthropic API key, encrypted with `safeStorage` and base64 encoded. */
   apiKey?: string
+  /** `LinearAuthState` as JSON, encrypted with `safeStorage` and base64 encoded. */
+  linearAuth?: string
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -41,7 +49,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -69,12 +77,25 @@ function sanitize(raw: unknown): State {
       if (clean.length > 0) state.branchBases[root] = Object.fromEntries(clean)
     }
   }
+  if (isRecord(raw.linearLinks)) {
+    for (const [root, links] of Object.entries(raw.linearLinks)) {
+      if (!isRecord(links)) continue
+      const clean: Record<string, LinearLink> = {}
+      for (const [id, l] of Object.entries(links)) {
+        if (isRecord(l) && typeof l.branch === 'string' && typeof l.worktree === 'string' && typeof l.base === 'string') {
+          clean[id] = { branch: l.branch, worktree: l.worktree, base: l.base }
+        }
+      }
+      if (Object.keys(clean).length > 0) state.linearLinks[root] = clean
+    }
+  }
   if (isRecord(raw.lastEntries)) {
     for (const [folder, path] of Object.entries(raw.lastEntries)) if (typeof path === 'string' && path !== '') state.lastEntries[folder] = path
   }
   if (isRecord(raw.prefs)) state.prefs = raw.prefs
   if (typeof raw.loginPath === 'string' && raw.loginPath !== '') state.loginPath = raw.loginPath
   if (typeof raw.apiKey === 'string' && raw.apiKey !== '') state.apiKey = raw.apiKey
+  if (typeof raw.linearAuth === 'string' && raw.linearAuth !== '') state.linearAuth = raw.linearAuth
   return state
 }
 
@@ -156,15 +177,47 @@ export class AppStore {
     this.save()
   }
 
-  /** Forgets the bases of branches that no longer exist. */
-  pruneBranchBases(root: string, existing: string[]): void {
-    const bases = this.state.branchBases[root]
-    if (bases === undefined) return
-    const keep = Object.entries(bases).filter(([b]) => existing.includes(b))
-    if (keep.length === Object.keys(bases).length) return
-    if (keep.length === 0) delete this.state.branchBases[root]
-    else this.state.branchBases[root] = Object.fromEntries(keep)
+  /** Main worktree roots holding launched Linear issues. */
+  linearLinkRoots(): string[] {
+    return Object.keys(this.state.linearLinks)
+  }
+
+  linearLinks(root: string): Record<string, LinearLink> {
+    return { ...(this.state.linearLinks[root] ?? {}) }
+  }
+
+  /** Links a Linear issue to its launched branch, or forgets the link with null. */
+  setLinearLink(root: string, id: string, link: LinearLink | null): void {
+    const links = new Map(Object.entries(this.state.linearLinks[root] ?? {}))
+    if (link === null) links.delete(id)
+    else links.set(id, { ...link })
+    if (links.size === 0) delete this.state.linearLinks[root]
+    else this.state.linearLinks[root] = Object.fromEntries(links)
     this.save()
+  }
+
+  /** Forgets the bases and Linear links of branches that no longer exist. */
+  pruneBranchBases(root: string, existing: string[]): void {
+    let changed = false
+    const bases = this.state.branchBases[root]
+    if (bases !== undefined) {
+      const keep = Object.entries(bases).filter(([b]) => existing.includes(b))
+      if (keep.length !== Object.keys(bases).length) {
+        changed = true
+        if (keep.length === 0) delete this.state.branchBases[root]
+        else this.state.branchBases[root] = Object.fromEntries(keep)
+      }
+    }
+    const links = this.state.linearLinks[root]
+    if (links !== undefined) {
+      const keep = Object.entries(links).filter(([, l]) => existing.includes(l.branch))
+      if (keep.length !== Object.keys(links).length) {
+        changed = true
+        if (keep.length === 0) delete this.state.linearLinks[root]
+        else this.state.linearLinks[root] = Object.fromEntries(keep)
+      }
+    }
+    if (changed) this.save()
   }
 
   /** Remembers the worktree selected in `folder`. Folders that left the recents are dropped: nothing reopens them. */
@@ -216,6 +269,36 @@ export class AppStore {
   apiKeyReadable(): boolean {
     if (this.state.apiKey === undefined) return true
     return this.decryptApiKey() !== null
+  }
+
+  /** The stored Linear OAuth state, or null when none is stored or it cannot be decrypted. */
+  linearAuth(): LinearAuthState | null {
+    if (this.state.linearAuth === undefined || !this.cipher?.isEncryptionAvailable()) return null
+    try {
+      const v: unknown = JSON.parse(this.cipher.decryptString(Buffer.from(this.state.linearAuth, 'base64')))
+      if (!isRecord(v)) return null
+      return {
+        ...(v.client !== undefined ? { client: v.client } : {}),
+        ...(v.tokens !== undefined ? { tokens: v.tokens } : {}),
+        ...(typeof v.verifier === 'string' ? { verifier: v.verifier } : {}),
+        ...(v.expired === true ? { expired: true } : {}),
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** Stores the Linear OAuth state encrypted, or removes it with null. Throws `EncryptionUnavailableError` rather than store it in clear. */
+  saveLinearAuth(s: LinearAuthState | null): void {
+    if (s === null) {
+      delete this.state.linearAuth
+    } else {
+      if (!this.cipher?.isEncryptionAvailable()) {
+        throw new EncryptionUnavailableError("Le trousseau macOS n'est pas disponible : la connexion Linear n'a pas été enregistrée.")
+      }
+      this.state.linearAuth = this.cipher.encryptString(JSON.stringify(s)).toString('base64')
+    }
+    this.save()
   }
 
   get encryptionAvailable(): boolean {

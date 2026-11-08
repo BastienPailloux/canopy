@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { MOCKUP_STATUS_LABEL, mockupLine, shownStatus, type Mockup } from '../../shared/mockups'
-import type { Ticket } from '../../shared/tickets'
+import { ticketKey, type Ticket } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { AddMockupDialog } from './AddMockupDialog'
 import { MockupCard, MockupTemplate, TicketRef } from './MockupCard'
@@ -122,7 +122,7 @@ function MockupDetail(props: { repo: string; mockup: Mockup; tickets: Ticket[] }
         <dt>Ticket</dt>
         <dd>
           {ticket
-            ? <button className="link mono" title="Ouvrir le ticket" onClick={() => { app.setView('tickets'); app.setOpenTicket(ticket.id) }}>{ticket.id}</button>
+            ? <button className="link mono" title="Ouvrir le ticket" onClick={() => { app.setView('tickets'); app.setOpenTicket(ticketKey('local', ticket.id)) }}>{ticket.id}</button>
             : <TicketRef id={m.ticket} live={false} />}
         </dd>
         <dt>Branche</dt>

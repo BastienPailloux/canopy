@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, STATUSES,
-  type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus
+  type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus,
+  ticketKey,
 } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
@@ -80,7 +81,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
       t = await window.canopy.createTicket(repo, all)
       idRef.current = t.id
       props.onCreated(t.id)
-      if (live.current) useApp.getState().setOpenTicket(t.id)
+      if (live.current) useApp.getState().setOpenTicket(ticketKey('local', t.id))
     }
     if (!live.current) return
     setSaveError(null)
@@ -181,7 +182,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
   }
   const duplicate = (): Promise<void> => act(async (from) => {
     const copy = await window.canopy.duplicateTicket(repo, from)
-    useApp.getState().setOpenTicket(copy.id)
+    useApp.getState().setOpenTicket(ticketKey('local', copy.id))
   })
   const archive = (): Promise<void> => act(async (from) => {
     await window.canopy.archiveTicket(repo, from)
@@ -190,7 +191,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
   })
   const launch = (): void => {
     if (!id) return
-    app.setSelectedTicket(id)
+    app.setSelectedTicket(ticketKey('local', id))
     app.setOpenTicket(null)
     app.setView('tickets')
   }
@@ -285,11 +286,15 @@ function Breadcrumb(props: { id: string | null; onBack: () => void }): React.JSX
   )
 }
 
-type FocusProps = { onFocus: () => void; onBlur: () => void }
+export type FocusProps = { onFocus: () => void; onBlur: () => void }
 
-function Description(props: { value: string; focus: FocusProps; onChange: (v: string) => void }): React.JSX.Element {
+/** The Markdown field with its toolbar; `preview` adds an « Aperçu » toggle that shows it instead of the text. */
+export function Description(props: {
+  value: string; focus: FocusProps; onChange: (v: string) => void; preview?: (text: string) => React.ReactNode
+}): React.JSX.Element {
   const area = useRef<HTMLTextAreaElement>(null)
   const ids = useId()
+  const [previewing, setPreviewing] = useState(false)
   const format = (f: Format): void => {
     const ta = area.current
     if (!ta) return
@@ -304,12 +309,19 @@ function Description(props: { value: string; focus: FocusProps; onChange: (v: st
     <div className="description">
       <div className="description-bar" role="toolbar" aria-label="Mise en forme">
         <label htmlFor={`${ids}-desc`}>Description</label>
-        <button onMouseDown={keep} onClick={() => format('bold')} title="Gras" aria-label="Gras"><b>B</b></button>
-        <button onMouseDown={keep} onClick={() => format('list')} title="Liste" aria-label="Liste">•</button>
-        <button onMouseDown={keep} onClick={() => format('code')} title="Code" aria-label="Code" className="mono">{'</>'}</button>
+        <button onMouseDown={keep} onClick={() => format('bold')} title="Gras" aria-label="Gras" disabled={previewing}><b>B</b></button>
+        <button onMouseDown={keep} onClick={() => format('list')} title="Liste" aria-label="Liste" disabled={previewing}>•</button>
+        <button onMouseDown={keep} onClick={() => format('code')} title="Code" aria-label="Code" className="mono" disabled={previewing}>{'</>'}</button>
+        {props.preview && (
+          <button className="preview-toggle" aria-pressed={previewing} onClick={() => setPreviewing(!previewing)}>Aperçu</button>
+        )}
       </div>
-      <textarea id={`${ids}-desc`} ref={area} value={props.value} maxLength={MAX_DESCRIPTION} placeholder="Décris le ticket en Markdown…"
-        {...props.focus} onChange={(e) => props.onChange(e.target.value)} />
+      {previewing && props.preview
+        ? <div className="description-preview">{props.preview(props.value)}</div>
+        : (
+          <textarea id={`${ids}-desc`} ref={area} value={props.value} maxLength={MAX_DESCRIPTION} placeholder="Décris le ticket en Markdown…"
+            {...props.focus} onChange={(e) => props.onChange(e.target.value)} />
+        )}
     </div>
   )
 }

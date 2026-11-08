@@ -62,6 +62,7 @@ function registerSessionIpc(store: AppStore, sessions: SessionManager): void {
   sessions.on('permissionCancelled', (e) => broadcast('session:permissionCancelled', e))
   sessions.on('commandsChanged', (e) => broadcast('session:commandsChanged', e))
   sessions.on('state', (e) => broadcast('session:state', e))
+  sessions.on('notice', (e) => broadcast('session:notice', e))
 
   ipcMain.handle('session:start', async (_e, cwd: unknown, o: unknown) => {
     assertPath(cwd)

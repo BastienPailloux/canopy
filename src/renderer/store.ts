@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { OrphanedWorktree } from '../shared/api'
+import type { TicketKey } from '../shared/tickets'
 import type { Workspace, WorkspaceEntry, Worktree } from '../shared/types'
 import { defaultEntry, mergeScan, repoWorktrees, worktreeLabel } from './shell/workspaceList'
 
@@ -24,14 +25,14 @@ interface AppState {
   orphans: OrphanedWorktree[]
   view: View
   /** Ticket open in the editor of the Tickets view; null: the list. */
-  openTicket: string | null
+  openTicket: TicketKey | 'new' | null
   /** Ticket highlighted in the list. */
-  selectedTicket: string | null
+  selectedTicket: TicketKey | null
   /** Mockup open in the edit screen (4b); `'new'`: one Claude is to create; null: the gallery. */
   openMockup: string | null
   /** Mockup highlighted in the gallery. */
   selectedMockup: string | null
-  /** The ticket the mockup being created (`openMockup: 'new'`) is to be linked to once published. */
+  /** The local ticket (its ID) the mockup being created (`openMockup: 'new'`) is to be linked to once published. */
   pendingMockupTicket: string | null
   /** Branch each worktree is compared against when the user picked one; absent: the default branch. */
   bases: Record<string, string>
@@ -58,8 +59,8 @@ interface AppState {
   setOrphans: (list: OrphanedWorktree[]) => void
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
-  setOpenTicket: (id: string | null) => void
-  setSelectedTicket: (id: string | null) => void
+  setOpenTicket: (key: TicketKey | 'new' | null) => void
+  setSelectedTicket: (key: TicketKey | null) => void
   setOpenMockup: (id: string | null) => void
   setSelectedMockup: (id: string | null) => void
   setPendingMockupTicket: (id: string | null) => void

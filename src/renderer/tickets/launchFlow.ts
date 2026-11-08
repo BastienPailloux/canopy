@@ -1,7 +1,9 @@
+import { linearLaunchPrompt, type LinearLaunchRequest } from '../../shared/linear'
 import { launchMockupsSection, type Mockup } from '../../shared/mockups'
 import { branchSlug, launchPrompt, type LaunchRequest, type Ticket } from '../../shared/tickets'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
+import { reloadLinearLinks } from './linearStore'
 
 /** `<type>/<slug of the title>`, `feat` unless told otherwise. */
 export function defaultBranchName(t: Ticket, type?: string): string {
@@ -37,11 +39,25 @@ export async function runLaunch(
 ): Promise<void> {
   const before = useApp.getState().repo
   const result = await window.canopy.launchTicket(repo, req)
+  await showLaunched(repo, before, result.worktree)
+  if (o.startClaude) askClaude(result.worktree, launchText(result.ticket, o.mockups))
+}
+
+/** Like `runLaunch` for a Linear issue: nothing is written in Linear, and the session is told to expect its MCP. */
+export async function runLinearLaunch(repo: string, req: LinearLaunchRequest, o: { startClaude: boolean }): Promise<void> {
+  const before = useApp.getState().repo
+  const result = await window.canopy.linearLaunch(repo, req)
+  // Main's change event names the issue only when its row changed: the new link is read here.
+  void reloadLinearLinks()
+  await showLaunched(repo, before, result.worktree)
+  if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue), { expectLinear: true })
+}
+
+async function showLaunched(repo: string, before: string | null, worktree: string): Promise<void> {
   await rescan(repo)
   if (useApp.getState().repo === before) {
     const app = useApp.getState()
-    app.setWorktree(result.worktree)
+    app.setWorktree(worktree)
     app.setView('sessions')
   }
-  if (o.startClaude) askClaude(result.worktree, launchText(result.ticket, o.mockups))
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, powerMonitor, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, safeStorage, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
@@ -8,6 +8,14 @@ import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-ag
 import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
 import { TicketStore } from './tickets/store'
+import { localBranches } from './tickets/ticketIpc'
+import { openExternalUrl } from './externalLinks'
+import { isConfigTrusted } from './repoTrust'
+import { LinearClient, linearOpener } from './linear/client'
+import { LinearEdits } from './linear/edits'
+import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
+import { selectLinearOpener } from './linear/replay'
+import { LinearSync } from './linear/sync'
 import { MockupStore } from './mockups/store'
 import { LspPool } from './code/lsp'
 import { stopAllWatchers } from './code/watchers'
@@ -18,7 +26,7 @@ import { installCli } from './installCli'
 import { broadcast, registerIpc, registerUpdateIpc } from './ipc'
 import { menuTemplate } from './menu'
 import { createOpenFolders } from './openFolders'
-import { createQuitFlow, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
+import { createQuitFlow, linearCounts, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
 import { TerminalManager } from './terminal/TerminalManager'
@@ -138,8 +146,20 @@ void app.whenReady().then(async () => {
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
-  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0 }
-  const running = (): RunningCounts => ({ sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved })
+  const userData = app.getPath('userData')
+  const linearClient = new LinearClient(selectLinearOpener(linearOpener({
+    store,
+    openExternal: (url) => { void openExternalUrl(url, (u) => shell.openExternal(u)).catch((e: unknown) => { console.error('linear consent page', e) }) },
+    version: app.getVersion()
+  }), { isPackaged: app.isPackaged, env: process.env }), store)
+  const linearEdits = new LinearEdits(join(userData, 'linear-pending.json'), linearClient)
+  const linearLinked = new LinkedIssues(store, localBranches)
+  const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
+    () => linearEdits.pending().map((p) => p.id))
+  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }
+  const running = (): RunningCounts => ({
+    sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
+  })
   // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const quit = createQuitFlow({
     counts: running,
@@ -162,9 +182,25 @@ void app.whenReady().then(async () => {
     e.preventDefault()
     void quit.request()
   })
+  const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    new TicketStore(), new MockupStore())
+    tickets, new MockupStore())
+  const linearIpc = registerLinearIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
+    launch: {
+      tickets, store,
+      activity: (cwd) => sessions.activity(cwd),
+      sessions: (cwd) => sessions.liveCount(cwd),
+      trusted: (cwd) => isConfigTrusted(store, cwd)
+    },
+    broadcast
+  })
+  // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
+  void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
+  // Back from sleep: the network is likely back too; the refresh resends what failed.
+  powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null
@@ -203,7 +239,7 @@ void app.whenReady().then(async () => {
   const open = (): void => {
     // The new page asks for its folder when it loads; a folder asked meanwhile waits for it.
     openFolders.reset()
-    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0 }; openFolders.reset() })
+    createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }; openFolders.reset() })
   }
   showWindow = () => {
     const [win] = BrowserWindow.getAllWindows()

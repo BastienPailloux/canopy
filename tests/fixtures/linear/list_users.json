@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"users\":[{\"id\":\"5d215785-3c9b-44ff-aa4c-f00a2c2229ee\",\"name\":\"Bastien\",\"email\":\"bastien.pailloux@hotmail.fr\",\"displayName\":\"bastien.pailloux\",\"isAdmin\":true,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-11-08T11:59:40.196Z\",\"updatedAt\":\"2026-11-08T12:00:13.922Z\",\"status\":\"Offline (last seen 2026-11-08T12:42:00.903Z)\"},{\"id\":\"1bee77ed-5afd-459a-be6d-79125cddad1d\",\"name\":\"Linear\",\"email\":\"user@example.com\",\"displayName\":\"linear\",\"avatarUrl\":\"https://static.linear.app/assets/avatar/avatar_512.png\",\"isAdmin\":false,\"isGuest\":false,\"isActive\":true,\"createdAt\":\"2026-11-08T11:59:40.404Z\",\"updatedAt\":\"2026-11-08T11:59:40.618Z\",\"status\":\"Offline (last seen 2026-11-08T11:59:40.535Z)\"}],\"hasNextPage\":false}"
+    }
+  ]
+}

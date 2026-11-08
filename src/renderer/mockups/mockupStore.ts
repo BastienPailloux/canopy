@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import type { Mockup, MockupKind } from '../../shared/mockups'
-import type { Ticket } from '../../shared/tickets'
+import { ticketKey, type Ticket } from '../../shared/tickets'
 import type { Worktree } from '../../shared/types'
 import { ensureTab, setDraftText, useSessions } from '../sessions/sessionStore'
 import { useApp } from '../store'
@@ -171,7 +171,7 @@ export async function launchFromMockup(repo: string, m: Mockup, ticket: Ticket |
   }
   if (useApp.getState().repo !== repo) return
   const app = useApp.getState()
-  app.setSelectedTicket(id)
+  app.setSelectedTicket(ticketKey('local', id))
   app.setOpenTicket(null)
   app.setView('tickets')
 }

@@ -5,7 +5,8 @@ import { useLayout } from '../shell/layoutStore'
 import { useApp } from '../store'
 import { baseLost } from '../code/baseText'
 import { useBranchBase } from '../code/useBranchBase'
-import { prPrompt, rebasePrompt } from './panelPrompts'
+import { useLinear } from '../tickets/linearStore'
+import { linearIdOf, prPrompt, rebasePrompt } from './panelPrompts'
 import { askClaude, useSessions } from './sessionStore'
 
 const KIND_COLOR: Record<ChangedFile['kind'], string> = { A: 'var(--add)', M: 'var(--warn)', D: 'var(--del)', R: 'var(--accent)' }
@@ -48,6 +49,7 @@ export function SidePanel({ cwd, branch }: { cwd: string; branch: string }): Rea
     const id = s.active[cwd]
     return id ? s.tabs[id]?.state : undefined
   })
+  const linearId = useLinear((s) => linearIdOf(s.links, branch))
   const busy = activeState === 'running' || activeState === 'waiting'
   const totals = useMemo(() => ({
     added: files.reduce((n, f) => n + f.added, 0),
@@ -82,7 +84,7 @@ export function SidePanel({ cwd, branch }: { cwd: string; branch: string }): Rea
       <div className="actions">
         {stacked !== null && <p className="muted mono" data-testid="pr-target">Cible : {stacked}</p>}
         <button className="primary" disabled={busy} title={busy ? 'Claude travaille sur cette session' : undefined}
-          onClick={() => askClaude(cwd, prPrompt(stacked ?? undefined))}>Créer la PR</button>
+          onClick={() => askClaude(cwd, prPrompt(stacked ?? undefined, linearId))}>Créer la PR</button>
         {lost !== null && <p className="warn" role="status" data-testid="pr-base-lost">{baseLost(lost)}</p>}
         <button className="secondary" disabled={busy || !base} title={busy ? 'Claude travaille sur cette session' : undefined}
           onClick={() => { if (base) askClaude(cwd, rebasePrompt(base.ref)) }}>

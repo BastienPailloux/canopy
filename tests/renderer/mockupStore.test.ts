@@ -149,7 +149,7 @@ describe('launchFromMockup', () => {
   let createTicket: ReturnType<typeof vi.fn>
   let patchMockup: ReturnType<typeof vi.fn>
   beforeEach(() => {
-    useApp.setState({ repo: '/r', view: 'mockups', openTicket: 'X', selectedTicket: null })
+    useApp.setState({ repo: '/r', view: 'mockups', openTicket: 'local:X', selectedTicket: null })
     useMockups.setState({ repo: '/r', list: [mk('one')], error: null, loaded: true })
     createTicket = vi.fn(async () => tk('A-9'))
     patchMockup = vi.fn(async (_r: string, id: string, c: { ticket: string }) => ({ ...mk('one'), id, ticket: c.ticket }))
@@ -160,7 +160,7 @@ describe('launchFromMockup', () => {
   it('with a ticket, opens its launch panel', async () => {
     await launchFromMockup('/r', mk('one', 'A-1'), tickets[0])
     expect(createTicket).not.toHaveBeenCalled()
-    expect(useApp.getState()).toMatchObject({ view: 'tickets', selectedTicket: 'A-1', openTicket: null })
+    expect(useApp.getState()).toMatchObject({ view: 'tickets', selectedTicket: 'local:A-1', openTicket: null })
   })
 
   it('without, creates a Backlog ticket titled like the mockup, links it, then opens its launch panel', async () => {
@@ -169,6 +169,6 @@ describe('launchFromMockup', () => {
     expect(createTicket).toHaveBeenCalledWith('/r', expect.objectContaining({ title: 'one', status: 'backlog' }))
     expect(patchMockup).toHaveBeenCalledWith('/r', m.id, { ticket: 'A-9' })
     expect(useMockups.getState().list[0].ticket).toBe('A-9')
-    expect(useApp.getState()).toMatchObject({ view: 'tickets', selectedTicket: 'A-9', openTicket: null })
+    expect(useApp.getState()).toMatchObject({ view: 'tickets', selectedTicket: 'local:A-9', openTicket: null })
   })
 })

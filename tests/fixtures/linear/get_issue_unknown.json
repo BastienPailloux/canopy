@@ -1,0 +1,9 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"error\":\"invalid_request\",\"message\":\"Could not find referenced Issue.\",\"status\":400,\"requestId\":\"a57538df5e130209\"}"
+    }
+  ],
+  "isError": true
+}

@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { linearLaunchPrompt, type LinearIssue, type LinearLaunchRequest } from '../../src/shared/linear'
 import { launchMockupsSection } from '../../src/shared/mockups'
 import { launchPrompt, type LaunchRequest, type Ticket } from '../../src/shared/tickets'
 import type { Worktree } from '../../src/shared/types'
 
 const calls: string[] = []
 vi.mock('../../src/renderer/sessions/sessionStore', () => ({
-  askClaude: vi.fn((cwd: string, text: string) => { calls.push(`askClaude ${cwd} ${text}`); return 'tab' })
+  askClaude: vi.fn((cwd: string, text: string, o?: { expectLinear?: boolean }) => { calls.push(`askClaude ${cwd} ${text}${o?.expectLinear ? ' expectLinear' : ''}`); return 'tab' })
 }))
 
-const { defaultBranchName, launchText, runLaunch } = await import('../../src/renderer/tickets/launchFlow')
+const reloadLinearLinks = vi.fn(async () => {})
+vi.mock('../../src/renderer/tickets/linearStore', () => ({ reloadLinearLinks }))
+
+const { defaultBranchName, launchText, runLaunch, runLinearLaunch } = await import('../../src/renderer/tickets/launchFlow')
 const { useApp } = await import('../../src/renderer/store')
 
 const ticket = (title: string): Ticket => ({
@@ -109,5 +113,45 @@ describe('launchText', () => {
     expect(text.startsWith(`${launchPrompt(ticket('T'))}\n\n`)).toBe(true)
     expect(text).toContain('Artifact')
     expect(text).toContain('- "A" — u1\n- "B" — u2')
+  })
+})
+
+describe('runLinearLaunch', () => {
+  const issue = { id: 'ENG-482', title: 'Export CSV', description: 'Détails', url: 'https://linear.app/x/issue/ENG-482' } as LinearIssue
+  const LREQ: LinearLaunchRequest = { id: 'ENG-482', branch: 'feat/eng-482-export-csv', target: { kind: 'new', base: 'main' } }
+  let linearLaunch: ReturnType<typeof vi.fn>
+  const patchTicket = vi.fn()
+  beforeEach(() => {
+    calls.length = 0
+    useApp.setState({ repo: '/r', worktree: '/r', worktrees: [MAIN], orphans: [], workspace: null, view: 'tickets' })
+    linearLaunch = vi.fn(async () => ({ worktree: NEW.path, issue }))
+    vi.stubGlobal('window', {
+      canopy: {
+        linearLaunch, patchTicket,
+        listWorktrees: vi.fn(async () => [MAIN, NEW]),
+        scanWorkspace: vi.fn(async () => { throw new Error('not used') })
+      }
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('sends linearLaunchPrompt with expectLinear and never calls patchTicket', async () => {
+    await runLinearLaunch('/r', LREQ, { startClaude: true })
+    expect(linearLaunch).toHaveBeenCalledWith('/r', LREQ)
+    expect(calls.filter((c) => c.startsWith('askClaude'))).toEqual([`askClaude ${NEW.path} ${linearLaunchPrompt(issue)} expectLinear`])
+    expect(patchTicket).not.toHaveBeenCalled()
+    expect(useApp.getState().view).toBe('sessions')
+    expect(useApp.getState().worktree).toBe(NEW.path)
+  })
+
+  it('reads the links again: the list shows the new branch', async () => {
+    reloadLinearLinks.mockClear()
+    await runLinearLaunch('/r', LREQ, { startClaude: false })
+    expect(reloadLinearLinks).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not ask Claude when not asked to', async () => {
+    await runLinearLaunch('/r', LREQ, { startClaude: false })
+    expect(calls.some((c) => c.startsWith('askClaude'))).toBe(false)
   })
 })

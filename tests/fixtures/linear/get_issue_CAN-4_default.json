@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"id\":\"CAN-4\",\"uuid\":\"25359a88-f11e-4d77-83a6-6ad211221b3f\",\"title\":\"Set up your teams\",\"description\":\"This workspace is a container for your organization’s work. \\n\\n* [Learn more about Workspaces](<https://linear.app/docs/workspaces>)\\n  How to configure settings and workflows \\n\\nTeams are how you organize people and work in Linear.\\n\\n* [Learn about Teams](<https://linear.app/docs/teams>)\\n  How to structure teams and configure workflows\\n\\nTeams are made of members with defined roles (Admin, Member, Guest).\\n\\n* [Learn more about Members](<https://linear.app/docs/invite-members>)\\n  Add your team and assign roles\\n\\n---\\n\\nReady to add your team? Invite via CSV or a unique link in [settings](<http://linear.app/settings/members>).\",\"priority\":{\"value\":0,\"name\":\"No priority\"},\"url\":\"https://linear.app/bpailloux-canopy/issue/CAN-4/set-up-your-teams\",\"gitBranchName\":\"bastienpailloux/can-4-set-up-your-teams\",\"createdAt\":\"2026-11-08T11:59:40.196Z\",\"updatedAt\":\"2026-11-08T12:02:15.971Z\",\"archivedAt\":null,\"completedAt\":null,\"startedAt\":null,\"canceledAt\":null,\"dueDate\":null,\"slaStartedAt\":null,\"slaMediumRiskAt\":null,\"slaHighRiskAt\":null,\"slaBreachesAt\":null,\"status\":\"Todo\",\"statusType\":\"unstarted\",\"labels\":[],\"attachments\":[],\"documents\":[],\"stateHistory\":[{\"state\":{\"id\":\"2dadbe3f-ba74-4c3d-af57-8e01466b083a\",\"name\":\"Todo\",\"type\":\"unstarted\"},\"startedAt\":\"2026-11-08T11:59:40.196Z\",\"endedAt\":null}],\"assignee\":\"Bastien\",\"assigneeId\":\"5d215785-3c9b-44ff-aa4c-f00a2c2229ee\",\"team\":\"Canopy\",\"teamId\":\"78589deb-f061-45b7-b299-bb1c34d4b638\"}"
+    }
+  ]
+}

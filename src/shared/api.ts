@@ -4,6 +4,10 @@ import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashComman
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
+import type {
+  LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
+  LinearListState, LinearStatus, LinearUser, PendingEdit, SaveResult
+} from './linear'
 import type { Mockup, MockupChanges, MockupFields, MockupList, MockupViewBounds } from './mockups'
 
 export interface RemovalRisks {
@@ -54,7 +58,10 @@ export type BaseContent =
   | { kind: 'tooLarge'; size: number }
   | { kind: 'notBlob' }
 
-export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode }
+export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode
+  /** The session was launched from a Linear issue: warn once if Claude has no Linear MCP. */
+  expectLinear?: boolean
+}
 
 /** Payload of each event emitted by SessionManager, relayed to the renderer as `session:<key>`. */
 export interface SessionEvents {
@@ -65,6 +72,8 @@ export interface SessionEvents {
   /** The session's commands are complete: fetch `sessionCommands` again. */
   commandsChanged: { localId: string }
   state: { localId: string; state: SessionState; sessionId?: string; error?: string }
+  /** A non-blocking remark about the session, shown once. */
+  notice: { localId: string; text: string }
 }
 
 /** What a repo's own config would run or allow in a session. */
@@ -160,7 +169,7 @@ export interface CanopyApi {
   /** Worktrees of the repos of the folder `root` that vanished from outside with sessions or terminals still alive. */
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
   /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts, ticket edits not written. */
-  reportUnsaved(counts: { buffers: number; drafts: number; tickets: number }): Promise<void>
+  reportUnsaved(counts: { buffers: number; drafts: number; tickets: number; comments: number }): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
@@ -234,6 +243,40 @@ export interface CanopyApi {
    * and is forgotten after this answer. Null: none.
    */
   branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
+  /**
+   * The Linear connection. Emits `linear:changed` `{ ids }` on a list or queue change (the issues touched, maybe none)
+   * and `{}` on a connection change (anything may have changed).
+   */
+  linearConnection(): Promise<LinearConnection>
+  /** Interactive: may open the browser for Linear's consent. Once connected, the queue is resent and the list refreshed. */
+  linearConnect(): Promise<LinearConnection>
+  /**
+   * Forgets the Linear tokens and the cached list; the links of launched issues stay. Rejects with
+   * `Des modifications Linear n'ont pas été envoyées.` while edits are queued, unless `force` (the queue is then dropped).
+   */
+  linearDisconnect(force?: boolean): Promise<void>
+  /**
+   * The cached list (no network); `repo` picks whose launched issues stay listed (linked, branch still local).
+   * `links: false` skips reading the branches of every linked repo again (an event that changed no link).
+   */
+  linearList(repo: string, links?: boolean): Promise<LinearListState>
+  /** Asks Linear again; an error keeps the last list and is reported in `error`. */
+  linearRefresh(repo: string): Promise<LinearListState>
+  linearAckDepartures(ids: string[]): Promise<void>
+  /** The issue with its sub-issues and comments, read from Linear. */
+  linearIssue(id: string): Promise<LinearIssueDetail>
+  linearTeamOptions(teamId: string): Promise<{ statuses: LinearStatus[]; labels: string[]; users: LinearUser[] }>
+  /** Queues the change and sends it; a `sent` save refreshes the list. */
+  linearSave(id: string, c: LinearChange): Promise<SaveResult>
+  /** Edits not sent yet (failed, held or in flight). */
+  linearPending(): Promise<PendingEdit[]>
+  /** Drops `fields` (every field when omitted) of the queued edit of `id`. */
+  linearDiscard(id: string, fields?: LinearField[]): Promise<void>
+  linearComment(id: string, body: string): Promise<LinearComment>
+  /** Creates the issue's branch like `launchTicket` and links it in Canopy only; nothing is written in Linear. */
+  linearLaunch(repo: string, req: LinearLaunchRequest): Promise<{ worktree: string; issue: LinearIssue }>
+  /** Launched Linear issues of `repo`'s main checkout, by issue id. */
+  linearLinks(repo: string): Promise<Record<string, LinearLink>>
   /** Mockups of the repo whose main checkout holds `repo`; an unreadable registry is reported, never rewritten. */
   listMockups(repo: string): Promise<MockupList>
   /** Registers the claude.ai artifact at `url`. Already there: returns it, linked to `fields.ticket` if it had no ticket. */

@@ -1,14 +1,32 @@
 /** What the page holds and quitting would lose. Only the renderer knows: it reports it. */
-/** `tickets`: ticket editors with changes not written yet. */
-export interface UnsavedCounts { buffers: number; drafts: number; tickets: number }
-export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number }
+/**
+ * `tickets`: ticket editors with changes not written yet, Linear comments being typed included. `comments`: those
+ * comments, which an update restart cannot save (they are only posted on Bastien's action).
+ */
+export interface UnsavedCounts { buffers: number; drafts: number; tickets: number; comments: number }
+import type { LinearField, PendingEdit } from '../shared/linear'
+
+/**
+ * `linear`: Linear edits queued in main with a field that goes once Linear can be reached (kept on disk).
+ * `linearHeld`: Linear edits with a field held (conflict, refusal): it waits for Bastien's decision in the editor.
+ */
+export interface RunningCounts extends UnsavedCounts { sessions: number; terminals: number; linear: number; linearHeld: number }
+
+/** `linear` and `linearHeld` of main's queue; an entry can count in both. */
+export function linearCounts(pending: PendingEdit[]): Pick<RunningCounts, 'linear' | 'linearHeld'> {
+  const fields = (p: PendingEdit): LinearField[] => (Object.keys(p.change) as LinearField[]).filter((f) => p.change[f] !== undefined)
+  return {
+    linear: pending.filter((p) => fields(p).some((f) => p.held[f] === undefined)).length,
+    linearHeld: pending.filter((p) => fields(p).some((f) => p.held[f] !== undefined)).length,
+  }
+}
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
 
 export function parseUnsaved(raw: unknown): UnsavedCounts {
-  const { buffers, drafts, tickets } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-  if (!isCount(buffers) || !isCount(drafts) || !isCount(tickets)) throw new Error('Compte invalide')
-  return { buffers, drafts, tickets }
+  const { buffers, drafts, tickets, comments } = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  if (!isCount(buffers) || !isCount(drafts) || !isCount(tickets) || !isCount(comments) || comments > tickets) throw new Error('Compte invalide')
+  return { buffers, drafts, tickets, comments }
 }
 
 export interface QuitDeps {
@@ -37,23 +55,31 @@ export function quitDetail(counts: RunningCounts): string {
     ...(drafts > 0 ? [plural(drafts, 'brouillon de message', 'brouillons de message')] : []),
     ...(tickets > 0 ? [plural(tickets, 'ticket pas encore enregistré', 'tickets pas encore enregistrés')] : [])
   ]
+  const { linear, linearHeld } = counts
   return [
     ...(running.length > 0 ? [`Quitter arrêtera : ${running.join(', ')}.`] : []),
-    ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : [])
+    ...(lost.length > 0 ? [`${buffers + drafts + tickets > 1 ? 'Seront perdus' : 'Sera perdu'} : ${lost.join(', ')}.`] : []),
+    ...(linear + linearHeld > 0 ? ['Des modifications Linear n’ont pas été envoyées.'] : []),
+    ...(linear > 0 ? ['Elles restent en attente et partiront dès que Linear sera joignable.'] : []),
+    ...(linearHeld > 0 ? ['Certaines modifications Linear attendent ta décision dans l’éditeur.'] : [])
   ].join(' ')
 }
 
 /** What an update restart says before it stops things: what stops, and what survives it. */
 export function updateDetail(counts: RunningCounts): string {
   const running = runningList(counts)
+  const tickets = counts.tickets - counts.comments
   return [
     ...(running.length > 0 ? [`Redémarrer arrêtera : ${running.join(', ')}.`] : []),
     'Les fichiers non enregistrés et les brouillons seront conservés.',
-    ...(counts.tickets === 1
+    ...(tickets === 1
       ? ['1 ticket pas encore enregistré le sera avant le redémarrage ; en cas d’échec, ses modifications seront perdues.']
-      : counts.tickets > 1
-        ? [`${counts.tickets} tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.`]
-        : [])
+      : tickets > 1
+        ? [`${tickets} tickets pas encore enregistrés le seront avant le redémarrage ; en cas d’échec, leurs modifications seront perdues.`]
+        : []),
+    ...(counts.comments === 1
+      ? ['1 commentaire Linear non envoyé sera perdu.']
+      : counts.comments > 1 ? [`${counts.comments} commentaires Linear non envoyés seront perdus.`] : [])
   ].join(' ')
 }
 
@@ -80,7 +106,7 @@ export function createQuitFlow(deps: QuitDeps): {
     async request() {
       if (quitting || asking) return
       const counts = deps.counts()
-      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets > 0) {
+      if (counts.sessions + counts.terminals + counts.buffers + counts.drafts + counts.tickets + counts.linear + counts.linearHeld > 0) {
         asking = true
         try {
           if (!(await deps.confirm(counts))) return
