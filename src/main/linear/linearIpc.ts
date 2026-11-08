@@ -256,7 +256,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise
     assertPath(repo)
     const parsed = parseLaunch(req)
     try {
-      const r = await launchLinear({ ...deps.launch, linear: client }, repo, parsed)
+      const r = await launchLinear({ ...deps.launch, linear: client, edits }, repo, parsed)
       await recompute()
       refreshLater()
       return r

@@ -323,6 +323,15 @@ describe('registerLinearIpc', () => {
     expect(await call('links', repo.path)).toEqual({ 'CAN-2': { branch: 'feat/can-2', worktree: r.worktree, base: 'main' } })
     expect(linked.ids()).toContain('CAN-2')
   })
+
+  it("launch gives the issue with Bastien's queued description", async () => {
+    opts.failWith = new Error('fetch failed')
+    const base = (await client.issueBrief('CAN-2').catch(() => null))?.description ?? ''
+    await edits.save('CAN-2', { description: { base, text: 'Texte encore en attente' } })
+    opts.failWith = undefined
+    const r = await call('launch', repo.path, { id: 'CAN-2', branch: 'feat/can-2', target: { kind: 'new', base: 'main' } }) as { issue: { description: string } }
+    expect(r.issue.description).toBe('Texte encore en attente')
+  })
 })
 
 describe('startLinear', () => {
