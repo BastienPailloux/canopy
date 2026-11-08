@@ -184,7 +184,7 @@ void app.whenReady().then(async () => {
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
     tickets)
-  registerLinearIpc({
+  const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
     launch: {
@@ -197,6 +197,8 @@ void app.whenReady().then(async () => {
   })
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
   void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
+  // Back from sleep: the network is likely back too; the refresh resends what failed.
+  powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null

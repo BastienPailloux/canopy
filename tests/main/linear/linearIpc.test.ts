@@ -25,6 +25,7 @@ let sync: LinearSync
 let linked: LinkedIssues
 let events: string[]
 let handlers: Map<string, (...args: unknown[]) => unknown>
+let refreshLinear: () => Promise<unknown>
 let authStore: { saveLinearAuth: ReturnType<typeof vi.fn<(s: unknown) => void>> }
 const OTHER_USER = '1bee77ed-5afd-459a-be6d-79125cddad1d'
 
@@ -49,12 +50,12 @@ beforeEach(async () => {
   sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids())
   events = []
   handlers = new Map()
-  registerLinearIpc({
+  ;({ refresh: refreshLinear } = registerLinearIpc({
     handle: (name, fn) => { handlers.set(name, fn) },
     client, edits, sync, linked, store,
     launch: { tickets, store, activity: () => 'idle', sessions: () => 0, trusted: async () => false },
     broadcast: (event) => { events.push(event) },
-  })
+  }))
   await client.connect()
 })
 afterEach(() => repo.cleanup())
@@ -194,6 +195,35 @@ describe('registerLinearIpc', () => {
     expect(r.kind).toBe('sent')
     await vi.waitFor(() => expect(fake.calls.filter((c) => c.name === 'list_issues').length).toBeGreaterThan(before))
     expect(events).toContain('linear:changed')
+  })
+
+  it('a refresh that reaches Linear resends the edits that failed, not the held fields', async () => {
+    opts.failWith = new Error('fetch failed')
+    await call('save', 'CAN-1', { title: 'Hors ligne' })
+    opts.failWith = undefined
+    await call('save', 'CAN-2', { labels: ['Nope'] }) // refused by Linear: held, Bastien decides
+    fake.calls.length = 0
+    await call('refresh', repo.path)
+    await vi.waitFor(() => expect(edits.pending().map((p) => p.id)).toEqual(['CAN-2']))
+    const sent = fake.calls.filter((c) => c.name === 'save_issue').map((c) => c.args)
+    expect(sent).toEqual([{ id: 'CAN-1', title: 'Hors ligne' }])
+  })
+
+  it('a failed refresh resends nothing', async () => {
+    opts.failWith = new Error('fetch failed')
+    await call('save', 'CAN-1', { title: 'Hors ligne' })
+    fake.calls.length = 0
+    await call('refresh', repo.path)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(edits.pending()).toHaveLength(1)
+  })
+
+  it('registerLinearIpc gives the refresh used on system resume', async () => {
+    opts.failWith = new Error('fetch failed')
+    await call('save', 'CAN-1', { title: 'Hors ligne' })
+    opts.failWith = undefined
+    await refreshLinear()
+    await vi.waitFor(() => expect(edits.pending()).toEqual([]))
   })
 
   it('launch links the issue and follows it', async () => {

@@ -1,5 +1,5 @@
 import { isAbsolute } from 'node:path'
-import type { LinearChange, LinearField, LinearLaunchRequest } from '../../shared/linear'
+import type { LinearChange, LinearField, LinearLaunchRequest, LinearListState } from '../../shared/linear'
 import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_TITLE, PRIORITIES, type LaunchTarget, type TicketPriority } from '../../shared/tickets'
 import type { AppStore } from '../appStore'
 import { mainWorktreeRoot } from '../git/worktrees'
@@ -136,7 +136,7 @@ export interface LinearIpcDeps {
   /** Registers `fn` for the IPC channel `name` (`ipcMain.handle` without the event). */
   handle: (name: string, fn: (...args: unknown[]) => unknown) => void
   client: IpcClient
-  edits: Pick<LinearEdits, 'save' | 'pending' | 'discard' | 'retryAll' | 'onChange'>
+  edits: Pick<LinearEdits, 'save' | 'pending' | 'discard' | 'retryAll' | 'retryFailed' | 'onChange'>
   sync: Pick<LinearSync, 'state' | 'refresh' | 'ackDepartures' | 'clear' | 'onChange'>
   linked: Pick<LinkedIssues, 'recompute'>
   /** Where the links of launched issues are read. */
@@ -148,8 +148,11 @@ export interface LinearIpcDeps {
   log?: (msg: string, e: unknown) => void
 }
 
-/** The `linear:*` channels. Every argument is checked here; `linear:changed` `{}` goes out on any sync, queue or connection change. */
-export function registerLinearIpc(deps: LinearIpcDeps): void {
+/**
+ * The `linear:*` channels. Every argument is checked here; `linear:changed` `{}` goes out on any sync, queue or connection
+ * change. Returns the refresh, for the other triggers (system resume).
+ */
+export function registerLinearIpc(deps: LinearIpcDeps): { refresh: () => Promise<LinearListState> } {
   const { client, edits, sync, linked, broadcast } = deps
   const log = deps.log ?? ((msg, e) => { console.error(msg, e) })
   const changed = (): void => { broadcast('linear:changed', {}) }
@@ -172,7 +175,13 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
   // A failed read of the links never keeps the list from the renderer.
   const recompute = (): Promise<void> => linked.recompute().catch((e: unknown) => { log('linear links read failed', e) })
   /** The only way this module refreshes: the launched set is always current first, so no launched issue departs by mistake. */
-  const refresh = async (): ReturnType<typeof sync.refresh> => { await recompute(); return sync.refresh() }
+  const refresh = async (): ReturnType<typeof sync.refresh> => {
+    await recompute()
+    const st = await sync.refresh()
+    // Linear answered: the edits that failed (network, connection) go now; held fields wait for Bastien.
+    if (st.error === null) void edits.retryFailed().catch((e: unknown) => { log('linear retry failed', e) })
+    return st
+  }
   const refreshLater = (): void => { void refresh().catch((e: unknown) => { log('linear refresh failed', e) }) }
 
   handle('connection', () => client.connection())
@@ -238,6 +247,7 @@ export function registerLinearIpc(deps: LinearIpcDeps): void {
     assertPath(repo)
     return deps.store.linearLinks(await mainWorktreeRoot(repo))
   })
+  return { refresh }
 }
 
 /** At app start: reconnects with the stored tokens (never the browser), then resends the queue and refreshes. Never throws. */

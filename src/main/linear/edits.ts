@@ -151,6 +151,11 @@ export class LinearEdits {
     await Promise.all([...this.queued.keys()].map((id) => this.schedule(id, true)))
   }
 
+  /** Linear is reachable again: resends the edits whose last send failed (network, connection). Held fields stay held. */
+  async retryFailed(): Promise<void> {
+    await Promise.all([...this.queued.keys()].filter((id) => this.errors.has(id) && !this.sending.has(id)).map((id) => this.schedule(id, false)))
+  }
+
   /**
    * Drops `fields` (every field when omitted) of the queued edit of `id`. Only on Bastien's explicit choice.
    * A send already in flight is not cancelled; the discard applies to what it leaves unsent.

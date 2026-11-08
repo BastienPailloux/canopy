@@ -130,6 +130,19 @@ describe('LinearEdits', () => {
     expect(fileEntries(file)).toEqual([])
   })
 
+  it('retryFailed resends only the entries whose last send failed, never the held fields', async () => {
+    const { fake, client, opts } = await setup()
+    const edits = new LinearEdits(tmpFile(), client)
+    await edits.save('CAN-2', { labels: ['Nope'] }) // refused: held
+    opts.failWith = new Error('fetch failed')
+    await edits.save('CAN-3', { priority: 'low' })
+    opts.failWith = undefined
+    fake.calls.length = 0
+    await edits.retryFailed()
+    expect(saves(fake.calls)).toEqual([{ id: 'CAN-3', priority: 4 }])
+    expect(edits.pending().map((p) => p.id)).toEqual(['CAN-2'])
+  })
+
   it('changes to the same issue merge key by key', async () => {
     const { client, opts } = await setup()
     opts.failWith = new Error('fetch failed')
