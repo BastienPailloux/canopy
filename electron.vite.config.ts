@@ -11,6 +11,8 @@ export default defineConfig({
   },
   renderer: {
     root: resolve('src/renderer'),
+    // Under « Tester la PR », Canopy reserves a port per worktree in PORT: several worktrees run side by side.
+    server: process.env.PORT ? { port: Number(process.env.PORT), strictPort: true } : {},
     build: { rollupOptions: { input: { index: resolve('src/renderer/index.html') } } },
     plugins: [react()]
   }

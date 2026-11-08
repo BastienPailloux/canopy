@@ -1,0 +1,9 @@
+{
+  "setup": ["npm install"],
+  "services": [
+    {
+      "name": "app",
+      "command": "npx electron-vite dev -- --user-data-dir=\"$PWD/.canopy/dev-user-data\""
+    }
+  ]
+}
