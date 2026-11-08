@@ -2,7 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
-import type { Ticket, TicketFields, TicketListEntry } from './tickets'
+import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 
 export interface RemovalRisks {
@@ -219,6 +219,13 @@ export interface CanopyApi {
   ticketConfig(repo: string): Promise<{ prefix: string; next: number }>
   setTicketPrefix(repo: string, prefix: string): Promise<void>
   ticketLabels(repo: string): Promise<string[]>
+  /** Worktrees of `repo` a launch could use, and the branch most ahead of the default one (null: none ahead). */
+  launchCandidates(repo: string): Promise<{ worktrees: LaunchCandidate[]; advanced: { branch: string; ahead: number } | null }>
+  /**
+   * Creates the ticket's branch in a new worktree, or in a free existing one, and links the ticket to it.
+   * A failed launch writes nothing in the ticket. A relaunch replaces the linked branch.
+   */
+  launchTicket(repo: string, req: LaunchRequest): Promise<{ worktree: string; ticket: Ticket }>
   /** Watches the tickets of `repo` for this window, and no other repo: emits `tickets:changed` `{ repo }` (main root). */
   watchTickets(repo: string): Promise<void>
   /**

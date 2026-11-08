@@ -75,3 +75,21 @@ export function launchPrompt(t: Ticket): string {
   if (todo.length) parts.push(['Sous-tâches restantes :', ...todo.map((s) => `- [ ] ${s.title}`)].join('\n'))
   return parts.join('\n\n')
 }
+
+/** Where a launch puts the ticket's branch: a new worktree, or a free existing one. Both start it from `base`. */
+export type LaunchTarget = { kind: 'new'; base: string } | { kind: 'existing'; worktree: string; base: string }
+
+export interface LaunchRequest { id: string; branch: string; target: LaunchTarget; setInProgress: boolean }
+
+/**
+ * A worktree a launch could use. Not `free`: the main checkout, or a session there is working or waiting.
+ * `dirty`: files the launch would set aside. `sessions`: sessions alive there.
+ */
+export interface LaunchCandidate {
+  path: string
+  branch: string | null
+  free: boolean
+  reason?: 'main' | 'working' | 'waiting'
+  dirty: number
+  sessions: number
+}

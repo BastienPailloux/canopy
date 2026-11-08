@@ -4,8 +4,10 @@ import type { WebContents } from 'electron'
 import type { AppStore } from '../appStore'
 import { git } from '../git/exec'
 import { mainWorktreeRoot } from '../git/worktrees'
-import type { TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
+import { clearSharedReads } from '../git/sharedReads'
+import type { LaunchRequest, LaunchTarget, TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
 import { branchBaseAt } from './branchBase'
+import { launchCandidates, launchTicket, type LaunchDeps } from './launch'
 import type { TicketStore } from './store'
 import { watchTickets } from './watch'
 
@@ -63,13 +65,35 @@ function parseNewTicket(raw: unknown): TicketFields {
   return { description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...f, title: f.title }
 }
 
+const isRefArg = (v: unknown): v is string => typeof v === 'string' && v !== '' && !v.startsWith('-')
+
+function parseLaunch(raw: unknown): LaunchRequest {
+  if (!isObject(raw)) throw bad('Lancement')
+  const { id, branch, target, setInProgress } = raw
+  assertId(id)
+  if (!isRefArg(branch)) throw bad('Branche')
+  if (typeof setInProgress !== 'boolean') throw bad('Statut')
+  if (!isObject(target) || !isRefArg(target.base)) throw bad('Base')
+  let t: LaunchTarget
+  if (target.kind === 'new') t = { kind: 'new', base: target.base }
+  else if (target.kind === 'existing') {
+    if (typeof target.worktree !== 'string' || !isAbsolute(target.worktree)) throw bad('Worktree')
+    t = { kind: 'existing', worktree: target.worktree, base: target.base }
+  } else throw bad('Cible')
+  return { id, branch, target: t, setInProgress }
+}
+
 /** Names of the local branches of the repo. */
 export async function localBranches(repo: string): Promise<string[]> {
   const out = await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
   return out.split('\n').filter((b) => b !== '')
 }
 
-export function registerTicketIpc(tickets: TicketStore, store: AppStore): void {
+/** What a launch reads from the live sessions and the repo trust. */
+export type LaunchLive = Omit<LaunchDeps, 'tickets' | 'store'>
+
+export function registerTicketIpc(tickets: TicketStore, store: AppStore, live: LaunchLive): void {
+  const launchDeps: LaunchDeps = { tickets, store, ...live }
   const handle = (name: string, fn: (...args: unknown[]) => unknown): void => {
     ipcMain.handle(`tickets:${name}`, (_e, ...args: unknown[]) => fn(...args))
   }
@@ -86,6 +110,16 @@ export function registerTicketIpc(tickets: TicketStore, store: AppStore): void {
     return tickets.setPrefix(repo, prefix)
   })
   handle('labels', (repo) => { assertPath(repo); return tickets.labels(repo) })
+  handle('launchCandidates', (repo) => { assertPath(repo); return launchCandidates(launchDeps, repo) })
+  handle('launch', async (repo, req) => {
+    assertPath(repo)
+    const parsed = parseLaunch(req)
+    try {
+      return await launchTicket(launchDeps, repo, parsed)
+    } finally {
+      clearSharedReads()
+    }
+  })
 
   // One watched repo per window; a later call replaces it. Events go to the owning window only.
   const watched = new Map<number, { root: string; stop: () => void }>()
