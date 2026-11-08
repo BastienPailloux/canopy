@@ -4,7 +4,7 @@ import { connectLinear, refreshLinear, useLinear } from '../../src/renderer/tick
 import { useApp } from '../../src/renderer/store'
 
 const issue = { id: 'A-1', title: 'a', status: { id: null, name: 'En cours', type: 'started' }, priority: 'none', labels: [] } as unknown as LinearIssue
-const list = (over: Partial<LinearListState> = {}): LinearListState => ({ issues: [issue], fetchedAt: '2026-11-08T10:00:00', error: null, expired: false, departures: [], ...over })
+const list = (over: Partial<LinearListState> = {}): LinearListState => ({ issues: [issue], fetchedAt: '2026-11-08T10:00:00', error: null, expired: false, departures: [], kept: [], ...over })
 
 describe('connectLinear', () => {
   let changed: (() => void) | null

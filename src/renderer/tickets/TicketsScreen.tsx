@@ -142,7 +142,8 @@ export function TicketsScreen(): React.JSX.Element {
   const unreadable = entries.flatMap((e) => (e.kind === 'unreadable' ? [e] : []))
   const pendingIds = useMemo(() => new Set(pending.map((p) => p.id)), [pending])
   // Without a connection the screen is the local one: no Linear row, whatever a stale cache holds.
-  const all = useMemo(() => mergeRows(entries, linear ? list.issues : [], pendingIds), [entries, linear, list.issues, pendingIds])
+  const kept = useMemo(() => new Set(list.kept ?? []), [list.kept])
+  const all = useMemo(() => mergeRows(entries, linear ? list.issues : [], pendingIds, kept), [entries, linear, list.issues, pendingIds, kept])
   const rows = filterRows(all, linear ? filters : { ...filters, source: 'all', priority: 'all', query: '' })
   const groups = groupRows(rows)
   const count = (f: Filter): number => (f === 'all' ? all.filter((r) => r.status !== 'done').length : all.filter((r) => r.status === f).length)

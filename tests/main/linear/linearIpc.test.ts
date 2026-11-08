@@ -47,7 +47,7 @@ beforeEach(async () => {
   client = new LinearClient(vi.fn(async (): Promise<McpCaller> => fake), authStore)
   edits = new LinearEdits(join(dir, 'linear-pending.json'), client)
   linked = new LinkedIssues(store, localBranches)
-  sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids())
+  sync = new LinearSync(join(dir, 'linear-cache.json'), client, () => linked.ids(), undefined, () => edits.pending().map((p) => p.id))
   events = []
   handlers = new Map()
   ;({ refresh: refreshLinear } = registerLinearIpc({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Ticket, TicketListEntry } from '../../src/shared/tickets'
-import type { LinearIssue, LinearListState } from '../../src/shared/linear'
+import { listGroup, type LinearIssue, type LinearListState } from '../../src/shared/linear'
 import { filterRows, groupRows, mergeRows, syncLabel, type Filters } from '../../src/renderer/tickets/listModel'
 
 const local = (id: string, title = id, priority: Ticket['priority'] = 'none', status: Ticket['status'] = 'todo'): TicketListEntry => ({
@@ -25,6 +25,19 @@ describe('mergeRows', () => {
   })
   it('no statusName when equal to the group label', () => {
     expect(mergeRows([], [issue('A-1', 'En cours')], new Set())[0].statusName).toBeUndefined()
+  })
+  it('a kept issue (launched) with a hidden status shows in Terminé with its Linear status name', () => {
+    const rows = mergeRows([], [issue('A-1', 'Canceled', 'canceled'), issue('A-2', 'Duplicate', 'duplicate')], new Set(), new Set(['A-1', 'A-2']))
+    expect(rows.map((r) => [r.id, r.status, r.statusName])).toEqual([['A-1', 'done', 'Canceled'], ['A-2', 'done', 'Duplicate']])
+  })
+  it('an issue with an unsent edit and a hidden status stays, flagged', () => {
+    const rows = mergeRows([], [issue('A-1', 'Canceled', 'canceled')], new Set(['A-1']))
+    expect(rows.map((r) => [r.id, r.status, r.pending])).toEqual([['A-1', 'done', true]])
+  })
+  it('the same rule as main', () => {
+    expect(listGroup({ name: 'Canceled', type: 'canceled' }, false)).toBeNull()
+    expect(listGroup({ name: 'Canceled', type: 'canceled' }, true)).toBe('done')
+    expect(listGroup({ name: 'QA', type: 'started' }, false)).toBe('in_review')
   })
   it('hides canceled issues, flags pending, skips unreadable', () => {
     const rows = mergeRows([{ kind: 'unreadable', file: 'x', error: 'e' }], [issue('A-1', 'Annulé', 'canceled'), issue('A-2')], new Set(['A-2']))
@@ -51,7 +64,7 @@ describe('groupRows', () => {
 })
 
 describe('syncLabel', () => {
-  const base: LinearListState = { issues: [], fetchedAt: '2026-11-08T14:00:00', error: null, expired: false, departures: [] }
+  const base: LinearListState = { issues: [], fetchedAt: '2026-11-08T14:00:00', error: null, expired: false, departures: [], kept: [] }
   const now = new Date('2026-11-08T14:01:10')
   it('minutes', () => expect(syncLabel(base, now)).toBe('Linear · synchro il y a 1 min'))
   it('just now', () => expect(syncLabel(base, new Date('2026-11-08T14:00:20'))).toBe('Linear · synchro à l’instant'))

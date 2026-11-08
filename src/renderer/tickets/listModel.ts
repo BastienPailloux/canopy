@@ -1,5 +1,5 @@
 import { PRIORITY_LABEL, STATUS_LABEL, STATUS_ORDER, ticketKey, type TicketKey, type TicketListEntry, type TicketPriority, type TicketSource, type TicketStatus } from '../../shared/tickets'
-import { statusGroup, type LinearIssue, type LinearListState } from '../../shared/linear'
+import { listGroup, statusGroup, type LinearIssue, type LinearListState } from '../../shared/linear'
 
 export interface Row {
   key: TicketKey
@@ -23,8 +23,11 @@ export interface Filters {
 
 export const NO_FILTERS: Filters = { status: 'all', source: 'all', priority: 'all', query: '' }
 
-/** Local tickets then Linear issues; issues whose status is hidden (canceled, duplicate) are left out. */
-export function mergeRows(local: TicketListEntry[], linear: LinearIssue[], pendingIds: Set<string>): Row[] {
+/**
+ * Local tickets then Linear issues. An issue whose status is hidden (canceled, duplicate) is left out, unless main keeps
+ * it (`kept`: launched) or it has an unsent edit: then it shows in Terminé with its Linear status name (`listGroup`).
+ */
+export function mergeRows(local: TicketListEntry[], linear: LinearIssue[], pendingIds: Set<string>, kept: Set<string> = new Set()): Row[] {
   const rows: Row[] = []
   for (const e of local) {
     if (e.kind !== 'ticket') continue
@@ -32,7 +35,7 @@ export function mergeRows(local: TicketListEntry[], linear: LinearIssue[], pendi
     rows.push({ key: ticketKey('local', t.id), source: 'local', id: t.id, title: t.title, status: t.status, priority: t.priority, labels: t.labels, pending: false })
   }
   for (const i of linear) {
-    const status = statusGroup(i.status)
+    const status = listGroup(i.status, kept.has(i.id) || pendingIds.has(i.id))
     if (!status) continue
     rows.push({
       key: ticketKey('linear', i.id), source: 'linear', id: i.id, title: i.title, status,

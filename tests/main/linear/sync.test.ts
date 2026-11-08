@@ -148,6 +148,50 @@ describe('LinearSync', () => {
     expect(gone.departures).toEqual([{ id: 'ENG-2', title: 'Title ENG-2', reason: 'reassigned' }])
   })
 
+  it('a launched issue that becomes canceled or duplicate stays listed, kept, with no departure; it departs once unlaunched', async () => {
+    const f = fake(); f.mine = [issue('ENG-1'), issue('ENG-2'), issue('ENG-3')]
+    let launched = ['ENG-2', 'ENG-3']
+    const s = new LinearSync(file, f as never, () => launched, clock)
+    await s.refresh()
+    f.mine = [issue('ENG-1'), { ...issue('ENG-2', 'canceled'), status: { id: null, name: 'Canceled', type: 'canceled' } }]
+    f.briefs['ENG-3'] = { ...issue('ENG-3', 'duplicate'), status: { id: null, name: 'Duplicate', type: 'duplicate' } }
+    const st = await s.refresh()
+    expect(st.issues.map((i) => [i.id, i.status.name])).toEqual([['ENG-1', 'started'], ['ENG-2', 'Canceled'], ['ENG-3', 'Duplicate']])
+    expect(st.kept.sort()).toEqual(['ENG-2', 'ENG-3'])
+    expect(st.departures).toEqual([])
+    launched = []
+    const gone = await s.refresh()
+    expect(gone.issues.map((i) => i.id)).toEqual(['ENG-1'])
+    expect(gone.departures.map((d) => [d.id, d.reason])).toEqual([['ENG-2', 'canceled'], ['ENG-3', 'canceled']])
+  })
+
+  it('an issue with an unsent edit stays listed while it would leave; once the queue is empty it departs once, for its reason', async () => {
+    const f = fake() as ReturnType<typeof fake> & { connection: () => { state: 'connected'; userId?: string } }
+    f.connection = () => ({ state: 'connected', userId: me.id })
+    f.mine = [issue('ENG-1'), issue('ENG-2'), issue('ENG-3')]
+    let unsent = ['ENG-2', 'ENG-3']
+    const s = new LinearSync(file, f as never, () => [], clock, () => unsent)
+    await s.refresh()
+    f.mine = [issue('ENG-1')]
+    f.briefs['ENG-2'] = issue('ENG-2', 'started', { id: 'u2', name: 'Alice' }) // ENG-3: deleted in Linear
+    const kept = await s.refresh()
+    expect(kept.issues.map((i) => i.id)).toEqual(['ENG-1', 'ENG-2', 'ENG-3'])
+    expect(kept.kept.sort()).toEqual(['ENG-2', 'ENG-3'])
+    expect(kept.departures).toEqual([])
+    unsent = []
+    const gone = await s.refresh()
+    expect(gone.issues.map((i) => i.id)).toEqual(['ENG-1'])
+    expect(gone.departures.map((d) => [d.id, d.reason])).toEqual([['ENG-2', 'reassigned'], ['ENG-3', 'missing']])
+    expect((await s.refresh()).departures).toHaveLength(2) // once: not added again
+  })
+
+  it('an unsent edit on an issue not in the cache yet is looked up and listed', async () => {
+    const f = fake(); f.mine = [issue('ENG-1')]
+    f.briefs['ENG-7'] = issue('ENG-7', 'canceled', null)
+    const s = new LinearSync(file, f as never, () => [], clock, () => ['ENG-7'])
+    expect((await s.refresh()).issues.map((i) => i.id)).toEqual(['ENG-1', 'ENG-7'])
+  })
+
   it('own id comes from whoami, never from a listMine answer', async () => {
     const f = fake() as ReturnType<typeof fake> & { connection: () => { state: 'connected'; userId?: string } }
     f.connection = () => ({ state: 'connected', userId: 'u1' })
@@ -182,7 +226,7 @@ describe('LinearSync', () => {
     let n = 0
     s.onChange(() => n++)
     s.clear()
-    expect(s.state()).toEqual({ issues: [], fetchedAt: null, error: null, expired: false, departures: [] })
+    expect(s.state()).toEqual({ issues: [], fetchedAt: null, error: null, expired: false, departures: [], kept: [] })
     expect(existsSync(file)).toBe(false)
     expect(n).toBe(1)
   })

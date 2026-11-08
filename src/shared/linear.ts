@@ -59,6 +59,14 @@ export function statusGroup(s: Pick<LinearStatus, 'name' | 'type'>): TicketStatu
   }
 }
 
+/**
+ * The group a Linear issue is listed in, in main's list and on screen alike; null = not listed. `kept`: launched, or with
+ * an unsent edit: listed whatever its status, a hidden status (canceled, duplicate) in Terminé with its own name.
+ */
+export function listGroup(s: Pick<LinearStatus, 'name' | 'type'>, kept: boolean): TicketStatus | null {
+  return statusGroup(s) ?? (kept ? 'done' : null)
+}
+
 const PRIORITIES_BY_VALUE: TicketPriority[] = ['none', 'urgent', 'high', 'medium', 'low']
 
 export function priorityFromValue(v: number): TicketPriority {
@@ -115,6 +123,8 @@ export interface LinearListState {
   error: string | null
   expired: boolean
   departures: Departure[]
+  /** Listed issues kept whatever their status or assignee (launched, or with an unsent edit): see `listGroup`. */
+  kept: string[]
 }
 
 export interface LinearConnection {

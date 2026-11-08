@@ -9,7 +9,7 @@ interface LinearState {
   links: Record<string, LinearLink>
 }
 
-export const EMPTY_LIST: LinearListState = { issues: [], fetchedAt: null, error: null, expired: false, departures: [] }
+export const EMPTY_LIST: LinearListState = { issues: [], fetchedAt: null, error: null, expired: false, departures: [], kept: [] }
 
 export const useLinear = create<LinearState>(() => ({
   connection: { state: 'disconnected', missingTools: [] },

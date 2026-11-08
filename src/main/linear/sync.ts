@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { statusGroup, type Departure, type LinearIssue, type LinearListState } from '../../shared/linear'
+import { listGroup, statusGroup, type Departure, type LinearIssue, type LinearListState } from '../../shared/linear'
 import { LinearExpiredError, type LinearClient } from './client'
 import { LinearError } from './parse'
 
@@ -29,19 +29,25 @@ export class LinearSync {
   constructor(
     private readonly file: string,
     private readonly client: SyncClient,
+    /** Launched issues: kept listed (unless deleted in Linear). */
     private readonly extra: () => string[] = () => [],
     private readonly now: () => Date = () => new Date(),
+    /** Issues with an unsent edit: kept listed, even deleted in Linear (the last copy), until their queue is empty. */
+    private readonly unsent: () => string[] = () => [],
   ) {
     this.load()
   }
 
   state(): LinearListState {
+    const kept = this.kept()
+    const issues = this.issues.filter((i) => listGroup(i.status, kept.has(i.id)) !== null)
     return {
-      issues: this.issues.filter((i) => statusGroup(i.status) !== null || this.launched().has(i.id)),
+      issues,
       fetchedAt: this.fetchedAt,
       error: this.error,
       expired: this.expired,
       departures: [...this.departures],
+      kept: issues.filter((i) => kept.has(i.id)).map((i) => i.id),
     }
   }
 
@@ -83,6 +89,15 @@ export class LinearSync {
     try { return new Set(this.extra()) } catch { return new Set() }
   }
 
+  private pendingIds(): Set<string> {
+    try { return new Set(this.unsent()) } catch { return new Set() }
+  }
+
+  /** Launched or with an unsent edit. */
+  private kept(): Set<string> {
+    return new Set([...this.launched(), ...this.pendingIds()])
+  }
+
   private async run(): Promise<LinearListState> {
     const gen = this.generation
     try {
@@ -106,7 +121,8 @@ export class LinearSync {
     const byId = new Map(all.map((i) => [i.id, i]))
     const listed = all.filter((i) => statusGroup(i.status) !== null)
     const listedIds = new Set(listed.map((i) => i.id))
-    const launched = this.launched()
+    const unsent = this.pendingIds()
+    const launched = new Set([...this.launched(), ...unsent])
     const prev = new Map(this.issues.map((i) => [i.id, i]))
     const kept: LinearIssue[] = []
     const newDepartures: Departure[] = []
@@ -124,6 +140,8 @@ export class LinearSync {
       const r = await lookup(id)
       if (r === 'failed') { kept.push(old); continue }
       if (launched.has(id) && r !== 'missing') { kept.push(r); continue }
+      // Deleted in Linear, but Bastien's edit still waits: the row stays so he sees it and decides.
+      if (unsent.has(id)) { kept.push(old); continue }
       if (r === 'missing') { newDepartures.push({ id, title: old.title, reason: 'missing' }); continue }
       if (statusGroup(r.status) === null) { newDepartures.push({ id, title: r.title, reason: 'canceled' }); continue }
       const reassigned = me !== null ? (r.assignee?.id ?? null) !== me : (r.assignee?.id ?? null) !== (old.assignee?.id ?? null)
