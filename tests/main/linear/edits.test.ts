@@ -109,7 +109,7 @@ describe('LinearEdits', () => {
     const r = await edits.save('CAN-2', { priority: 'high' })
     expect(r.kind).toBe('pending')
     if (r.kind === 'pending') expect(r.reason).toMatch(/Linear injoignable/)
-    expect(edits.pending()).toEqual([{ id: 'CAN-2', change: { priority: 'high' }, error: expect.stringMatching(/Linear injoignable/) }])
+    expect(edits.pending()).toEqual([{ id: 'CAN-2', change: { priority: 'high' }, error: expect.stringMatching(/Linear injoignable/), held: {}, uncertain: false }])
     expect(fileEntries(file)).toHaveLength(1)
     expect(statSync(file).mode & 0o777).toBe(0o600)
     expect(changes).toBeGreaterThan(0)
@@ -123,7 +123,7 @@ describe('LinearEdits', () => {
 
     const up = await setup()
     const edits = new LinearEdits(file, up.client)
-    expect(edits.pending()).toEqual([{ id: 'CAN-2', change: { priority: 'low', title: 'Offline title' }, error: expect.any(String) }])
+    expect(edits.pending()).toEqual([{ id: 'CAN-2', change: { priority: 'low', title: 'Offline title' }, error: expect.any(String), held: {}, uncertain: false }])
     await edits.retryAll()
     expect(saves(up.fake.calls)).toEqual([{ id: 'CAN-2', title: 'Offline title', priority: 4 }])
     expect(edits.pending()).toEqual([])
@@ -201,5 +201,168 @@ describe('LinearEdits', () => {
     const dir = join(file, '..')
     expect(readdirSync(dir).some((f) => f.startsWith('linear-pending.json.corrupt-'))).toBe(true)
     expect(existsSync(file)).toBe(false)
+  })
+})
+
+describe('LinearEdits: unknown outcome is never applied twice', () => {
+  /** A client whose first save reaches Linear but whose answer is lost. */
+  function losingFirstAnswer(client: LinearClient, after?: () => Promise<void>) {
+    let lost = false
+    return {
+      issueBrief: client.issueBrief.bind(client),
+      save: async (id: string, args: Record<string, unknown>) => {
+        const issue = await client.save(id, args)
+        if (!lost) { lost = true; await after?.(); throw new Error('fetch failed: socket hang up') }
+        return issue
+      },
+    }
+  }
+
+  it('save went through, answer lost, resend: a trailing-space append is not added twice', async () => {
+    const { fake, client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB')
+    // Linear re-serializes: the trailing space of the saved text is stripped
+    const edits = new LinearEdits(tmpFile(), losingFirstAnswer(client, () => colleague('CAN-2', 'A\n\nB\n\nC')))
+    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC ' } })
+    expect(r.kind).toBe('pending')
+    expect(edits.pending()[0].uncertain).toBe(true)
+    await edits.retryAll()
+    expect(saves(fake.calls)).toEqual([])
+    expect((await client.issueBrief('CAN-2')).description).toBe('A\n\nB\n\nC')
+    expect(edits.pending()).toEqual([])
+  })
+
+  it('save went through, answer lost, colleague edit in between: conflict, never duplication', async () => {
+    const { fake, client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB')
+    const edits = new LinearEdits(tmpFile(), losingFirstAnswer(client, () => colleague('CAN-2', 'A2\n\nB\n\nC')))
+    await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' } })
+    // a later field change sends the field; the uncertain description becomes a conflict
+    await expect(edits.save('CAN-2', { priority: 'low' })).resolves.toMatchObject({ kind: 'conflict', issue: { priority: 'low' } })
+    await edits.retryAll()
+    expect(saves(fake.calls).filter((a) => a.patch !== undefined)).toEqual([])
+    expect((await client.issueBrief('CAN-2')).description).toBe('A2\n\nB\n\nC')
+    const [p] = edits.pending()
+    expect(p.change).toEqual({ description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' } })
+    expect(p.held.description).toMatch(/Conflit/)
+  })
+
+  it.each([
+    ['append with trailing space', 'A\n\nB', 'A\n\nB\n\nC '],
+    ['replace extending its anchor', 'A\n\nB\n\nC', 'A\n\nB\nmore \n\nC'],
+    ['prepend', 'A\n\nB', 'Intro \n\nA\n\nB'],
+  ])('lost answer, Linear normalised the text: %s is not resent', async (_name, base, mine) => {
+    const { fake, client, colleague } = await setup()
+    await colleague('CAN-2', base)
+    const strip = (t: string) => t.replace(/[ \t]+$/gm, '')
+    const edits = new LinearEdits(tmpFile(), losingFirstAnswer(client, () => colleague('CAN-2', strip(mine))))
+    await edits.save('CAN-2', { description: { base, text: mine } })
+    await edits.retryAll()
+    expect(saves(fake.calls)).toEqual([])
+    expect((await client.issueBrief('CAN-2')).description).toBe(strip(mine))
+    expect(edits.pending()).toEqual([])
+  })
+
+  it('entry loaded in sending state is uncertain', async () => {
+    const file = tmpFile()
+    const change = { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' } }
+    writeFileSync(file, JSON.stringify({ entries: [{ id: 'CAN-2', change, error: '', held: {}, uncertain: false, sending: ['description'] }] }))
+    const { fake, client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB\n\nC') // the patch had been applied before the app stopped
+    const edits = new LinearEdits(file, client)
+    expect(edits.pending()[0].uncertain).toBe(true)
+    await edits.retryAll()
+    expect(saves(fake.calls)).toEqual([])
+    expect(edits.pending()).toEqual([])
+    expect((await client.issueBrief('CAN-2')).description).toBe('A\n\nB\n\nC')
+  })
+
+  it('an uncertain entry is sent normally when Linear still has the base', async () => {
+    const file = tmpFile()
+    const change = { description: { base: 'A\n\nB', text: 'A\n\nB\n\nC' } }
+    writeFileSync(file, JSON.stringify({ entries: [{ id: 'CAN-2', change, error: '', held: {}, uncertain: false, sending: ['description'] }] }))
+    const { client, colleague } = await setup()
+    await colleague('CAN-2', 'A\n\nB')
+    const edits = new LinearEdits(file, client)
+    await edits.retryAll()
+    expect((await client.issueBrief('CAN-2')).description).toBe('A\n\nB\n\nC')
+    expect(edits.pending()).toEqual([])
+  })
+})
+
+describe('LinearEdits: only the stuck field is held', () => {
+  it('conflict on description + priority change: priority sent, description held', async () => {
+    const { fake, client, colleague } = await setup()
+    await colleague('CAN-2', 'A3\n\nB')
+    const edits = new LinearEdits(tmpFile(), client)
+    const r = await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A2\n\nB' }, priority: 'high' })
+    expect(r).toMatchObject({ kind: 'conflict', remote: 'A3\n\nB', mine: 'A2\n\nB', issue: { priority: 'high' } })
+    expect(saves(fake.calls)).toEqual([{ id: 'CAN-2', priority: 2 }])
+    const [p] = edits.pending()
+    expect(p.change).toEqual({ description: { base: 'A\n\nB', text: 'A2\n\nB' } })
+    expect(p.held).toEqual({ description: expect.stringMatching(/Conflit/) })
+
+    // a later field change is not caught behind the held description
+    fake.calls.length = 0
+    await expect(edits.save('CAN-2', { priority: 'low' })).resolves.toMatchObject({ kind: 'sent', issue: { priority: 'low' } })
+    expect(fake.calls.map((c) => [c.name, c.args])).toEqual([['save_issue', { id: 'CAN-2', priority: 4 }]])
+    expect(edits.pending()).toHaveLength(1)
+  })
+
+  it('refused label + status change: status sent, labels held with the error', async () => {
+    const { fake, client } = await setup()
+    const edits = new LinearEdits(tmpFile(), client)
+    const r = await edits.save('CAN-2', { labels: ['Nope'], statusId: 'In Progress' })
+    expect(r).toMatchObject({ kind: 'pending', reason: expect.stringMatching(/refusé.*Nope/), issue: { status: { name: 'In Progress' } } })
+    expect(saves(fake.calls)).toContainEqual({ id: 'CAN-2', state: 'In Progress' })
+    expect(edits.pending()).toEqual([{
+      id: 'CAN-2', change: { labels: ['Nope'] }, error: '', held: { labels: expect.stringMatching(/unknown label Nope/) }, uncertain: false,
+    }])
+  })
+
+  it("discard(id, ['labels']) keeps the description pending", async () => {
+    const { client, colleague } = await setup()
+    await colleague('CAN-2', 'A3\n\nB')
+    const file = tmpFile()
+    const edits = new LinearEdits(file, client)
+    await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A2\n\nB' }, labels: ['Nope'] })
+    expect(Object.keys(edits.pending()[0].held).sort()).toEqual(['description', 'labels'])
+    edits.discard('CAN-2', ['labels'])
+    expect(edits.pending()).toEqual([{
+      id: 'CAN-2', change: { description: { base: 'A\n\nB', text: 'A2\n\nB' } }, error: '',
+      held: { description: expect.stringMatching(/Conflit/) }, uncertain: false,
+    }])
+    expect(fileEntries(file)).toHaveLength(1)
+  })
+
+  it('a discard during a send sticks once the send settles', async () => {
+    const { client } = await setup()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const failing = {
+      issueBrief: client.issueBrief.bind(client),
+      save: async () => { await gate; throw new Error('fetch failed') },
+    }
+    const file = tmpFile()
+    const edits = new LinearEdits(file, failing)
+    const r = edits.save('CAN-2', { priority: 'high' })
+    await new Promise((res) => setTimeout(res, 0))
+    edits.discard('CAN-2')
+    release()
+    await r
+    expect(edits.pending()).toEqual([])
+    expect(fileEntries(file)).toEqual([])
+  })
+
+  it('malformed entries are set aside, the valid ones kept', () => {
+    const file = tmpFile()
+    writeFileSync(file, JSON.stringify({ entries: [
+      { id: 'CAN-1', change: { priority: 'bogus' }, error: '' },
+      { id: 'CAN-2', change: { title: 'ok' }, error: '' },
+      { id: 'CAN-3', change: { description: { base: 1 } }, error: '' },
+    ] }))
+    const edits = new LinearEdits(file, { issueBrief: async () => { throw new Error('x') }, save: async () => { throw new Error('x') } })
+    expect(edits.pending().map((p) => p.id)).toEqual(['CAN-2'])
+    expect(readdirSync(join(file, '..')).some((f) => f.startsWith('linear-pending.json.corrupt-'))).toBe(true)
   })
 })

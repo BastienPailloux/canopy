@@ -39,7 +39,13 @@ function middle(base: string, mine: string): { p: number; e: number; me: number 
   return { p, e: base.length - s, me: mine.length - s }
 }
 
-/** One op turning `base` into `mine`, anchored on whole lines unique in `base`; `[]` when equal. */
+/**
+ * One op turning `base` into `mine`, anchored on whole lines unique in `base`; `[]` when equal.
+ * Known limit: Linear has no start/end-of-text anchor, so an anchor on the very first or last line (`A\n`, `\nB`) can
+ * still match inside that line if a colleague extended it between Canopy's read and its send (`B` -> `B colleague`).
+ * Interior anchors carry the newlines on both sides, so they only match whole lines; `rebase` checks the line
+ * boundaries on the text it read. The remaining window is the few milliseconds between the read and the send.
+ */
 export function diffToPatch(base: string, mine: string): PatchOp[] {
   if (base === mine) return []
   if (base === '') return [{ op: 'append', text: mine }]
@@ -85,6 +91,18 @@ function anchoredOnce(text: string, anchor: string): boolean {
 }
 
 /**
+ * The text as Linear stores it after a save, as far as Canopy can predict: `\r\n` -> `\n`, no trailing spaces or tabs
+ * on a line, no trailing newlines. Linear normalises more (e.g. merges adjacent links), so equal here means "same text",
+ * different does not prove a different text.
+ */
+export function normalizeDescription(s: string): string {
+  return s.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n+$/, '')
+}
+
+/** `a` and `b` are the same description once Linear has normalised them. */
+export const sameDescription = (a: string, b: string): boolean => a === b || normalizeDescription(a) === normalizeDescription(b)
+
+/**
  * Bastien's edit (`base` -> `mine`) replayed on Linear's current text `remote`. Clean when `remote` is still `base`,
  * already holds `mine`, or every anchor of the edit is still there exactly once as whole lines (a colleague edited
  * elsewhere). Otherwise a conflict: the same passage changed on both sides.
@@ -92,7 +110,7 @@ function anchoredOnce(text: string, anchor: string): boolean {
 export function rebase(base: string, mine: string, remote: string): { kind: 'clean'; ops: PatchOp[] } | { kind: 'conflict'; remote: string } {
   const ops = diffToPatch(base, mine)
   if (remote === base) return { kind: 'clean', ops }
-  if (remote === mine) return { kind: 'clean', ops: [] }
+  if (sameDescription(remote, mine)) return { kind: 'clean', ops: [] }
   for (const op of ops) {
     const anchor = anchorOf(op)
     if (anchor === null || !anchoredOnce(remote, anchor)) return { kind: 'conflict', remote }
