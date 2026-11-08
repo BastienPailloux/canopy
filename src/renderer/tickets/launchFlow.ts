@@ -1,3 +1,4 @@
+import { launchMockupsSection, type Mockup } from '../../shared/mockups'
 import { branchSlug, launchPrompt, type LaunchRequest, type Ticket } from '../../shared/tickets'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
@@ -5,6 +6,12 @@ import { useApp } from '../store'
 /** `<type>/<slug of the title>`, `feat` unless told otherwise. */
 export function defaultBranchName(t: Ticket, type?: string): string {
   return `${type ?? 'feat'}/${branchSlug(t.title)}`
+}
+
+/** The launch prompt of `t`, followed by the list of `mockups` to read when there are any. */
+export function launchText(t: Ticket, mockups: Pick<Mockup, 'title' | 'url'>[] = []): string {
+  const section = launchMockupsSection(mockups)
+  return section ? `${launchPrompt(t)}\n\n${section}` : launchPrompt(t)
 }
 
 /**
@@ -22,10 +29,12 @@ async function rescan(repo: string): Promise<void> {
 
 /**
  * Launches the ticket, then shows Sessions on its worktree (unless the open repo changed meanwhile) and, if asked,
- * sends the launch prompt, built from the ticket as the launch left it on disk, to Claude there. A failed launch
- * rejects with git's message and leaves the screen as it was.
+ * sends the launch prompt, built from the ticket as the launch left it on disk plus the `mockups` to join, to Claude
+ * there. A failed launch rejects with git's message and leaves the screen as it was.
  */
-export async function runLaunch(repo: string, req: LaunchRequest, o: { startClaude: boolean }): Promise<void> {
+export async function runLaunch(
+  repo: string, req: LaunchRequest, o: { startClaude: boolean; mockups?: Pick<Mockup, 'title' | 'url'>[] }
+): Promise<void> {
   const before = useApp.getState().repo
   const result = await window.canopy.launchTicket(repo, req)
   await rescan(repo)
@@ -34,5 +43,5 @@ export async function runLaunch(repo: string, req: LaunchRequest, o: { startClau
     app.setWorktree(result.worktree)
     app.setView('sessions')
   }
-  if (o.startClaude) askClaude(result.worktree, launchPrompt(result.ticket))
+  if (o.startClaude) askClaude(result.worktree, launchText(result.ticket, o.mockups))
 }

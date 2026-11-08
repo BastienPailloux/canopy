@@ -15,6 +15,9 @@ import { dragLeft, dragRight, LEFT_DEFAULT, RAIL_WIDTH, RIGHT_DEFAULT, stepLeft 
 import { Resizer } from './shell/Resizer'
 import { WorktreeList } from './shell/WorktreeList'
 import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from './shell/repoActions'
+import { connectMockups } from './mockups/mockupStore'
+import { MockupEditor } from './mockups/MockupEditor'
+import { MockupsScreen } from './mockups/MockupsScreen'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectTickets } from './tickets/ticketStore'
 import { TicketEditor } from './tickets/TicketEditor'
@@ -110,6 +113,7 @@ export function App(): React.JSX.Element {
   const workspace = useApp((s) => s.workspace)
   const view = useApp((s) => s.view)
   const openTicket = useApp((s) => s.openTicket)
+  const openMockup = useApp((s) => s.openMockup)
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
@@ -117,6 +121,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => connectTickets(), [])
+  useEffect(() => connectMockups(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
@@ -163,6 +168,8 @@ export function App(): React.JSX.Element {
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
           <main className="main tickets-view">{openTicket ? <TicketEditor id={openTicket} /> : <TicketsScreen />}</main>
+        ) : repo && workspace && view === 'mockups' ? (
+          <main className="main mockups-view">{openMockup ? <MockupEditor id={openMockup} /> : <MockupsScreen />}</main>
         ) : repo && workspace ? (
           <>
             <Sidebar repo={repo} workspace={workspace} />

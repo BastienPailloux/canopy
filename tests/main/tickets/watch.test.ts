@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { watchTickets } from '../../../src/main/tickets/watch'
+import { watchFolder, watchTickets } from '../../../src/main/tickets/watch'
 
 let root: string
 let stop: (() => void) | undefined
@@ -50,6 +50,19 @@ describe('watchTickets', () => {
     await sleep(500)
     await mkdir(join(root, '.tickets'))
     await writeFile(join(root, '.tickets', 'T-1.md'), 'x')
+    await vi_waitFor(() => calls >= 1)
+  })
+
+  it('watchFolder follows another folder only', async () => {
+    let calls = 0
+    stop = watchFolder(root, '.mockups', () => { calls++ })
+    await sleep(500)
+    await mkdir(join(root, '.tickets'))
+    await writeFile(join(root, '.tickets', 'T-1.md'), 'x')
+    await sleep(500)
+    expect(calls).toBe(0)
+    await mkdir(join(root, '.mockups'))
+    await writeFile(join(root, '.mockups', 'mockups.json'), '{}')
     await vi_waitFor(() => calls >= 1)
   })
 })

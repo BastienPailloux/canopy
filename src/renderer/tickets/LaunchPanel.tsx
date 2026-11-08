@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { BRANCH_TYPES, PRIORITY_LABEL, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
+import { useMockups } from '../mockups/mockupStore'
 import { basename, useApp } from '../store'
 import { defaultBranchName, runLaunch } from './launchFlow'
 import type { RepoRefs } from './TicketsScreen'
@@ -36,6 +37,9 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
   const [baseEdit, setBaseEdit] = useState<string | null>(null)
   const [name, setName] = useState(() => defaultBranchName(ticket))
   const [startClaude, setStartClaude] = useState(true)
+  const allMockups = useMockups((s) => s.list)
+  const mockups = useMemo(() => allMockups.filter((m) => m.ticket === ticket.id), [allMockups, ticket.id])
+  const [joinMockups, setJoinMockups] = useState(true)
   const [inProgress, setInProgress] = useState(ticket.status !== 'in_progress' && ticket.status !== 'in_review')
   const [candidates, setCandidates] = useState<Candidates | null>(null)
   const [candidatesError, setCandidatesError] = useState<string | null>(null)
@@ -75,7 +79,7 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
     setBusy(true)
     setError(null)
     try {
-      await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude })
+      await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude, mockups: joinMockups ? mockups : [] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)
@@ -196,6 +200,12 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
           <input type="checkbox" checked={startClaude} onChange={(e) => setStartClaude(e.target.checked)} />
           Démarrer Claude Code avec la description du ticket
         </label>
+        {mockups.length > 0 && (
+          <label className="check">
+            <input type="checkbox" checked={joinMockups && startClaude} disabled={!startClaude} onChange={(e) => setJoinMockups(e.target.checked)} />
+            Joindre les maquettes liées ({mockups.length})
+          </label>
+        )}
         <label className="check">
           <input type="checkbox" checked={inProgress} onChange={(e) => setInProgress(e.target.checked)} />
           Passer le ticket « En cours »

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { launchMockupsSection } from '../../src/shared/mockups'
 import { launchPrompt, type LaunchRequest, type Ticket } from '../../src/shared/tickets'
 import type { Worktree } from '../../src/shared/types'
 
@@ -7,7 +8,7 @@ vi.mock('../../src/renderer/sessions/sessionStore', () => ({
   askClaude: vi.fn((cwd: string, text: string) => { calls.push(`askClaude ${cwd} ${text}`); return 'tab' })
 }))
 
-const { defaultBranchName, runLaunch } = await import('../../src/renderer/tickets/launchFlow')
+const { defaultBranchName, launchText, runLaunch } = await import('../../src/renderer/tickets/launchFlow')
 const { useApp } = await import('../../src/renderer/store')
 
 const ticket = (title: string): Ticket => ({
@@ -82,5 +83,31 @@ describe('runLaunch', () => {
     expect(useApp.getState().view).toBe('tickets')
     expect(useApp.getState().worktree).toBe('/r')
     expect(calls.some((c) => c.startsWith('askClaude'))).toBe(true)
+  })
+
+  it('joins the linked mockups to the prompt, and only them', async () => {
+    const mockups = [{ title: 'Scanner', url: 'https://claude.ai/artifact/WcXTxNhxSWaDL28ttqjZye' }]
+    await runLaunch('/r', REQ, { startClaude: true, mockups })
+    const expected = `${launchPrompt(ticket('x'))}\n\n${launchMockupsSection(mockups)}`
+    expect(calls).toContain(`askClaude ${NEW.path} ${expected}`)
+    expect(expected).toContain('- "Scanner" — https://claude.ai/artifact/WcXTxNhxSWaDL28ttqjZye')
+  })
+
+  it('an empty list of mockups leaves the prompt as it was', async () => {
+    await runLaunch('/r', REQ, { startClaude: true, mockups: [] })
+    expect(calls).toContain(`askClaude ${NEW.path} ${launchPrompt(ticket('x'))}`)
+  })
+})
+
+describe('launchText', () => {
+  it('is the ticket prompt alone without mockups', () => {
+    expect(launchText(ticket('T'))).toBe(launchPrompt(ticket('T')))
+    expect(launchText(ticket('T'), [])).toBe(launchPrompt(ticket('T')))
+  })
+  it('asks to read each mockup with the Artifact tool', () => {
+    const text = launchText(ticket('T'), [{ title: 'A', url: 'u1' }, { title: 'B', url: 'u2' }])
+    expect(text.startsWith(`${launchPrompt(ticket('T'))}\n\n`)).toBe(true)
+    expect(text).toContain('Artifact')
+    expect(text).toContain('- "A" — u1\n- "B" — u2')
   })
 })
