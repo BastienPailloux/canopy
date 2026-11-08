@@ -1,4 +1,4 @@
-import { branchSlug, type LaunchRequest, type Ticket } from '../../shared/tickets'
+import { branchSlug, launchPrompt, type LaunchRequest, type Ticket } from '../../shared/tickets'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 
@@ -21,14 +21,18 @@ async function rescan(repo: string): Promise<void> {
 }
 
 /**
- * Launches the ticket, then shows Sessions on its worktree and, if asked, sends `prompt` to Claude there. A failed
- * launch rejects with git's message and leaves the screen as it was.
+ * Launches the ticket, then shows Sessions on its worktree (unless the open repo changed meanwhile) and, if asked,
+ * sends the launch prompt, built from the ticket as the launch left it on disk, to Claude there. A failed launch
+ * rejects with git's message and leaves the screen as it was.
  */
-export async function runLaunch(repo: string, req: LaunchRequest, o: { startClaude: boolean; prompt: string }): Promise<void> {
+export async function runLaunch(repo: string, req: LaunchRequest, o: { startClaude: boolean }): Promise<void> {
+  const before = useApp.getState().repo
   const result = await window.canopy.launchTicket(repo, req)
   await rescan(repo)
-  const app = useApp.getState()
-  app.setWorktree(result.worktree)
-  app.setView('sessions')
-  if (o.startClaude) askClaude(result.worktree, o.prompt)
+  if (useApp.getState().repo === before) {
+    const app = useApp.getState()
+    app.setWorktree(result.worktree)
+    app.setView('sessions')
+  }
+  if (o.startClaude) askClaude(result.worktree, launchPrompt(result.ticket))
 }

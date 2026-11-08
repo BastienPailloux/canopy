@@ -23,10 +23,15 @@ function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v ? v : undefined
 }
 
+/** Leading and trailing blank lines off, the indentation of the first line kept (an indented code block). */
+function trimBlank(s: string): string {
+  return s.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '')
+}
+
 function splitBody(body: string): { description: string; subtasks: Subtask[] } {
   const lines = body.replace(/\r\n/g, '\n').split('\n')
   const at = lines.map((l) => l.trimEnd()).lastIndexOf(SUBTASKS_HEADING)
-  if (at === -1) return { description: body.trim(), subtasks: [] }
+  if (at === -1) return { description: trimBlank(body.replace(/\r\n/g, '\n')), subtasks: [] }
   const subtasks: Subtask[] = []
   const rest: string[] = []
   for (const line of lines.slice(at + 1)) {
@@ -35,8 +40,8 @@ function splitBody(body: string): { description: string; subtasks: Subtask[] } {
     else if (line.trim()) rest.push(line)
   }
   // No checklist: the heading is plain description text.
-  if (!subtasks.length) return { description: body.trim(), subtasks: [] }
-  const head = lines.slice(0, at).join('\n').trim()
+  if (!subtasks.length) return { description: trimBlank(body.replace(/\r\n/g, '\n')), subtasks: [] }
+  const head = trimBlank(lines.slice(0, at).join('\n'))
   return { description: [head, ...rest].filter(Boolean).join('\n\n'), subtasks }
 }
 
@@ -51,7 +56,7 @@ export function parseTicket(text: string, fileId: string): Ticket {
   if (!Array.isArray(labels) || labels.some((l) => typeof l !== 'string' && typeof l !== 'number')) throw new Error('Champ « labels » invalide')
   const { description, subtasks } = splitBody(body)
   const t: Ticket = {
-    id: optStr(data.id) ?? fileId,
+    id: fileId, // the file name is authoritative, whatever the front matter says
     title: str(data.title, 'title'),
     description,
     status: status as TicketStatus,

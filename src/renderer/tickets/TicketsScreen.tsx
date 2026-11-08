@@ -20,17 +20,18 @@ const NO_REFS: RepoRefs = { branches: [], worktrees: [], defaultBase: null }
 
 /** Read again whenever the tickets change: a launch changes both. */
 export function useRepoRefs(repo: string, stamp: unknown): RepoRefs {
-  const [refs, setRefs] = useState<RepoRefs>(NO_REFS)
+  const [state, setState] = useState<{ repo: string; refs: RepoRefs }>({ repo: '', refs: NO_REFS })
   useEffect(() => {
+    if (!repo) return
     let live = true
     void Promise.all([
       window.canopy.codeBranches(repo).catch((): string[] => []),
       window.canopy.listWorktrees(repo).catch((): Worktree[] => []),
       window.canopy.defaultBase(repo).catch(() => null)
-    ]).then(([branches, worktrees, defaultBase]) => { if (live) setRefs({ branches, worktrees, defaultBase }) })
+    ]).then(([branches, worktrees, defaultBase]) => { if (live) setState({ repo, refs: { branches, worktrees, defaultBase } }) })
     return () => { live = false }
   }, [repo, stamp])
-  return refs
+  return state.repo === repo ? state.refs : NO_REFS
 }
 
 /** The worktree of the ticket's branch, if that branch is still a local one and its worktree still listed. */

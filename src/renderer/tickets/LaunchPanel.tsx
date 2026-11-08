@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { BRANCH_TYPES, launchPrompt, PRIORITY_LABEL, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
+import { BRANCH_TYPES, PRIORITY_LABEL, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { defaultBranchName, runLaunch } from './launchFlow'
 import type { RepoRefs } from './TicketsScreen'
@@ -42,6 +42,7 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const launchBtn = useRef<HTMLButtonElement>(null)
+  const inFlight = useRef(false)
 
   useEffect(() => {
     let live = true
@@ -56,7 +57,7 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
   const others = refs.branches.filter((b) => b !== def?.ref && b !== def?.name)
   const free = candidates?.worktrees.filter((w) => w.free) ?? []
   const worktree = candidates?.worktrees.find((w) => w.path === (picked ?? free[0]?.path)) ?? null
-  const autoBase = baseEdit ?? candidates?.advanced?.branch ?? def?.name ?? ''
+  const autoBase = baseEdit ?? candidates?.advanced?.branch ?? def?.ref ?? ''
 
   const branch = name.trim()
   const taken = branch !== '' && refs.branches.includes(branch)
@@ -69,14 +70,16 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
   const canLaunch = !busy && target !== null && branch !== '' && !/\s/.test(branch) && !taken
 
   const launch = async (): Promise<void> => {
-    if (!canLaunch || !target) return
+    if (!canLaunch || !target || inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setError(null)
     try {
-      await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude, prompt: launchPrompt(ticket) })
+      await runLaunch(repo, { id: ticket.id, branch, target, setInProgress: inProgress }, { startClaude })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)
+      inFlight.current = false
     }
   }
   const latest = useRef(launch)

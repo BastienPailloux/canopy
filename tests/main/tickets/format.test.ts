@@ -83,4 +83,13 @@ describe('ticket format', () => {
     expect(t.title).toBe('2026')
     expect(t.labels).toEqual(['2025'])
   })
+  it('keeps the indentation of a description that starts with a code block', () => {
+    const t = { ...full, description: '    indented code\n    more\n\nthen text', subtasks: [] }
+    expect(parseTicket(serializeTicket(t), t.id)).toEqual(t)
+    expect(parseTicket(minimal('\n\n    code\n'), 'DPP-1').description).toBe('    code')
+  })
+
+  it('takes the id from the file name, not the front matter', () => {
+    expect(parseTicket(minimal('x'), 'DPP-9').id).toBe('DPP-9')
+  })
 })
