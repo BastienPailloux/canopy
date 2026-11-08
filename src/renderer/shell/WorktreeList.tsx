@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import type { OrphanedWorktree } from '../../shared/api'
 import { MAX_WORKSPACE_REPOS, type Workspace, type WorkspaceEntry, type Worktree, type WorktreeStatus } from '../../shared/types'
 import { basename, useApp, worktreeLabel } from '../store'
+import { ticketKey } from '../../shared/tickets'
 import { useTickets } from '../tickets/ticketStore'
 import { NewWorktreeDialog } from './NewWorktreeDialog'
 import { railInitials } from './panelWidths'
@@ -85,7 +86,7 @@ function Row(props: { w: Worktree; ticketId?: string; label: string; idleMain: s
           onClick={(e) => {
             e.stopPropagation()
             useApp.getState().setView('tickets')
-            useApp.getState().setOpenTicket(props.ticketId!)
+            useApp.getState().setOpenTicket(ticketKey('local', props.ticketId!))
           }}>{props.ticketId}</button>
       )}
       {!w.isMain && (

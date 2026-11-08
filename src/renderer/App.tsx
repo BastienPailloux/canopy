@@ -17,6 +17,8 @@ import { WorktreeList } from './shell/WorktreeList'
 import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from './shell/repoActions'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectTickets } from './tickets/ticketStore'
+import { connectLinear } from './tickets/linearStore'
+import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
 import { connectUnsaved } from './unsaved'
@@ -105,6 +107,19 @@ function Main(): React.JSX.Element {
   )
 }
 
+/** The editor of the open ticket; Linear tickets have none yet. */
+function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element {
+  if (k === 'new') return <TicketEditor id="new" />
+  const p = parseTicketKey(k)
+  if (p?.source === 'local') return <TicketEditor id={p.id} />
+  return (
+    <div className="placeholder">
+      <p>Ticket Linear — éditeur à venir</p>
+      <button className="link" onClick={() => useApp.getState().setOpenTicket(null)}>Retour à la liste</button>
+    </div>
+  )
+}
+
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   const workspace = useApp((s) => s.workspace)
@@ -117,6 +132,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => connectTickets(), [])
+  useEffect(() => connectLinear(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
@@ -162,7 +178,7 @@ export function App(): React.JSX.Element {
       <Header />
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
-          <main className="main tickets-view">{openTicket ? <TicketEditor id={openTicket} /> : <TicketsScreen />}</main>
+          <main className="main tickets-view">{openTicket ? <OpenTicket k={openTicket} /> : <TicketsScreen />}</main>
         ) : repo && workspace ? (
           <>
             <Sidebar repo={repo} workspace={workspace} />

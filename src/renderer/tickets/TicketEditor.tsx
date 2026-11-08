@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, STATUSES,
-  type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus
+  type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus,
+  ticketKey,
 } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
@@ -79,7 +80,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
       t = await window.canopy.createTicket(repo, all)
       idRef.current = t.id
       props.onCreated(t.id)
-      if (live.current) useApp.getState().setOpenTicket(t.id)
+      if (live.current) useApp.getState().setOpenTicket(ticketKey('local', t.id))
     }
     if (!live.current) return
     setSaveError(null)
@@ -180,7 +181,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
   }
   const duplicate = (): Promise<void> => act(async (from) => {
     const copy = await window.canopy.duplicateTicket(repo, from)
-    useApp.getState().setOpenTicket(copy.id)
+    useApp.getState().setOpenTicket(ticketKey('local', copy.id))
   })
   const archive = (): Promise<void> => act(async (from) => {
     await window.canopy.archiveTicket(repo, from)
@@ -189,7 +190,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
   })
   const launch = (): void => {
     if (!id) return
-    app.setSelectedTicket(id)
+    app.setSelectedTicket(ticketKey('local', id))
     app.setOpenTicket(null)
     app.setView('tickets')
   }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { BRANCH_TYPES, PRIORITY_LABEL, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
+import { BRANCH_TYPES, PRIORITY_LABEL, ticketKey, type LaunchCandidate, type LaunchTarget, type Ticket } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { defaultBranchName, runLaunch } from './launchFlow'
 import type { RepoRefs } from './TicketsScreen'
@@ -116,7 +116,7 @@ export function LaunchPanel(props: { repo: string; ticket: Ticket; refs: RepoRef
         <span className="ticket-id mono">{ticket.id}</span>
         <h2>{ticket.title}</h2>
         <span className="launch-meta">{meta}</span>
-        <button className="link" onClick={() => useApp.getState().setOpenTicket(ticket.id)}>Voir et modifier le ticket</button>
+        <button className="link" onClick={() => useApp.getState().setOpenTicket(ticketKey('local', ticket.id))}>Voir et modifier le ticket</button>
       </div>
 
       <section className="launch-where" role="radiogroup" aria-labelledby={`${ids}-where`}>

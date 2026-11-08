@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useApp, type View } from '../store'
+import { useLinear } from '../tickets/linearStore'
+import { openLinearCount } from '../tickets/listModel'
 import { openCount, useTickets } from '../tickets/ticketStore'
 import { RepoPicker } from './RepoPicker'
 import { Settings } from './Settings'
@@ -26,7 +28,9 @@ function Logo(): React.JSX.Element {
 export function Header(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const setView = useApp((s) => s.setView)
-  const open = useTickets((s) => openCount(s.entries))
+  const local = useTickets((s) => openCount(s.entries))
+  const linear = useLinear((s) => openLinearCount(s.list.issues))
+  const open = local + linear
   const [settings, setSettings] = useState(false)
   return (
     <header className="header">

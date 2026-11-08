@@ -90,9 +90,9 @@ describe('workspace', () => {
 
   it('another repo closes the open ticket and clears the selected one; the same repo keeps them', () => {
     useApp.getState().setWorkspace(ws(a, aFeat, b))
-    useApp.setState({ openTicket: 'A-1', selectedTicket: 'A-2' })
+    useApp.setState({ openTicket: 'local:A-1', selectedTicket: 'local:A-2' })
     useApp.getState().selectEntry(aFeat)
-    expect(useApp.getState()).toMatchObject({ openTicket: 'A-1', selectedTicket: 'A-2' })
+    expect(useApp.getState()).toMatchObject({ openTicket: 'local:A-1', selectedTicket: 'local:A-2' })
     useApp.getState().selectEntry(b)
     expect(useApp.getState()).toMatchObject({ repo: '/ws/b', openTicket: null, selectedTicket: null })
   })
