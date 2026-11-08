@@ -1,0 +1,77 @@
+export type TicketStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done'
+
+export const STATUS_LABEL: Record<TicketStatus, string> = {
+  backlog: 'Backlog',
+  todo: 'À faire',
+  in_progress: 'En cours',
+  in_review: 'En revue',
+  done: 'Terminé',
+}
+
+export const STATUS_ORDER: TicketStatus[] = ['in_progress', 'in_review', 'todo', 'backlog', 'done']
+
+export type TicketPriority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
+
+export const PRIORITY_LABEL: Record<TicketPriority, string> = {
+  urgent: 'Urgente',
+  high: 'Haute',
+  medium: 'Moyenne',
+  low: 'Basse',
+  none: 'Aucune',
+}
+
+export interface Subtask { title: string; done: boolean }
+
+export interface TicketFields {
+  title: string
+  description: string
+  status: TicketStatus
+  priority: TicketPriority
+  labels: string[]
+  subtasks: Subtask[]
+  branch?: string
+  worktree?: string
+  base?: string
+}
+
+export interface Ticket extends TicketFields {
+  id: string
+  created: string
+  updated: string
+  archived: boolean
+}
+
+/** A file that could not be read is listed by name, never overwritten. */
+export type TicketListEntry =
+  | { kind: 'ticket'; ticket: Ticket }
+  | { kind: 'unreadable'; file: string; error: string }
+
+export const BRANCH_TYPES = ['feat', 'fix', 'chore', 'docs', 'refactor', 'test'] as const
+
+/** Short branch name part: first 5 words of the title, ASCII, dash separated. */
+export function branchSlug(title: string): string {
+  const words = title
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .split('-')
+    .filter(Boolean)
+    .slice(0, 5)
+  return words.join('-') || 'ticket'
+}
+
+/** First three ASCII letters of the repo folder name, uppercased. */
+export function defaultPrefix(repoName: string): string {
+  const letters = repoName.replace(/[^A-Za-z]/g, '').slice(0, 3)
+  return letters.length === 3 ? letters.toUpperCase() : 'TKT'
+}
+
+/** First message sent to Claude when a ticket is launched. */
+export function launchPrompt(t: Ticket): string {
+  const parts = [`Ticket ${t.id} : ${t.title}`]
+  if (t.description.trim()) parts.push(t.description.trim())
+  const todo = t.subtasks.filter((s) => !s.done)
+  if (todo.length) parts.push(['Sous-tâches restantes :', ...todo.map((s) => `- [ ] ${s.title}`)].join('\n'))
+  return parts.join('\n\n')
+}
