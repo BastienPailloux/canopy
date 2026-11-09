@@ -7,8 +7,11 @@ export const FIRST_PASS_DELAY_MS = 30_000
 
 export interface DepsServiceDeps {
   check: (repo: string, previous: DepsReport | null) => Promise<DepsReport>
-  /** Repos to watch: every git repo behind the picker's recent entries (a folder answers for the repos it holds). */
-  repos: () => Promise<{ entry: string; repos: string[] }[]>
+  /**
+   * Repos to watch: every git repo behind the picker's recent entries (a folder answers for the repos it holds).
+   * `repos: null`: the entry could not be listed this time (unknown, not empty).
+   */
+  repos: () => Promise<{ entry: string; repos: string[] | null }[]>
   /** userData/deps-reports.json */
   file: string
   now: () => number
@@ -79,7 +82,14 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
   const listed = (repo: string) => entries?.some((e) => e.repos.includes(repo)) === true
 
   async function refreshEntries(): Promise<Entries> {
-    entries = await d.repos()
+    const previous = entries
+    // A transient failure must not drop what we knew: the entry keeps its last repos,
+    // or before any listing, the stored repos under it.
+    entries = (await d.repos()).map(({ entry, repos }) => ({
+      entry,
+      repos: repos ?? previous?.find((e) => e.entry === entry)?.repos ??
+        Object.keys(reports).filter((r) => r === entry || r.startsWith(`${entry}/`))
+    }))
     const keep = new Set(entries.flatMap((e) => e.repos))
     let dropped = false
     for (const k of Object.keys(reports)) if (!keep.has(k)) { delete reports[k]; dropped = true }

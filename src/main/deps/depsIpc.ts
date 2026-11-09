@@ -8,7 +8,7 @@ import { parseLaunchTarget } from '../tickets/ticketIpc'
 import { findRepos } from '../workspace'
 import type { DepsService } from './service'
 
-type Entries = { entry: string; repos: string[] }[]
+type Entries = { entry: string; repos: string[] | null }[]
 
 function assertPath(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
@@ -19,15 +19,16 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const isRepo = (dir: string): Promise<boolean> =>
   git(dir, ['rev-parse', '--git-dir']).then(() => true, () => false)
 
-/** The main roots behind each recent entry: the repo itself, or the repos a folder holds. A failing entry holds none. */
+/** The main roots behind each recent entry: the repo itself, or the repos a folder holds. A failing entry gives null (unknown). */
 export async function listDepsRepos(recent: string[]): Promise<Entries> {
   return Promise.all(recent.map(async (entry) => {
     try {
       if (await isRepo(entry)) return { entry, repos: [await mainWorktreeRoot(entry)] }
       const found = await findRepos(entry)
+      if (found.failed.length > 0) return { entry, repos: null }
       return { entry, repos: [...new Set(await Promise.all(found.repos.map((r) => mainWorktreeRoot(r))))] }
     } catch {
-      return { entry, repos: [] }
+      return { entry, repos: null }
     }
   }))
 }
@@ -76,7 +77,7 @@ export function registerDepsIpc(d: DepsIpcDeps): DepsIpcHooks {
   return {
     async onRecentReposChanged() {
       const list = await listDepsRepos(d.store.recentRepos)
-      for (const repo of new Set(list.flatMap((e) => e.repos))) {
+      for (const repo of new Set(list.flatMap((e) => e.repos ?? []))) {
         if (service.report(repo) === null && !service.checking(repo)) await service.recheck(repo).catch(logFailure(`deps: check failed for ${repo}`))
       }
     }

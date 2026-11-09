@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -86,8 +86,19 @@ describe('deps ipc', () => {
     execFileSync('git', ['init', '-q', join(folder, 'a')])
     const list = await listDepsRepos([root, folder, '/nonexistent/x'])
     expect(list[0]).toEqual({ entry: root, repos: [root] })
-    expect(list[1].repos.map((r) => r.endsWith('/a'))).toEqual([true])
+    expect(list[1].repos!.map((r) => r.endsWith('/a'))).toEqual([true])
     expect(list[2]).toEqual({ entry: '/nonexistent/x', repos: [] })
+  })
+
+  it('lists a folder it cannot fully read as unknown, not empty', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'canopy-deps-folder-'))
+    await mkdir(join(folder, 'locked'))
+    await chmod(join(folder, 'locked'), 0o000)
+    try {
+      expect(await listDepsRepos([folder])).toEqual([{ entry: folder, repos: null }])
+    } finally {
+      await chmod(join(folder, 'locked'), 0o755)
+    }
   })
 
   it('checks the repos nobody checked yet when a recent repo is added', async () => {

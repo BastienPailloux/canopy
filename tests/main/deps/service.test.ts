@@ -266,4 +266,27 @@ describe('createDepsService', () => {
     await new Promise((r) => setTimeout(r, 10))
     expect(t.calls).toEqual(['/a', '/dir/x', '/dir/y'])
   })
+
+  test('a failed listing keeps the reports and dismissals of that entry', async () => {
+    let list: { entry: string; repos: string[] | null }[] = [{ entry: '/a', repos: ['/a'] }, { entry: '/dir', repos: ['/dir/x'] }]
+    const t = setup({ repos: async () => list, keys: { '/a': ['k'], '/dir/x': ['k'] } })
+    t.svc.start()
+    await until(t, 2)
+    t.svc.dismissBanner('/dir/x')
+    list = [{ entry: '/a', repos: ['/a'] }, { entry: '/dir', repos: null }]
+    await t.svc.recheck('/a')
+    await expect(t.svc.recheck('/nope')).rejects.toThrow('Dépôt inconnu')
+    expect(t.svc.report('/dir/x')).not.toBeNull()
+    expect(t.svc.critical('/dir')).toBe(1)
+    expect(JSON.parse(readFileSync(file, 'utf8')).dismissed['/dir/x']).toEqual(['k'])
+  })
+
+  test('a listing that fails before any success keeps the stored reports under the entry', async () => {
+    writeFileSync(file, JSON.stringify({ version: 1, reports: { '/dir/x': report('/dir/x', ['k']), '/gone': report('/gone', ['k']) }, dismissed: {} }))
+    const t = setup({ repos: async () => [{ entry: '/dir', repos: null }], setTimeout: (() => 9) as unknown as typeof setTimeout })
+    t.svc.start()
+    await expect(t.svc.recheck('/nope')).rejects.toThrow('Dépôt inconnu')
+    expect(t.svc.report('/dir/x')).not.toBeNull()
+    expect(t.svc.report('/gone')).toBeNull()
+  })
 })
