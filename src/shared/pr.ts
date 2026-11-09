@@ -1,0 +1,43 @@
+/** A pull request as the PR tab shows it, read from GitHub through `gh` (src/main/github). */
+
+export type PrState = 'open' | 'draft' | 'merged' | 'closed'
+export type MergeMethod = 'squash' | 'merge' | 'rebase'
+export type CheckOutcome = 'success' | 'failure' | 'pending' | 'neutral'
+export interface PrUser { login: string; bot: boolean }
+export interface PrSummary { number: number; state: PrState; title: string; url: string }
+export interface PrComment { id: string; databaseId: number; author: PrUser; body: string; createdAt: string }
+export interface PrThread { id: string; path: string; line: number | null; startLine: number | null; diffHunk: string; resolved: boolean; outdated: boolean; comments: PrComment[] }
+export type PrReviewState = 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED'
+export type PrTimelineItem =
+  | { kind: 'comment'; at: string; comment: PrComment }
+  | { kind: 'review'; at: string; author: PrUser; state: PrReviewState; body: string }
+  | { kind: 'push'; at: string; author: PrUser; count: number }
+  | { kind: 'thread'; at: string; thread: PrThread }
+  /** Derived by the parser from the last commit's check rollup: one item, at that commit's date. */
+  | { kind: 'ci'; at: string; sha: string; outcome: CheckOutcome }
+export interface PrCheck { name: string; detail: string; outcome: CheckOutcome; durationMs: number | null; url: string | null
+  /** GitHub Actions only: null for a check another app reports (Greptile…), which cannot be rerun. */
+  run: { runId: number; jobId: number } | null }
+export interface PrCommit { oid: string; message: string; author: string; at: string; outcome: CheckOutcome | null }
+export interface PrFile { path: string; change: 'A' | 'M' | 'D' | 'R'; additions: number; deletions: number; viewed: boolean }
+export interface PrReviewer { login: string; kind: 'user' | 'team' | 'bot'; status: 'approved' | 'changes' | 'commented' | 'pending' }
+export interface PrDetail {
+  number: number; url: string; title: string; body: string; state: PrState; author: PrUser; createdAt: string
+  base: string; head: string; headOid: string; additions: number; deletions: number
+  viewerIsAuthor: boolean; viewerLogin: string
+  timeline: PrTimelineItem[]; commits: PrCommit[]; checks: PrCheck[]; files: PrFile[]
+  reviewers: PrReviewer[]; assignees: string[]; labels: string[]
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+  mergeStateStatus: 'CLEAN' | 'BLOCKED' | 'BEHIND' | 'DIRTY' | 'UNSTABLE' | 'HAS_HOOKS' | 'DRAFT' | 'UNKNOWN'
+  autoMerge: boolean
+  repo: { owner: string; name: string; methods: MergeMethod[]; autoMergeAllowed: boolean }
+  /** Connections cut at 100 items: how many more GitHub has, per list. */
+  truncated: { timeline: number; commits: number; files: number; checks: number }
+}
+export interface PrOptions { labels: string[]; assignable: string[]; suggested: { login: string; kind: 'user' | 'team' | 'bot'; hint: string }[] }
+
+/** Last line of every reply Claude writes from Canopy: how the tab tells them from the user's own. */
+export const CLAUDE_SIGNATURE = '— Claude via Canopy'
+export const isClaudeReply = (body: string): boolean => body.trimEnd().endsWith(CLAUDE_SIGNATURE)
+/** GitHub refuses a body or comment longer than this. */
+export const MAX_PR_BODY = 65_536

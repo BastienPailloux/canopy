@@ -1,0 +1,2181 @@
+{
+  "data": {
+    "viewer": {
+      "login": "BastienPailloux"
+    },
+    "repository": {
+      "owner": {
+        "login": "BastienPailloux"
+      },
+      "name": "canopy",
+      "squashMergeAllowed": true,
+      "mergeCommitAllowed": true,
+      "rebaseMergeAllowed": true,
+      "autoMergeAllowed": false,
+      "pullRequest": {
+        "id": "PR_kwDOVmYqg88AAAABNsymPw",
+        "number": 9,
+        "url": "https://github.com/BastienPailloux/canopy/pull/9",
+        "title": "feat(linear): show, edit and launch assigned Linear tickets",
+        "body": "## Résumé\n\nÉtape 3 de la spec Canopy : le connecteur Linear. Les tickets Linear qui me sont assignés apparaissent dans l'écran Tickets, mélangés aux tickets locaux. On peut les modifier (commentaires compris) et les lancer comme un ticket local. Tout passe par le serveur MCP officiel de Linear, parce que l'espace pro bloque les clés API.\n\n- **Connexion** : Réglages → « Connecter Linear ». OAuth du serveur MCP avec enregistrement dynamique du client, PKCE et `state` vérifié. Le serveur de retour écoute uniquement sur la boucle locale. Le jeton est chiffré avec `safeStorage`. Une connexion expirée ou hors ligne est reconnue comme telle, jamais comme une déconnexion.\n- **Liste** : une seule liste groupée par statut, avec un badge Linear ou Local, et des filtres statut, source, priorité et recherche. L'en-tête indique « Linear · synchro il y a N min » avec ⟳. Le cache est gardé sur disque : une erreur ne vide jamais la liste. Un ticket qui part de la liste est signalé une fois avec sa raison (réassigné, annulé, introuvable). Les tickets lancés et ceux qui ont des modifications en attente restent affichés.\n- **Éditeur** : titre, description, statut (les vrais statuts de l'équipe), priorité, étiquettes, assigné, sous-tickets, commentaires, « Ouvrir dans Linear ».\n  - La description part à la sortie du champ, en modifications partielles (`save_issue` + `patch`). La modification d'un collègue ailleurs dans le texte est préservée ; sur le même passage, les deux versions sont affichées et on choisit.\n  - Les étiquettes sont envoyées en différences, pour ne pas retirer celle d'un collègue.\n- **File d'attente** : toute modification est écrite sur disque avant l'envoi et renvoyée quand Linear redevient joignable. Elle n'est jamais appliquée deux fois après une réponse perdue. Seul le champ bloqué est retenu, les autres partent.\n- **Lancement** : branche `feat/<id>-<titre>`. Le prompt contient l'identifiant, l'URL et la description, et indique que le reste est accessible via le MCP Linear. Rien n'est écrit dans Linear au lancement, c'est l'intégration GitHub qui gère le statut.\n  - La session utilise le MCP Linear de Claude Code et Canopy n'injecte rien. Si ce MCP manque, la session affiche « Claude n'a pas accès à Linear dans cette session. ».\n  - « Créer la PR » ajoute l'identifiant au titre.\n\nSpec : `docs/superpowers/specs/2026-11-08-linear-connector-design.md`. Plan : `docs/superpowers/plans/2026-11-08-linear-connector.md`. Réponses de référence du vrai serveur (format, comportement de `patch`, normalisation du Markdown) : `tests/fixtures/linear/README.md`.\n\n## Tests\n\n- Unitaires : 1210/1210. Typecheck OK. Sur une machine chargée, `workspace`, `lsp` et `watch` dépassent parfois leur délai ; relancés seuls, ils passent.\n- Bout en bout : 114/114. Le nouveau `linear.spec.ts` (8 scénarios) tourne sur un faux Linear qui rejoue les captures, actif seulement hors build packagé. Il couvre :\n  - les identifiants identiques en local et dans Linear ;\n  - les filtres ;\n  - l'envoi en `patch` ;\n  - l'échec, le redémarrage, puis le renvoi via ⟳ ;\n  - le conflit avec un collègue ;\n  - le lancement ;\n  - la déconnexion avec des modifications en attente ;\n  - le brouillon de commentaire.\n- **Pas encore fait** : la vérification manuelle sur l'espace Linear perso (connexion réelle, modification simultanée Canopy et Linear, lancement puis PR reliée par l'intégration GitHub).\n\n## Choix à relire\n\n- Branche `feat/<id>-<titre>` (ma convention plus l'identifiant), plutôt que le `gitBranchName` de Linear qui contient le prénom.\n- Titre et description partent à la sortie du champ ou à la fermeture de l'éditeur, jamais pendant la frappe.\n- Les tickets lancés restent listés quel que soit le repo ouvert. Un ticket lancé puis annulé reste dans Terminé avec son vrai statut.\n- Limites propres à Linear (titre 1000, 100 étiquettes de 200 caractères) : ce sont des estimations, et le serveur reste l'arbitre.\n\n## Suites connues (non bloquantes)\n\n- Un ticket supprimé dans Linear avec une modification en attente reste affiché sans possibilité d'abandonner la modification depuis l'éditeur.\n- Quand seule la réécriture du Markdown par Linear efface une modification, l'éditeur annonce à tort « non appliquée » (sans perte).\n- Les brouillons de commentaire sont perdus lors d'un redémarrage de mise à jour.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n",
+        "state": "MERGED",
+        "isDraft": false,
+        "createdAt": "2026-11-08T19:21:59Z",
+        "baseRefName": "develop",
+        "headRefName": "feat/linear-tickets",
+        "headRefOid": "df675607f097bdde58d3bfca0200378290c4e8b1",
+        "additions": 14643,
+        "deletions": 178,
+        "reviewDecision": null,
+        "mergeStateStatus": "UNKNOWN",
+        "autoMergeRequest": null,
+        "author": {
+          "__typename": "User",
+          "login": "BastienPailloux"
+        },
+        "assignees": {
+          "nodes": []
+        },
+        "labels": {
+          "nodes": []
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestReviews": {
+          "nodes": [
+            {
+              "state": "COMMENTED",
+              "author": {
+                "__typename": "Bot",
+                "login": "copilot-pull-request-reviewer"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "totalCount": 2,
+          "nodes": [
+            {
+              "id": "PRRT_kwDOVmYqg861EW2-",
+              "path": "src/main/linear/edits.ts",
+              "line": 449,
+              "startLine": 449,
+              "isResolved": false,
+              "isOutdated": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOVmYqg88AAAABDK9wvg",
+                    "databaseId": 4507791550,
+                    "body": "`persist()` swallows every filesystem error and `save()` continues into `schedule()`, so an edit can be sent to Linear even when `linear-pending.json` was not written. A disk-full or permission failure followed by a crash can therefore lose a remotely applied edit, violating the write-before-send guarantee and the queue's restart safety. Persistence failure needs to prevent the send (and surface a pending/error result) rather than merely logging it.",
+                    "createdAt": "2026-11-08T21:02:42Z",
+                    "diffHunk": "@@ -0,0 +1,456 @@\n+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'\n+import { dirname } from 'node:path'\n+import { UNCERTAIN_REASON, applyLabels, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'\n+import { PRIORITIES, type TicketPriority } from '../../shared/tickets'\n+import { LinearExpiredError, LinearNotConnectedError, LinearOfflineError, type LinearClient } from './client'\n+import { diffToPatch, rebase, sameDescription, type PatchOp } from './descriptionPatch'\n+import { LinearError, LinearFormatError } from './parse'\n+\n+export type { LinearChange, LinearField, PendingEdit, SaveResult } from '../../shared/linear'\n+\n+type Client = Pick<LinearClient, 'issueBrief' | 'save'>\n+\n+const PRIORITY_VALUE: Record<TicketPriority, number> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4 }\n+\n+const PLAIN: { field: Exclude<LinearField, 'description'>; arg: string; value: (c: LinearChange) => unknown }[] = [\n+  { field: 'title', arg: 'title', value: (c) => c.title },\n+  { field: 'statusId', arg: 'state', value: (c) => c.statusId },\n+  { field: 'priority', arg: 'priority', value: (c) => (c.priority === undefined ? undefined : PRIORITY_VALUE[c.priority]) },\n+  // computed on Linear's current set in `send`\n+  { field: 'labels', arg: 'labels', value: () => undefined },\n+  { field: 'assigneeId', arg: 'assignee', value: (c) => c.assigneeId },\n+]\n+const FIELDS: LinearField[] = ['title', 'description', 'statusId', 'priority', 'labels', 'assigneeId']\n+\n+/**\n+ * `newer` on top of `older`, key by key. A description edited from the queued text (`newer.base === older.text`)\n+ * keeps the older base, the one Linear gave; any other base replaces the queued description (the newer edit was made\n+ * from that text, so it is taken as is). Known limit: a newer edit made from an older text than the queued one\n+ * replaces the queued description; the renderer is expected to edit from the queued text.\n+ */\n+function merge(older: LinearChange | undefined, newer: LinearChange | undefined): LinearChange {\n+  const out: LinearChange = { ...older, ...newer }\n+  if (older?.description && newer?.description && newer.description.base === older.description.text) {\n+    out.description = { base: older.description.base, text: newer.description.text }\n+  }\n+  // Labels changed again from the queued set: still relative to the first base.\n+  if (older?.labels && newer?.labels && sameSet(newer.labels.base, older.labels.next)) {\n+    out.labels = { base: older.labels.base, next: newer.labels.next }\n+  }\n+  return out\n+}\n+\n+const sameSet = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x) => b.includes(x))\n+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((l) => typeof l === 'string')\n+\n+function only(c: LinearChange, keep: (f: LinearField) => boolean): LinearChange {\n+  const out: Record<string, unknown> = {}\n+  for (const f of FIELDS) if (c[f] !== undefined && keep(f)) out[f] = c[f]\n+  return out as LinearChange\n+}\n+\n+const fieldsOf = (c: LinearChange): LinearField[] => FIELDS.filter((f) => c[f] !== undefined)\n+\n+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)\n+\n+/** Linear's own text for a failed patch (tests/fixtures/linear/README.md): nothing was saved. */\n+const PATCH_FAILED = 'Error: Patch failed, nothing was saved.'\n+const isPatchFailure = (e: unknown): boolean => e instanceof LinearError && e.message.startsWith(PATCH_FAILED)\n+\n+/** The request was refused before reaching Linear, or Linear refused it: nothing was saved. */\n+const notApplied = (e: unknown): boolean =>\n+  e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearOfflineError || e instanceof LinearError\n+\n+function reasonOf(e: unknown): string {\n+  if (e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearOfflineError ||\n+    e instanceof LinearFormatError) return e.message\n+  if (e instanceof LinearError) return `Linear a refusé la modification : ${e.message}`\n+  return `Linear injoignable : ${e instanceof Error ? e.message : String(e)}`\n+}\n+\n+const CONFLICT_REASON = 'Conflit : la description a aussi été modifiée dans Linear au même endroit.'\n+/** Linear answered a patch save with the text read just before: the patch was dropped (e.g. `patch` no longer exists). */\n+const NOT_APPLIED_REASON = 'Linear n’a pas appliqué la modification'\n+\n+function validChange(v: unknown): v is LinearChange {\n+  if (!isRecord(v)) return false\n+  for (const [k, x] of Object.entries(v)) {\n+    switch (k) {\n+      case 'title': case 'statusId': if (typeof x !== 'string') return false; break\n+      case 'description': if (!isRecord(x) || typeof x.base !== 'string' || typeof x.text !== 'string') return false; break\n+      case 'priority': if (!PRIORITIES.includes(x as TicketPriority)) return false; break\n+      case 'labels': if (!isRecord(x) || !isStrings(x.base) || !isStrings(x.next)) return false; break\n+      case 'assigneeId': if (x !== null && typeof x !== 'string') return false; break\n+      default: return false\n+    }\n+  }\n+  return true\n+}\n+\n+/** What one send did. */\n+interface Outcome {\n+  done: LinearField[]\n+  held: Partial<Record<LinearField, string>>\n+  /** Answer of the last successful save. */\n+  issue?: LinearIssue\n+  /** Last read of the issue. */\n+  read?: LinearIssue\n+  conflict?: { remote: string; mine: string }\n+  /** The description Linear holds now, when the description was saved (or found already there). */\n+  descriptionNow?: string\n+}\n+\n+/** The send stopped on a failure where Linear could not be asked (or answered nothing usable). */\n+class SendFailure extends Error {\n+  constructor(readonly reason: string, readonly uncertain: boolean, readonly partial: Outcome) {\n+    super(reason)\n+  }\n+}\n+\n+/**\n+ * Queue of Bastien's edits to Linear issues. Every edit is written to `file` before it is sent and removed once Linear\n+ * saved it, so an unsent edit survives a failure or a restart. Descriptions go out as `patch` ops rebased on Linear's\n+ * current text, so a colleague's edit elsewhere is kept and an edit of the same passage is a conflict, never an\n+ * overwrite. A stuck field (conflict, refusal) is held alone: the other fields go. A patch whose answer was lost is\n+ * never resent blindly. One send at a time per issue; a save arriving meanwhile is merged and sent after.\n+ */\n+export class LinearEdits {\n+  /** Waiting to be sent, held, or failed. */\n+  private readonly queued = new Map<string, LinearChange>()\n+  /** Being sent right now. */\n+  private readonly sending = new Map<string, LinearChange>()\n+  private readonly errors = new Map<string, string>()\n+  private readonly held = new Map<string, Partial<Record<LinearField, string>>>()\n+  private readonly uncertain = new Set<string>()\n+  /** Discards asked during a send, applied once it settles; `null` = every field. */\n+  private readonly discards = new Map<string, Set<LinearField> | null>()\n+  private readonly tails = new Map<string, Promise<SaveResult | undefined>>()\n+  private readonly listeners = new Set<(ids: string[]) => void>()\n+\n+  constructor(private readonly file: string, private readonly client: Client) {\n+    const { entries, setAside } = this.load()\n+    for (const e of entries) {\n+      this.queued.set(e.id, e.change)\n+      if (e.error) this.errors.set(e.id, e.error)\n+      if (Object.keys(e.held).length > 0) this.held.set(e.id, e.held)\n+      if (e.uncertain && e.change.description) this.uncertain.add(e.id)\n+    }\n+    // The file was moved aside: the good entries must be on disk again before anything else happens.\n+    if (setAside && entries.length > 0) this.persist()\n+  }\n+\n+  /** Queues `c` for `id` and sends it (after any send already in flight for `id`). A changed field is no longer held. */\n+  save(id: string, c: LinearChange): Promise<SaveResult> {\n+    this.queued.set(id, merge(this.queued.get(id), c))\n+    const h = this.held.get(id)\n+    if (h) for (const f of fieldsOf(c)) delete h[f]\n+    this.persist()\n+    this.emit(id)\n+    return this.schedule(id, false)\n+  }\n+\n+  pending(): PendingEdit[] {\n+    const ids = new Set([...this.sending.keys(), ...this.queued.keys()])\n+    return [...ids].map((id) => ({\n+      id,\n+      change: structuredClone(merge(this.sending.get(id), this.queued.get(id))),\n+      error: this.errors.get(id) ?? '',\n+      held: { ...this.held.get(id) },\n+      uncertain: this.uncertain.has(id),\n+    }))\n+  }\n+\n+  /** Sends every queued edit again, held fields included. */\n+  async retryAll(): Promise<void> {\n+    await Promise.all([...this.queued.keys()].map((id) => this.schedule(id, true)))\n+  }\n+\n+  /** Linear is reachable again: resends the edits whose last send failed (network, connection). Held fields stay held. */\n+  async retryFailed(): Promise<void> {\n+    await Promise.all([...this.queued.keys()].filter((id) => this.errors.has(id) && !this.sending.has(id)).map((id) => this.schedule(id, false)))\n+  }\n+\n+  /**\n+   * Drops `fields` (every field when omitted) of the queued edit of `id`. Only on Bastien's explicit choice.\n+   * A send already in flight is not cancelled; the discard applies to what it leaves unsent.\n+   */\n+  discard(id: string, fields?: LinearField[]): void {\n+    if (this.sending.has(id)) {\n+      const prev = this.discards.get(id)\n+      this.discards.set(id, fields === undefined || prev === null ? null : new Set([...(prev ?? []), ...fields]))\n+    }\n+    this.drop(id, fields === undefined ? null : new Set(fields))\n+    this.persist()\n+    this.emit(id)\n+  }\n+\n+  /** `l` gets the issue whose queue changed. */\n+  onChange(l: (ids: string[]) => void): () => void {\n+    this.listeners.add(l)\n+    return () => { this.listeners.delete(l) }\n+  }\n+\n+  private drop(id: string, fields: Set<LinearField> | null): void {\n+    const q = this.queued.get(id)\n+    const rest = q ? only(q, (f) => fields !== null && !fields.has(f)) : {}\n+    const h = this.held.get(id)\n+    if (h) for (const f of FIELDS) if (fields === null || fields.has(f)) delete h[f]\n+    if (fields === null || fields.has('description')) this.uncertain.delete(id)\n+    if (fieldsOf(rest).length > 0) this.queued.set(id, rest)\n+    else {\n+      this.queued.delete(id)\n+      if (!this.sending.has(id)) {\n+        this.errors.delete(id)\n+        this.held.delete(id)\n+        this.uncertain.delete(id)\n+      }\n+    }\n+  }\n+\n+  private schedule(id: string, includeHeld: boolean): Promise<SaveResult> {\n+    const prev = this.tails.get(id) ?? Promise.resolve(undefined)\n+    const next = prev.catch(() => undefined).then((last) =>\n+      this.queued.has(id) ? this.flush(id, includeHeld) : last ?? { kind: 'pending' as const, reason: 'Modification abandonnée.' })\n+    this.tails.set(id, next)\n+    void next.finally(() => { if (this.tails.get(id) === next) this.tails.delete(id) })\n+    return next\n+  }\n+\n+  private async flush(id: string, includeHeld: boolean): Promise<SaveResult> {\n+    const all = this.queued.get(id) as LinearChange\n+    const heldNow = this.held.get(id) ?? {}\n+    const change = includeHeld ? all : only(all, (f) => heldNow[f] === undefined)\n+    const left = only(all, (f) => change[f] === undefined)\n+    if (fieldsOf(change).length === 0) {\n+      return { kind: 'pending', reason: Object.values(heldNow)[0] ?? 'Modification en attente.' }\n+    }\n+    if (fieldsOf(left).length > 0) this.queued.set(id, left)\n+    else this.queued.delete(id)\n+    this.sending.set(id, change)\n+    this.persist() // records the fields in flight\n+\n+    let out: Outcome\n+    let failure: SendFailure | null = null\n+    try {\n+      out = await this.send(id, change, this.uncertain.has(id))\n+    } catch (e) {\n+      failure = e instanceof SendFailure ? e : new SendFailure(reasonOf(e), false, { done: [], held: {} })\n+      out = failure.partial\n+    }\n+    this.sending.delete(id)\n+\n+    const done = new Set(out.done)\n+    const unsent = only(change, (f) => !done.has(f))\n+    const later = this.queued.get(id)\n+    let next = merge(unsent, later)\n+    if (later?.description && change.description && later.description.base === change.description.text\n+      && out.descriptionNow !== undefined) {\n+      // edited from the text just saved: now based on Linear's own text (Linear re-serializes on save)\n+      next = { ...next, description: { base: out.descriptionNow, text: later.description.text } }\n+    }\n+    const h = { ...this.held.get(id) }\n+    for (const f of done) delete h[f]\n+    for (const [f, why] of Object.entries(out.held)) if (later?.[f as LinearField] === undefined) h[f as LinearField] = why\n+    this.held.set(id, h)\n+    if (done.has('description') && !later?.description) this.uncertain.delete(id)\n+    if (failure?.uncertain) this.uncertain.add(id)\n+    if (failure) this.errors.set(id, failure.reason)\n+    else this.errors.delete(id)\n+    this.queued.set(id, next)\n+    const discard = this.discards.get(id)\n+    this.discards.delete(id)\n+    this.drop(id, discard === undefined ? new Set() : discard)\n+    this.persist()\n+    this.emit(id)\n+\n+    if (failure) return { kind: 'pending', reason: failure.reason, ...(out.issue ? { issue: out.issue } : {}) }\n+    if (out.conflict) return { kind: 'conflict', field: 'description', ...out.conflict, ...(out.issue ? { issue: out.issue } : {}) }\n+    const why = Object.values(out.held)[0]\n+    if (why !== undefined) return { kind: 'pending', reason: why, ...(out.issue ? { issue: out.issue } : {}) }\n+    return { kind: 'sent', issue: out.issue ?? out.read ?? await this.client.issueBrief(id) }\n+  }\n+\n+  /**\n+   * Sends `c`. Description: read Linear's text, then patch, already there, or conflict (held). A failed patch re-reads\n+   * once. A field Linear refuses is held alone: the others are sent one by one. Throws `SendFailure` when Linear could\n+   * not be asked; `uncertain` when a patch may have been applied.\n+   */\n+  private async send(id: string, c: LinearChange, uncertain: boolean): Promise<Outcome> {\n+    const out: Outcome = { done: [], held: {} }\n+    const parts = new Map<LinearField, Record<string, unknown>>()\n+    for (const p of PLAIN) {\n+      const v = p.value(c)\n+      if (v !== undefined) parts.set(p.field, { [p.arg]: v })\n+    }\n+    const d = c.description\n+    const conflict = (remote: string, why = CONFLICT_REASON) => {\n+      out.held.description = why\n+      out.conflict = { remote, mine: d?.text ?? '' }\n+      parts.delete('description')\n+    }\n+    const plan = async (): Promise<void> => {\n+      if (!d) return\n+      let remote: LinearIssue\n+      try {\n+        remote = await this.client.issueBrief(id)\n+      } catch (e) {\n+        throw new SendFailure(reasonOf(e), false, out)\n+      }\n+      out.read = remote\n+      const ops = decide(d, remote.description, uncertain)\n+      if (ops === 'conflict') conflict(remote.description, uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)\n+      else if (ops.length === 0) {\n+        out.done.push('description')\n+        out.descriptionNow = remote.description\n+        parts.delete('description')\n+      } else parts.set('description', { patch: ops, remote: remote.description })\n+    }\n+    const argsOf = (fs: [LinearField, Record<string, unknown>][]): Record<string, unknown> => {\n+      const args: Record<string, unknown> = {}\n+      for (const [, a] of fs) for (const [k, v] of Object.entries(a)) if (k !== 'remote') args[k] = v\n+      return args\n+    }\n+    const saved = (fs: LinearField[], issue: LinearIssue) => {\n+      out.issue = issue\n+      const part = parts.get('description')\n+      if (fs.includes('description') && part && d) {\n+        const before = String(part.remote ?? '')\n+        // A non-empty patch, and Linear still has the text read just before: it was not applied. Never \"sent\".\n+        if (sameDescription(issue.description, before) && !sameDescription(before, d.text)) {\n+          conflict(issue.description, NOT_APPLIED_REASON)\n+          fs = fs.filter((f) => f !== 'description')\n+        }\n+      }\n+      out.done.push(...fs)\n+      if (fs.includes('description')) out.descriptionNow = issue.description\n+      for (const f of fs) parts.delete(f)\n+    }\n+    const failed = (e: unknown, fs: LinearField[]): SendFailure =>\n+      new SendFailure(reasonOf(e), fs.includes('description') && !notApplied(e), out)\n+\n+    await plan()\n+    if (c.labels) {\n+      // Bastien's additions and removals on Linear's current set: a colleague's label added meanwhile stays.\n+      let current: LinearIssue\n+      try {\n+        current = out.read ?? await this.client.issueBrief(id)\n+      } catch (e) {\n+        throw new SendFailure(reasonOf(e), false, out)\n+      }\n+      out.read ??= current\n+      const target = applyLabels(current.labels, c.labels)\n+      if (sameSet(target, current.labels)) out.done.push('labels')\n+      else parts.set('labels', { labels: target })\n+    }\n+    let reread = false\n+    while (parts.size > 0) {\n+      const entries = [...parts]\n+      const fs = entries.map(([f]) => f)\n+      try {\n+        saved(fs, await this.client.save(id, argsOf(entries)))\n+        break\n+      } catch (e) {\n+        if (isPatchFailure(e) && parts.has('description')) {\n+          // an anchor vanished between the read and the send: nothing was saved; re-read once, then it is a conflict\n+          if (!reread) { reread = true; await plan() } else conflict(String(parts.get('description')?.remote ?? ''), uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)\n+          continue\n+        }\n+        if (!(e instanceof LinearError)) throw failed(e, fs)\n+        if (entries.length === 1) {\n+          out.held[fs[0]] = reasonOf(e)\n+          parts.clear()\n+          break\n+        }\n+        // Linear refused the whole save: find the refused field(s), sending one field at a time. Linear may have\n+        // applied part of it anyway: the description is read and planned again first, so a patch never goes twice.\n+        for (const [f] of entries) {\n+          if (f === 'description') {\n+            await plan()\n+            if (!parts.has('description')) continue // already there, or now a conflict\n+          }\n+          const a = parts.get(f)\n+          if (!a) continue\n+          try {\n+            saved([f], await this.client.save(id, argsOf([[f, a]])))\n+          } catch (e2) {\n+            if (!(e2 instanceof LinearError)) throw failed(e2, [f])\n+            if (f === 'description' && isPatchFailure(e2)) conflict(String(a.remote ?? ''), uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)\n+            else out.held[f] = reasonOf(e2)\n+            parts.delete(f)\n+          }\n+        }\n+      }\n+    }\n+    return out\n+  }\n+\n+  private emit(id: string): void {\n+    for (const l of this.listeners) l([id])\n+  }\n+\n+  private setAside(): void {\n+    try { renameSync(this.file, `${this.file}.corrupt-${Date.now()}`) } catch { /* keep going */ }\n+  }\n+\n+  /** The stored queue; an unreadable file, or its malformed entries, are kept aside in `<file>.corrupt-<ms>`. */\n+  private load(): { entries: (PendingEdit & { sending: LinearField[] })[]; setAside: boolean } {\n+    let text: string\n+    try {\n+      text = readFileSync(this.file, 'utf8')\n+    } catch {\n+      return { entries: [], setAside: false } // no file yet\n+    }\n+    let v: unknown\n+    try { v = JSON.parse(text) } catch { v = null }\n+    if (!isRecord(v) || !Array.isArray(v.entries)) {\n+      this.setAside()\n+      return { entries: [], setAside: true }\n+    }\n+    const good: (PendingEdit & { sending: LinearField[] })[] = []\n+    let bad = false\n+    for (const e of v.entries) {\n+      if (!isRecord(e) || typeof e.id !== 'string' || !validChange(e.change)) { bad = true; continue }\n+      const held: Partial<Record<LinearField, string>> = {}\n+      if (isRecord(e.held)) for (const f of FIELDS) if (typeof e.held[f] === 'string') held[f] = e.held[f] as string\n+      const sending = Array.isArray(e.sending) ? (e.sending.filter((f) => FIELDS.includes(f as LinearField)) as LinearField[]) : []\n+      good.push({\n+        id: e.id,\n+        change: e.change,\n+        error: typeof e.error === 'string' ? e.error : '',\n+        held,\n+        // a description in flight when the app stopped may have been applied\n+        uncertain: e.uncertain === true || sending.includes('description'),\n+        sending,\n+      })\n+    }\n+    if (bad) this.setAside() // the good entries are written back by the constructor\n+    return { entries: good, setAside: bad }\n+  }\n+\n+  /** Atomic write (tmp + rename), owner-only. */\n+  private persist(): void {\n+    try {\n+      mkdirSync(dirname(this.file), { recursive: true })\n+      const tmp = `${this.file}.${process.pid}.tmp`\n+      const entries = this.pending().map((p) => ({ ...p, sending: fieldsOf(this.sending.get(p.id) ?? {}) }))\n+      writeFileSync(tmp, JSON.stringify({ entries }, null, 2), { mode: 0o600 })\n+      renameSync(tmp, this.file)\n+    } catch (e) {",
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "copilot-pull-request-reviewer"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOVmYqg88AAAABDLA1xw",
+                    "databaseId": 4507841991,
+                    "body": "Corrigé dans bca8602 : quand l'écriture de `linear-pending.json` échoue juste avant un envoi, rien n'est envoyé. La modification reste en mémoire et `save()` répond `pending` avec « Impossible d’enregistrer la modification sur le disque : … ». Le prochain `save`/`retryAll`/`retryFailed` réécrit la file avant d'envoyer. Tous les chemins d'envoi passent par ce contrôle.",
+                    "createdAt": "2026-11-08T21:19:12Z",
+                    "diffHunk": "@@ -0,0 +1,456 @@\n+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'\n+import { dirname } from 'node:path'\n+import { UNCERTAIN_REASON, applyLabels, type LinearChange, type LinearField, type LinearIssue, type PendingEdit, type SaveResult } from '../../shared/linear'\n+import { PRIORITIES, type TicketPriority } from '../../shared/tickets'\n+import { LinearExpiredError, LinearNotConnectedError, LinearOfflineError, type LinearClient } from './client'\n+import { diffToPatch, rebase, sameDescription, type PatchOp } from './descriptionPatch'\n+import { LinearError, LinearFormatError } from './parse'\n+\n+export type { LinearChange, LinearField, PendingEdit, SaveResult } from '../../shared/linear'\n+\n+type Client = Pick<LinearClient, 'issueBrief' | 'save'>\n+\n+const PRIORITY_VALUE: Record<TicketPriority, number> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4 }\n+\n+const PLAIN: { field: Exclude<LinearField, 'description'>; arg: string; value: (c: LinearChange) => unknown }[] = [\n+  { field: 'title', arg: 'title', value: (c) => c.title },\n+  { field: 'statusId', arg: 'state', value: (c) => c.statusId },\n+  { field: 'priority', arg: 'priority', value: (c) => (c.priority === undefined ? undefined : PRIORITY_VALUE[c.priority]) },\n+  // computed on Linear's current set in `send`\n+  { field: 'labels', arg: 'labels', value: () => undefined },\n+  { field: 'assigneeId', arg: 'assignee', value: (c) => c.assigneeId },\n+]\n+const FIELDS: LinearField[] = ['title', 'description', 'statusId', 'priority', 'labels', 'assigneeId']\n+\n+/**\n+ * `newer` on top of `older`, key by key. A description edited from the queued text (`newer.base === older.text`)\n+ * keeps the older base, the one Linear gave; any other base replaces the queued description (the newer edit was made\n+ * from that text, so it is taken as is). Known limit: a newer edit made from an older text than the queued one\n+ * replaces the queued description; the renderer is expected to edit from the queued text.\n+ */\n+function merge(older: LinearChange | undefined, newer: LinearChange | undefined): LinearChange {\n+  const out: LinearChange = { ...older, ...newer }\n+  if (older?.description && newer?.description && newer.description.base === older.description.text) {\n+    out.description = { base: older.description.base, text: newer.description.text }\n+  }\n+  // Labels changed again from the queued set: still relative to the first base.\n+  if (older?.labels && newer?.labels && sameSet(newer.labels.base, older.labels.next)) {\n+    out.labels = { base: older.labels.base, next: newer.labels.next }\n+  }\n+  return out\n+}\n+\n+const sameSet = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x) => b.includes(x))\n+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((l) => typeof l === 'string')\n+\n+function only(c: LinearChange, keep: (f: LinearField) => boolean): LinearChange {\n+  const out: Record<string, unknown> = {}\n+  for (const f of FIELDS) if (c[f] !== undefined && keep(f)) out[f] = c[f]\n+  return out as LinearChange\n+}\n+\n+const fieldsOf = (c: LinearChange): LinearField[] => FIELDS.filter((f) => c[f] !== undefined)\n+\n+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)\n+\n+/** Linear's own text for a failed patch (tests/fixtures/linear/README.md): nothing was saved. */\n+const PATCH_FAILED = 'Error: Patch failed, nothing was saved.'\n+const isPatchFailure = (e: unknown): boolean => e instanceof LinearError && e.message.startsWith(PATCH_FAILED)\n+\n+/** The request was refused before reaching Linear, or Linear refused it: nothing was saved. */\n+const notApplied = (e: unknown): boolean =>\n+  e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearOfflineError || e instanceof LinearError\n+\n+function reasonOf(e: unknown): string {\n+  if (e instanceof LinearExpiredError || e instanceof LinearNotConnectedError || e instanceof LinearOfflineError ||\n+    e instanceof LinearFormatError) return e.message\n+  if (e instanceof LinearError) return `Linear a refusé la modification : ${e.message}`\n+  return `Linear injoignable : ${e instanceof Error ? e.message : String(e)}`\n+}\n+\n+const CONFLICT_REASON = 'Conflit : la description a aussi été modifiée dans Linear au même endroit.'\n+/** Linear answered a patch save with the text read just before: the patch was dropped (e.g. `patch` no longer exists). */\n+const NOT_APPLIED_REASON = 'Linear n’a pas appliqué la modification'\n+\n+function validChange(v: unknown): v is LinearChange {\n+  if (!isRecord(v)) return false\n+  for (const [k, x] of Object.entries(v)) {\n+    switch (k) {\n+      case 'title': case 'statusId': if (typeof x !== 'string') return false; break\n+      case 'description': if (!isRecord(x) || typeof x.base !== 'string' || typeof x.text !== 'string') return false; break\n+      case 'priority': if (!PRIORITIES.includes(x as TicketPriority)) return false; break\n+      case 'labels': if (!isRecord(x) || !isStrings(x.base) || !isStrings(x.next)) return false; break\n+      case 'assigneeId': if (x !== null && typeof x !== 'string') return false; break\n+      default: return false\n+    }\n+  }\n+  return true\n+}\n+\n+/** What one send did. */\n+interface Outcome {\n+  done: LinearField[]\n+  held: Partial<Record<LinearField, string>>\n+  /** Answer of the last successful save. */\n+  issue?: LinearIssue\n+  /** Last read of the issue. */\n+  read?: LinearIssue\n+  conflict?: { remote: string; mine: string }\n+  /** The description Linear holds now, when the description was saved (or found already there). */\n+  descriptionNow?: string\n+}\n+\n+/** The send stopped on a failure where Linear could not be asked (or answered nothing usable). */\n+class SendFailure extends Error {\n+  constructor(readonly reason: string, readonly uncertain: boolean, readonly partial: Outcome) {\n+    super(reason)\n+  }\n+}\n+\n+/**\n+ * Queue of Bastien's edits to Linear issues. Every edit is written to `file` before it is sent and removed once Linear\n+ * saved it, so an unsent edit survives a failure or a restart. Descriptions go out as `patch` ops rebased on Linear's\n+ * current text, so a colleague's edit elsewhere is kept and an edit of the same passage is a conflict, never an\n+ * overwrite. A stuck field (conflict, refusal) is held alone: the other fields go. A patch whose answer was lost is\n+ * never resent blindly. One send at a time per issue; a save arriving meanwhile is merged and sent after.\n+ */\n+export class LinearEdits {\n+  /** Waiting to be sent, held, or failed. */\n+  private readonly queued = new Map<string, LinearChange>()\n+  /** Being sent right now. */\n+  private readonly sending = new Map<string, LinearChange>()\n+  private readonly errors = new Map<string, string>()\n+  private readonly held = new Map<string, Partial<Record<LinearField, string>>>()\n+  private readonly uncertain = new Set<string>()\n+  /** Discards asked during a send, applied once it settles; `null` = every field. */\n+  private readonly discards = new Map<string, Set<LinearField> | null>()\n+  private readonly tails = new Map<string, Promise<SaveResult | undefined>>()\n+  private readonly listeners = new Set<(ids: string[]) => void>()\n+\n+  constructor(private readonly file: string, private readonly client: Client) {\n+    const { entries, setAside } = this.load()\n+    for (const e of entries) {\n+      this.queued.set(e.id, e.change)\n+      if (e.error) this.errors.set(e.id, e.error)\n+      if (Object.keys(e.held).length > 0) this.held.set(e.id, e.held)\n+      if (e.uncertain && e.change.description) this.uncertain.add(e.id)\n+    }\n+    // The file was moved aside: the good entries must be on disk again before anything else happens.\n+    if (setAside && entries.length > 0) this.persist()\n+  }\n+\n+  /** Queues `c` for `id` and sends it (after any send already in flight for `id`). A changed field is no longer held. */\n+  save(id: string, c: LinearChange): Promise<SaveResult> {\n+    this.queued.set(id, merge(this.queued.get(id), c))\n+    const h = this.held.get(id)\n+    if (h) for (const f of fieldsOf(c)) delete h[f]\n+    this.persist()\n+    this.emit(id)\n+    return this.schedule(id, false)\n+  }\n+\n+  pending(): PendingEdit[] {\n+    const ids = new Set([...this.sending.keys(), ...this.queued.keys()])\n+    return [...ids].map((id) => ({\n+      id,\n+      change: structuredClone(merge(this.sending.get(id), this.queued.get(id))),\n+      error: this.errors.get(id) ?? '',\n+      held: { ...this.held.get(id) },\n+      uncertain: this.uncertain.has(id),\n+    }))\n+  }\n+\n+  /** Sends every queued edit again, held fields included. */\n+  async retryAll(): Promise<void> {\n+    await Promise.all([...this.queued.keys()].map((id) => this.schedule(id, true)))\n+  }\n+\n+  /** Linear is reachable again: resends the edits whose last send failed (network, connection). Held fields stay held. */\n+  async retryFailed(): Promise<void> {\n+    await Promise.all([...this.queued.keys()].filter((id) => this.errors.has(id) && !this.sending.has(id)).map((id) => this.schedule(id, false)))\n+  }\n+\n+  /**\n+   * Drops `fields` (every field when omitted) of the queued edit of `id`. Only on Bastien's explicit choice.\n+   * A send already in flight is not cancelled; the discard applies to what it leaves unsent.\n+   */\n+  discard(id: string, fields?: LinearField[]): void {\n+    if (this.sending.has(id)) {\n+      const prev = this.discards.get(id)\n+      this.discards.set(id, fields === undefined || prev === null ? null : new Set([...(prev ?? []), ...fields]))\n+    }\n+    this.drop(id, fields === undefined ? null : new Set(fields))\n+    this.persist()\n+    this.emit(id)\n+  }\n+\n+  /** `l` gets the issue whose queue changed. */\n+  onChange(l: (ids: string[]) => void): () => void {\n+    this.listeners.add(l)\n+    return () => { this.listeners.delete(l) }\n+  }\n+\n+  private drop(id: string, fields: Set<LinearField> | null): void {\n+    const q = this.queued.get(id)\n+    const rest = q ? only(q, (f) => fields !== null && !fields.has(f)) : {}\n+    const h = this.held.get(id)\n+    if (h) for (const f of FIELDS) if (fields === null || fields.has(f)) delete h[f]\n+    if (fields === null || fields.has('description')) this.uncertain.delete(id)\n+    if (fieldsOf(rest).length > 0) this.queued.set(id, rest)\n+    else {\n+      this.queued.delete(id)\n+      if (!this.sending.has(id)) {\n+        this.errors.delete(id)\n+        this.held.delete(id)\n+        this.uncertain.delete(id)\n+      }\n+    }\n+  }\n+\n+  private schedule(id: string, includeHeld: boolean): Promise<SaveResult> {\n+    const prev = this.tails.get(id) ?? Promise.resolve(undefined)\n+    const next = prev.catch(() => undefined).then((last) =>\n+      this.queued.has(id) ? this.flush(id, includeHeld) : last ?? { kind: 'pending' as const, reason: 'Modification abandonnée.' })\n+    this.tails.set(id, next)\n+    void next.finally(() => { if (this.tails.get(id) === next) this.tails.delete(id) })\n+    return next\n+  }\n+\n+  private async flush(id: string, includeHeld: boolean): Promise<SaveResult> {\n+    const all = this.queued.get(id) as LinearChange\n+    const heldNow = this.held.get(id) ?? {}\n+    const change = includeHeld ? all : only(all, (f) => heldNow[f] === undefined)\n+    const left = only(all, (f) => change[f] === undefined)\n+    if (fieldsOf(change).length === 0) {\n+      return { kind: 'pending', reason: Object.values(heldNow)[0] ?? 'Modification en attente.' }\n+    }\n+    if (fieldsOf(left).length > 0) this.queued.set(id, left)\n+    else this.queued.delete(id)\n+    this.sending.set(id, change)\n+    this.persist() // records the fields in flight\n+\n+    let out: Outcome\n+    let failure: SendFailure | null = null\n+    try {\n+      out = await this.send(id, change, this.uncertain.has(id))\n+    } catch (e) {\n+      failure = e instanceof SendFailure ? e : new SendFailure(reasonOf(e), false, { done: [], held: {} })\n+      out = failure.partial\n+    }\n+    this.sending.delete(id)\n+\n+    const done = new Set(out.done)\n+    const unsent = only(change, (f) => !done.has(f))\n+    const later = this.queued.get(id)\n+    let next = merge(unsent, later)\n+    if (later?.description && change.description && later.description.base === change.description.text\n+      && out.descriptionNow !== undefined) {\n+      // edited from the text just saved: now based on Linear's own text (Linear re-serializes on save)\n+      next = { ...next, description: { base: out.descriptionNow, text: later.description.text } }\n+    }\n+    const h = { ...this.held.get(id) }\n+    for (const f of done) delete h[f]\n+    for (const [f, why] of Object.entries(out.held)) if (later?.[f as LinearField] === undefined) h[f as LinearField] = why\n+    this.held.set(id, h)\n+    if (done.has('description') && !later?.description) this.uncertain.delete(id)\n+    if (failure?.uncertain) this.uncertain.add(id)\n+    if (failure) this.errors.set(id, failure.reason)\n+    else this.errors.delete(id)\n+    this.queued.set(id, next)\n+    const discard = this.discards.get(id)\n+    this.discards.delete(id)\n+    this.drop(id, discard === undefined ? new Set() : discard)\n+    this.persist()\n+    this.emit(id)\n+\n+    if (failure) return { kind: 'pending', reason: failure.reason, ...(out.issue ? { issue: out.issue } : {}) }\n+    if (out.conflict) return { kind: 'conflict', field: 'description', ...out.conflict, ...(out.issue ? { issue: out.issue } : {}) }\n+    const why = Object.values(out.held)[0]\n+    if (why !== undefined) return { kind: 'pending', reason: why, ...(out.issue ? { issue: out.issue } : {}) }\n+    return { kind: 'sent', issue: out.issue ?? out.read ?? await this.client.issueBrief(id) }\n+  }\n+\n+  /**\n+   * Sends `c`. Description: read Linear's text, then patch, already there, or conflict (held). A failed patch re-reads\n+   * once. A field Linear refuses is held alone: the others are sent one by one. Throws `SendFailure` when Linear could\n+   * not be asked; `uncertain` when a patch may have been applied.\n+   */\n+  private async send(id: string, c: LinearChange, uncertain: boolean): Promise<Outcome> {\n+    const out: Outcome = { done: [], held: {} }\n+    const parts = new Map<LinearField, Record<string, unknown>>()\n+    for (const p of PLAIN) {\n+      const v = p.value(c)\n+      if (v !== undefined) parts.set(p.field, { [p.arg]: v })\n+    }\n+    const d = c.description\n+    const conflict = (remote: string, why = CONFLICT_REASON) => {\n+      out.held.description = why\n+      out.conflict = { remote, mine: d?.text ?? '' }\n+      parts.delete('description')\n+    }\n+    const plan = async (): Promise<void> => {\n+      if (!d) return\n+      let remote: LinearIssue\n+      try {\n+        remote = await this.client.issueBrief(id)\n+      } catch (e) {\n+        throw new SendFailure(reasonOf(e), false, out)\n+      }\n+      out.read = remote\n+      const ops = decide(d, remote.description, uncertain)\n+      if (ops === 'conflict') conflict(remote.description, uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)\n+      else if (ops.length === 0) {\n+        out.done.push('description')\n+        out.descriptionNow = remote.description\n+        parts.delete('description')\n+      } else parts.set('description', { patch: ops, remote: remote.description })\n+    }\n+    const argsOf = (fs: [LinearField, Record<string, unknown>][]): Record<string, unknown> => {\n+      const args: Record<string, unknown> = {}\n+      for (const [, a] of fs) for (const [k, v] of Object.entries(a)) if (k !== 'remote') args[k] = v\n+      return args\n+    }\n+    const saved = (fs: LinearField[], issue: LinearIssue) => {\n+      out.issue = issue\n+      const part = parts.get('description')\n+      if (fs.includes('description') && part && d) {\n+        const before = String(part.remote ?? '')\n+        // A non-empty patch, and Linear still has the text read just before: it was not applied. Never \"sent\".\n+        if (sameDescription(issue.description, before) && !sameDescription(before, d.text)) {\n+          conflict(issue.description, NOT_APPLIED_REASON)\n+          fs = fs.filter((f) => f !== 'description')\n+        }\n+      }\n+      out.done.push(...fs)\n+      if (fs.includes('description')) out.descriptionNow = issue.description\n+      for (const f of fs) parts.delete(f)\n+    }\n+    const failed = (e: unknown, fs: LinearField[]): SendFailure =>\n+      new SendFailure(reasonOf(e), fs.includes('description') && !notApplied(e), out)\n+\n+    await plan()\n+    if (c.labels) {\n+      // Bastien's additions and removals on Linear's current set: a colleague's label added meanwhile stays.\n+      let current: LinearIssue\n+      try {\n+        current = out.read ?? await this.client.issueBrief(id)\n+      } catch (e) {\n+        throw new SendFailure(reasonOf(e), false, out)\n+      }\n+      out.read ??= current\n+      const target = applyLabels(current.labels, c.labels)\n+      if (sameSet(target, current.labels)) out.done.push('labels')\n+      else parts.set('labels', { labels: target })\n+    }\n+    let reread = false\n+    while (parts.size > 0) {\n+      const entries = [...parts]\n+      const fs = entries.map(([f]) => f)\n+      try {\n+        saved(fs, await this.client.save(id, argsOf(entries)))\n+        break\n+      } catch (e) {\n+        if (isPatchFailure(e) && parts.has('description')) {\n+          // an anchor vanished between the read and the send: nothing was saved; re-read once, then it is a conflict\n+          if (!reread) { reread = true; await plan() } else conflict(String(parts.get('description')?.remote ?? ''), uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)\n+          continue\n+        }\n+        if (!(e instanceof LinearError)) throw failed(e, fs)\n+        if (entries.length === 1) {\n+          out.held[fs[0]] = reasonOf(e)\n+          parts.clear()\n+          break\n+        }\n+        // Linear refused the whole save: find the refused field(s), sending one field at a time. Linear may have\n+        // applied part of it anyway: the description is read and planned again first, so a patch never goes twice.\n+        for (const [f] of entries) {\n+          if (f === 'description') {\n+            await plan()\n+            if (!parts.has('description')) continue // already there, or now a conflict\n+          }\n+          const a = parts.get(f)\n+          if (!a) continue\n+          try {\n+            saved([f], await this.client.save(id, argsOf([[f, a]])))\n+          } catch (e2) {\n+            if (!(e2 instanceof LinearError)) throw failed(e2, [f])\n+            if (f === 'description' && isPatchFailure(e2)) conflict(String(a.remote ?? ''), uncertain ? UNCERTAIN_REASON : CONFLICT_REASON)\n+            else out.held[f] = reasonOf(e2)\n+            parts.delete(f)\n+          }\n+        }\n+      }\n+    }\n+    return out\n+  }\n+\n+  private emit(id: string): void {\n+    for (const l of this.listeners) l([id])\n+  }\n+\n+  private setAside(): void {\n+    try { renameSync(this.file, `${this.file}.corrupt-${Date.now()}`) } catch { /* keep going */ }\n+  }\n+\n+  /** The stored queue; an unreadable file, or its malformed entries, are kept aside in `<file>.corrupt-<ms>`. */\n+  private load(): { entries: (PendingEdit & { sending: LinearField[] })[]; setAside: boolean } {\n+    let text: string\n+    try {\n+      text = readFileSync(this.file, 'utf8')\n+    } catch {\n+      return { entries: [], setAside: false } // no file yet\n+    }\n+    let v: unknown\n+    try { v = JSON.parse(text) } catch { v = null }\n+    if (!isRecord(v) || !Array.isArray(v.entries)) {\n+      this.setAside()\n+      return { entries: [], setAside: true }\n+    }\n+    const good: (PendingEdit & { sending: LinearField[] })[] = []\n+    let bad = false\n+    for (const e of v.entries) {\n+      if (!isRecord(e) || typeof e.id !== 'string' || !validChange(e.change)) { bad = true; continue }\n+      const held: Partial<Record<LinearField, string>> = {}\n+      if (isRecord(e.held)) for (const f of FIELDS) if (typeof e.held[f] === 'string') held[f] = e.held[f] as string\n+      const sending = Array.isArray(e.sending) ? (e.sending.filter((f) => FIELDS.includes(f as LinearField)) as LinearField[]) : []\n+      good.push({\n+        id: e.id,\n+        change: e.change,\n+        error: typeof e.error === 'string' ? e.error : '',\n+        held,\n+        // a description in flight when the app stopped may have been applied\n+        uncertain: e.uncertain === true || sending.includes('description'),\n+        sending,\n+      })\n+    }\n+    if (bad) this.setAside() // the good entries are written back by the constructor\n+    return { entries: good, setAside: bad }\n+  }\n+\n+  /** Atomic write (tmp + rename), owner-only. */\n+  private persist(): void {\n+    try {\n+      mkdirSync(dirname(this.file), { recursive: true })\n+      const tmp = `${this.file}.${process.pid}.tmp`\n+      const entries = this.pending().map((p) => ({ ...p, sending: fieldsOf(this.sending.get(p.id) ?? {}) }))\n+      writeFileSync(tmp, JSON.stringify({ entries }, null, 2), { mode: 0o600 })\n+      renameSync(tmp, this.file)\n+    } catch (e) {",
+                    "author": {
+                      "__typename": "User",
+                      "login": "BastienPailloux"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOVmYqg861EW3H",
+              "path": "src/renderer/unsaved.ts",
+              "line": null,
+              "startLine": null,
+              "isResolved": false,
+              "isOutdated": true,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOVmYqg88AAAABDK9wzQ",
+                    "databaseId": 4507791565,
+                    "body": "This only reports typed Linear text to the main process; it does not make that text durable. The update collector flushes the local-ticket savers, but it does not flush `LinearSaver.commit()`, and the quit/update paths have no other handoff for an open Linear editor. Consequently, confirming quit or restarting for an update while the title/description is focused discards the typed text even though it was counted as unsaved. Add the Linear savers to the same flush/handoff path (or persist their drafts) before allowing the process to stop.",
+                    "createdAt": "2026-11-08T21:02:42Z",
+                    "diffHunk": "@@ -1,12 +1,13 @@\n import { draftCount, onDraftsChange } from './code/drafts'\n import { composerDraftCount, useSessions } from './sessions/sessionStore'\n import { onSaversChange, unsavedTickets } from './tickets/editorSave'\n+import { onLinearSaversChange, unsavedLinear } from './tickets/linearSave'\n \n /** Keeps the main process told of what quitting would lose: it asks the question, and only the page knows. */\n export function connectUnsaved(): () => void {\n   let sent = ''\n   const report = (): void => {\n-    const unsaved = { buffers: draftCount(), drafts: composerDraftCount(), tickets: unsavedTickets() }\n+    const unsaved = { buffers: draftCount(), drafts: composerDraftCount(), tickets: unsavedTickets() + unsavedLinear() }",
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "copilot-pull-request-reviewer"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOVmYqg88AAAABDLA2LQ",
+                    "databaseId": 4507842093,
+                    "body": "Corrigé dans 2e7c0f8 : avant le redémarrage d'une mise à jour, `flushLinearSavers()` remet le titre et la description tapés (éditeurs ouverts et textes restés bloqués) à la file sur disque, à côté de `flushSavers()`. Les brouillons de commentaire ne peuvent pas être envoyés automatiquement : ils sont désormais comptés à part, et la fenêtre de mise à jour annonce qu'ils seront perdus. La fermeture de l'app reste inchangée : elle annonce déjà « Seront perdus » pour un éditeur non enregistré.",
+                    "createdAt": "2026-11-08T21:19:15Z",
+                    "diffHunk": "@@ -1,12 +1,13 @@\n import { draftCount, onDraftsChange } from './code/drafts'\n import { composerDraftCount, useSessions } from './sessions/sessionStore'\n import { onSaversChange, unsavedTickets } from './tickets/editorSave'\n+import { onLinearSaversChange, unsavedLinear } from './tickets/linearSave'\n \n /** Keeps the main process told of what quitting would lose: it asks the question, and only the page knows. */\n export function connectUnsaved(): () => void {\n   let sent = ''\n   const report = (): void => {\n-    const unsaved = { buffers: draftCount(), drafts: composerDraftCount(), tickets: unsavedTickets() }\n+    const unsaved = { buffers: draftCount(), drafts: composerDraftCount(), tickets: unsavedTickets() + unsavedLinear() }",
+                    "author": {
+                      "__typename": "User",
+                      "login": "BastienPailloux"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "filteredCount": 50,
+          "nodes": [
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "0a239dc1289753b814834f11bbf4fce89965ecac",
+                "committedDate": "2026-11-08T13:16:08Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "d0f0a7777c4b85c61c88c9e69f164212563b4a2d",
+                "committedDate": "2026-11-08T13:19:31Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "82a916bf1f2fd0111353e141472949ea8db1f622",
+                "committedDate": "2026-11-08T13:32:21Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "3b536c7181a55024daa476410cb3c9c66b8c95b9",
+                "committedDate": "2026-11-08T13:33:28Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "834d4dcab498b5c367b9eff5061fda3f8f725bfd",
+                "committedDate": "2026-11-08T14:24:19Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "2e3a1616a2bd9f07dbecfe357d53baac36890275",
+                "committedDate": "2026-11-08T14:40:08Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "ec16169439eec5e077ac026aad0d9c6ba782917e",
+                "committedDate": "2026-11-08T15:28:42Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "622e6e2462dfef5ef9938c1bdc9e219dcc775832",
+                "committedDate": "2026-11-08T15:30:04Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "eae5c43a14ea721f98b3a3fbffb0992149cef6ce",
+                "committedDate": "2026-11-08T16:00:29Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "e459451f2b00d809cfb950dc30ce93d7b97f9dfa",
+                "committedDate": "2026-11-08T16:06:50Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "42a4919b4c8a4c53854f5f0be892ca3469131bde",
+                "committedDate": "2026-11-08T16:20:41Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "f2917516c78780d4be5ba86aa164f52fe47ee41c",
+                "committedDate": "2026-11-08T16:33:00Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "2064418ccece28672239e7f3f448910dd1da5fbf",
+                "committedDate": "2026-11-08T16:41:48Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "ac0efa92dee584a8a393d8660db7ca4e13a08d3f",
+                "committedDate": "2026-11-08T16:45:06Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "8e93099c2e93228680cb67549d353dc7b3205629",
+                "committedDate": "2026-11-08T16:46:19Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "d11fdfa74fabb8823e33213ba103370b2cf48976",
+                "committedDate": "2026-11-08T16:55:24Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "43f657bf6d05aa8128bf5d4d7378554734e3ed22",
+                "committedDate": "2026-11-08T17:11:37Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "69fc6666d16514c9808f1d654fe380b2be3b3e2c",
+                "committedDate": "2026-11-08T17:19:59Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "1cbbf6280646766b6cfdfa0ccd92886589333f0b",
+                "committedDate": "2026-11-08T17:25:23Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "e1e379e87debdc1448f7c4ef62dd544dc6c4c204",
+                "committedDate": "2026-11-08T17:31:52Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "321b7188e8e41d951cd39be8a06b4116813c81ff",
+                "committedDate": "2026-11-08T17:35:02Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "b1f998c0e837fad5e7fe6be6f0ce5a87ada15c3c",
+                "committedDate": "2026-11-08T17:44:00Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "07d4ae24c0b369a361c986516ab113fe2ddad96b",
+                "committedDate": "2026-11-08T17:49:56Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "e6c34900246eb58e49d6ab5ef2956bdea246a652",
+                "committedDate": "2026-11-08T17:57:04Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "b5888d2e7962b675b6fe6936638454a3879a7350",
+                "committedDate": "2026-11-08T17:59:24Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "e071b56a5a80623ab7fcf8484a48b525889931ba",
+                "committedDate": "2026-11-08T18:08:25Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "d4b55cd1228fd5b60d96d4fa8afcb6a9c0a031b1",
+                "committedDate": "2026-11-08T18:22:36Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "60f981d7e13ffe945394517e571c643a659fde87",
+                "committedDate": "2026-11-08T18:25:09Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "e63ff4866aed5f83811919f20d7c0137531337f7",
+                "committedDate": "2026-11-08T18:26:28Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "c10bcebb0ab0a41daa4315d97c512d89e5732ce2",
+                "committedDate": "2026-11-08T18:27:15Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "d408ca940e21d62c0db3ebd61f33e53aa1576ac4",
+                "committedDate": "2026-11-08T18:28:20Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "3441457ec87bd146eb639d18cdbc3dc38fec7a96",
+                "committedDate": "2026-11-08T18:29:32Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "c1a639bb8291565cd086fee8cfc21081e48565ee",
+                "committedDate": "2026-11-08T18:31:01Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "74099b59b70cd1db61a2408fd42d6a3131bcd230",
+                "committedDate": "2026-11-08T18:31:34Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "aad7712a6d506b0dc56f0485dbdb3c805863dcbd",
+                "committedDate": "2026-11-08T18:32:55Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "12286310a9ba42de0a5988040bbf0ffec245046f",
+                "committedDate": "2026-11-08T18:33:18Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "58de03346c29840dce9083d7d34abe04c9d63d9c",
+                "committedDate": "2026-11-08T18:34:04Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "12d1e2d6151a7393eced72c28775338ceec4ce6e",
+                "committedDate": "2026-11-08T20:23:10Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "7b2b42614c892fed9eeb9dc89a211d85e733653d",
+                "committedDate": "2026-11-08T20:23:34Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "84aeb30279ea7bb6019a9778277960f9f73c3dac",
+                "committedDate": "2026-11-08T20:25:56Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "2130d8dc260a3288b8e26b9e39a398286460f30d",
+                "committedDate": "2026-11-08T20:26:53Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "8143de0ce05e45868401f927af4928d7d61f1ce1",
+                "committedDate": "2026-11-08T20:26:53Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "b4319600061775a7417fcb3efcc0c1dadff1d8c7",
+                "committedDate": "2026-11-08T20:44:18Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "7fb439ff51c4a621b027f87219c3bbf684c573ab",
+                "committedDate": "2026-11-08T20:48:42Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "a7d30ec608d027c32a4a85f872ed607d03622a70",
+                "committedDate": "2026-11-08T20:51:03Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestReview",
+              "state": "COMMENTED",
+              "body": "<!-- ccr-overview-v2 -->\n\n### 🟡 Changes recommended\n\nTwo critical data-loss paths remain: persistence failures can still allow sends, and focused Linear edits are not flushed or handed off before quit or restart.\n\n<details open>\n<summary><strong>2 open issues</strong></summary>\n\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/high-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/high-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/high-v2-light.png\" alt=\"High severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Prevent sending edits when queue persistence fails](https://github.com/BastienPailloux/canopy/pull/9#discussion_r4507791550) · New\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/high-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/high-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/high-v2-light.png\" alt=\"High severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Flush Linear editor drafts before quit or update](https://github.com/BastienPailloux/canopy/pull/9#discussion_r4507791565) · New\n</details>\n\n<details>\n<summary><strong>What changed in this PR</strong></summary>\n\nThis pull request adds Linear integration to Canopy, including OAuth/MCP connectivity, synchronized assigned tickets, conflict-aware editing, persistent edit queuing, comments, and worktree launch flows.\n\n**Changes:**\n- Adds encrypted OAuth credentials, MCP communication, caching, synchronization, and queued Linear edits.\n- Integrates Linear issues into the Tickets UI with filtering, editing, comments, source-aware keys, and launch support.\n- Extends session prompts and notices, branch links, quit/update handling, and automated test and fixture coverage.\n\nUnresolved review findings:\n- **Critical (2 votes):** `persist()` in `src/main/linear/edits.ts` swallows filesystem failures, allowing edits to be sent without durable queue persistence.\n- **Critical (1 vote):** `src/renderer/unsaved.ts` does not flush open Linear savers before quit or update restart, risking loss of typed content.\n- **Moderate (1 vote):** `src/renderer/tickets/LinearEditor.tsx` can launch using stale title or description while an asynchronous save is still pending.\n- **Moderate (1 vote):** `src/renderer/tickets/linearStore.ts` can display and allow editing of stale cached Linear issues while disconnected.\n- **Moderate (1 vote):** Expired startup state is not projected into the published Linear list, causing incorrect sync status and refresh behavior.\n\n**Approval readiness:** This pull request is too complex or risky for automated approval.\n\n| File | Summary |\r\n|---|---|\r\n| `tests/​renderer/​unsaved.test.ts` | Tests unsaved-change tracking. |\r\n| `tests/​renderer/​store.test.ts` | Tests renderer ticket state. |\r\n| `tests/​renderer/​sessionStore.test.ts` | Tests session state. |\r\n| `tests/​renderer/​panelPrompts.test.ts` | Tests session and PR prompts. |\r\n| `tests/​renderer/​mockupStore.test.ts` | Tests mockup ticket state. |\r\n| `tests/​renderer/​listModel.test.ts` | Tests ticket list modeling. |\r\n| `tests/​renderer/​linearStore.test.ts` | Tests Linear store behavior. |\r\n| `tests/​renderer/​linearSettings.test.tsx` | Tests Linear settings UI. |\r\n| `tests/​renderer/​linearReload.test.ts` | Tests Linear reload behavior. |\r\n| `tests/​renderer/​linearModel.test.ts` | Tests Linear models. |\r\n| `tests/​renderer/​launchFlow.test.ts` | Tests ticket launch flows. |\r\n| `tests/​main/​update/​updater.test.ts` | Tests update handling. |\r\n| `tests/​main/​sessions/​linearNotice.test.ts` | Tests Linear session notices. |\r\n| `tests/​main/​quit.test.ts` | Tests quit handling. |\r\n| `tests/​main/​linear/​parse.test.ts` | Tests Linear response parsing. |\r\n| `tests/​main/​linear/​launch.test.ts` | Tests Linear launches. |\r\n| `tests/​main/​linear/​descriptionPatch.test.ts` | Tests description patches. |\r\n| `tests/​main/​appStore.test.ts` | Tests persisted application state. |\r\n| `tests/​helpers/​fakeLinear.ts` | Provides the fake Linear client. |\r\n| `tests/​fixtures/​linear/​whoami.json` | Linear identity fixture. |\r\n| `tests/​fixtures/​linear/​README.md` | Documents Linear fixtures and behavior. |\r\n| `tests/​fixtures/​linear/​patch-two-ops-one-failing.json` | Failed multi-operation patch fixture. |\r\n| `tests/​fixtures/​linear/​patch-two-ops-one-failing-after.json` | Post-failure patch fixture. |\r\n| `tests/​fixtures/​linear/​patch-setup-append.json` | Append patch setup fixture. |\r\n| `tests/​fixtures/​linear/​patch-restore.json` | Restore patch fixture. |\r\n| `tests/​fixtures/​linear/​patch-restore-after.json` | Post-restore fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-unique.json` | Unique replacement fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-unique-after.json` | Post-replacement fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-missing-anchor.json` | Missing-anchor failure fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-missing-anchor-after.json` | Post-missing-anchor fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-duplicate-anchor.json` | Duplicate-anchor failure fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-duplicate-anchor-after.json` | Post-duplicate-anchor fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-all.json` | Replace-all patch fixture. |\r\n| `tests/​fixtures/​linear/​patch-replace-all-after.json` | Post-replace-all fixture. |\r\n| `tests/​fixtures/​linear/​patch-original.json` | Original description fixture. |\r\n| `tests/​fixtures/​linear/​patch-insert-before.json` | Insert-before patch fixture. |\r\n| `tests/​fixtures/​linear/​patch-insert-before-after.json` | Post-insert-before fixture. |\r\n| `tests/​fixtures/​linear/​patch-insert-after.json` | Insert-after patch fixture. |\r\n| `tests/​fixtures/​linear/​patch-insert-after-after.json` | Post-insert-after fixture. |\r\n| `tests/​fixtures/​linear/​list_users.json` | Linear users fixture. |\r\n| `tests/​fixtures/​linear/​list_issues_me.json` | Assigned issues fixture. |\r\n| `tests/​fixtures/​linear/​list_issues_me_page2.json` | Second issue-page fixture. |\r\n| `tests/​fixtures/​linear/​list_issues_me_page1.json` | First issue-page fixture. |\r\n| `tests/​fixtures/​linear/​list_issues_children_CAN-3.json` | Child issues fixture. |\r\n| `tests/​fixtures/​linear/​list_issue_statuses.json` | Issue statuses fixture. |\r\n| `tests/​fixtures/​linear/​list_issue_labels.json` | Issue labels fixture. |\r\n| `tests/​fixtures/​linear/​list_comments_CAN-4.json` | CAN-4 comments fixture. |\r\n| `tests/​fixtures/​linear/​list_comments_CAN-3.json` | CAN-3 comments fixture. |\r\n| `tests/​fixtures/​linear/​list_comments_CAN-2.json` | CAN-2 comments fixture. |\r\n| `tests/​fixtures/​linear/​list_comments_CAN-1.json` | CAN-1 comments fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_unknown.json` | Unknown issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-4.json` | CAN-4 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-4_default.json` | Default CAN-4 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-3.json` | CAN-3 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-3_default.json` | Default CAN-3 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-2.json` | CAN-2 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-2_default.json` | Default CAN-2 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-1.json` | CAN-1 issue fixture. |\r\n| `tests/​fixtures/​linear/​get_issue_CAN-1_default.json` | Default CAN-1 issue fixture. |\r\n| `src/​shared/​tickets.ts` | Defines source-aware ticket keys. |\r\n| `src/​shared/​api.ts` | Defines IPC contracts. |\r\n| `src/​renderer/​unsaved.ts` | Tracks unsaved renderer changes. |\r\n| `src/​renderer/​tickets/​tickets.css` | Styles ticket and Linear UI. |\r\n| `src/​renderer/​tickets/​TicketEditor.tsx` | Renders the ticket editor. |\r\n| `src/​renderer/​tickets/​listModel.ts` | Builds merged ticket lists. |\r\n| `src/​renderer/​tickets/​linearStore.ts` | Manages Linear renderer state. |\r\n| `src/​renderer/​tickets/​linearReload.ts` | Coordinates Linear reloads. |\r\n| `src/​renderer/​tickets/​LaunchPanel.tsx` | Renders launch controls. |\r\n| `src/​renderer/​tickets/​launchFlow.ts` | Orchestrates ticket launches. |\r\n| `src/​renderer/​theme.css` | Defines shared theme styles. |\r\n| `src/​renderer/​store.ts` | Stores ticket and application state. |\r\n| `src/​renderer/​shell/​WorktreeList.tsx` | Displays worktree ticket links. |\r\n| `src/​renderer/​shell/​Settings.tsx` | Provides Linear settings controls. |\r\n| `src/​renderer/​shell/​Header.tsx` | Displays ticket counts and header state. |\r\n| `src/​renderer/​sessions/​SidePanel.tsx` | Integrates Linear data into session actions. |\r\n| `src/​renderer/​sessions/​sessionStore.ts` | Tracks session and MCP state. |\r\n| `src/​renderer/​sessions/​sessions.css` | Styles session UI. |\r\n| `src/​renderer/​sessions/​panelPrompts.ts` | Builds session panel prompts. |\r\n| `src/​renderer/​sessions/​Composer.tsx` | Renders session composition UI. |\r\n| `src/​renderer/​mockups/​mockupStore.ts` | Stores mockup ticket references. |\r\n| `src/​renderer/​mockups/​MockupsScreen.tsx` | Renders mockup ticket navigation. |\r\n| `src/​renderer/​App.tsx` | Integrates application routing and screens. |\r\n| `src/​preload/​index.ts` | Exposes IPC APIs to the renderer. |\r\n| `src/​main/​tickets/​launch.ts` | Provides shared ticket launch logic. |\r\n| `src/​main/​sessions/​validate.ts` | Validates session options. |\r\n| `src/​main/​sessions/​SessionManager.ts` | Manages session lifecycle and notices. |\r\n| `src/​main/​quit.ts` | Handles quit confirmation state. |\r\n| `src/​main/​linear/​parse.ts` | Parses Linear MCP responses. |\r\n| `src/​main/​linear/​launch.ts` | Launches Linear issues into worktrees. |\r\n| `src/​main/​linear/​descriptionPatch.ts` | Computes and applies description patches. |\r\n| `src/​main/​linear/​auth.ts` | Implements Linear authentication. |\r\n| `src/​main/​ipc.ts` | Registers and routes IPC handlers. |\r\n| `src/​main/​index.ts` | Initializes main-process services. |\r\n| `src/​main/​appStore.ts` | Persists application state and credentials. |\r\n| `package.json` | Declares project dependencies and scripts. |\r\n| `CLAUDE.md` | Documents project and Linear integration behavior. |\n</details>\n\n<sub>Review effort: Lite</sub>",
+              "createdAt": "2026-11-08T21:02:42Z",
+              "submittedAt": "2026-11-08T21:02:42Z",
+              "author": {
+                "__typename": "Bot",
+                "login": "copilot-pull-request-reviewer"
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "bca86021c24ab5e74ad4275d1cdcb2379543eb2e",
+                "committedDate": "2026-11-08T21:13:03Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "2e7c0f8eef1166dbc78143789aabd42f6ef7d20d",
+                "committedDate": "2026-11-08T21:14:42Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "6cad4255e52dec3e7c994bc467f631acdeeb923e",
+                "committedDate": "2026-11-08T21:15:33Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "df675607f097bdde58d3bfca0200378290c4e8b1",
+                "committedDate": "2026-11-08T21:16:25Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "commits": {
+          "totalCount": 49,
+          "nodes": [
+            {
+              "commit": {
+                "oid": "0a239dc1289753b814834f11bbf4fce89965ecac",
+                "message": "docs: add Linear connector design (step 3)\n\nLinear tickets assigned to me, mixed with local tickets, editable and\nlaunchable from Canopy, through the official Linear MCP server.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T13:16:08Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "d0f0a7777c4b85c61c88c9e69f164212563b4a2d",
+                "message": "docs: add Linear connector implementation plan\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T13:19:31Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "82a916bf1f2fd0111353e141472949ea8db1f622",
+                "message": "chore(linear): capture script for MCP reference answers\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T13:32:21Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "3b536c7181a55024daa476410cb3c9c66b8c95b9",
+                "message": "fix(linear): capture script uses the real patch schema\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T13:33:28Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "834d4dcab498b5c367b9eff5061fda3f8f725bfd",
+                "message": "test: Linear MCP reference answers\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T14:24:19Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "2e3a1616a2bd9f07dbecfe357d53baac36890275",
+                "message": "feat(linear): shared model, status groups and branch name\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T14:40:08Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "ec16169439eec5e077ac026aad0d9c6ba782917e",
+                "message": "feat(linear): validate MCP answers\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T15:28:42Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "622e6e2462dfef5ef9938c1bdc9e219dcc775832",
+                "message": "fix(linear): accept the duplicate status type\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T15:30:04Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "eae5c43a14ea721f98b3a3fbffb0992149cef6ce",
+                "message": "feat(linear): OAuth connection and MCP client\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:00:29Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "e459451f2b00d809cfb950dc30ce93d7b97f9dfa",
+                "message": "fix(linear): loopback-only callback with state, keep tokens on expiry\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:06:50Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "42a4919b4c8a4c53854f5f0be892ca3469131bde",
+                "message": "feat(linear): edit queue with description patches\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:20:41Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "f2917516c78780d4be5ba86aa164f52fe47ee41c",
+                "message": "fix(linear): never double-apply a resent edit, hold only the stuck field\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:33:00Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "2064418ccece28672239e7f3f448910dd1da5fbf",
+                "message": "feat(linear): list sync with cache and departures\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:41:48Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "ac0efa92dee584a8a393d8660db7ca4e13a08d3f",
+                "message": "fix(linear): sync can be cleared on disconnect\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:45:06Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "8e93099c2e93228680cb67549d353dc7b3205629",
+                "message": "fix(linear): a refresh after clear starts fresh\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:46:19Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "d11fdfa74fabb8823e33213ba103370b2cf48976",
+                "message": "feat(linear): launch a Linear ticket\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:55:24Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "43f657bf6d05aa8128bf5d4d7378554734e3ed22",
+                "message": "feat(linear): IPC and app wiring\n\nregisterLinearIpc exposes the linear:* channels (validated in main) through\nwindow.canopy, emits linear:changed on sync, queue and connection changes.\nCANOPY_FAKE_LINEAR replays the fixtures like CANOPY_FAKE_QUERY. At start:\nresume, resend the queue, refresh. Pending Linear edits make quitting ask.\nShared Linear types moved to src/shared/linear.ts.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:11:37Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "69fc6666d16514c9808f1d654fe380b2be3b3e2c",
+                "message": "fix(linear): app-wide launched set, safer disconnect and resume\n\nThe launched set kept listed by LinearSync is now app-wide (every linked\nissue whose branch still exists, per root), so switching repo no longer\nfakes a departure. Link read failures never hide the list. A forced\ndisconnect drops the queue only once the tokens are gone. A stale resume\nnever overwrites a newer connect. description.base is capped. A launched\nissue reassigned while launched departs as reassigned once unlaunched.\nQuit wording says the edits stay queued.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:19:59Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "1cbbf6280646766b6cfdfa0ccd92886589333f0b",
+                "message": "fix(linear): own id from whoami, launched set ready before every refresh\n\nEvery refresh from the Linear IPC goes through one helper that recomputes the\nlaunched set first; startLinear recomputes before looking at the resume\nstate. LinearSync takes Bastien's id from whoami (LinearConnection.userId)\ninstead of the first assignee of listMine, persisted with the cache.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:25:23Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "e1e379e87debdc1448f7c4ef62dd544dc6c4c204",
+                "message": "feat(linear): mixed ticket list with filters\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:31:52Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "321b7188e8e41d951cd39be8a06b4116813c81ff",
+                "message": "fix(linear): guarded single refresh, per-repo links reset on switch\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:35:02Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "b1f998c0e837fad5e7fe6be6f0ce5a87ada15c3c",
+                "message": "feat(linear): Linear ticket editor\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:44:00Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "07d4ae24c0b369a361c986516ab113fe2ddad96b",
+                "message": "fix(linear): editor keeps in-flight choices and ignores stale reads\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:49:56Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "e6c34900246eb58e49d6ab5ef2956bdea246a652",
+                "message": "feat(linear): launch panel, settings and session notice\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:57:04Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "b5888d2e7962b675b6fe6936638454a3879a7350",
+                "message": "fix(linear): MCP notice also on a reused session tab\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:59:24Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "e071b56a5a80623ab7fcf8484a48b525889931ba",
+                "message": "test(linear): end-to-end\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:08:25Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "d4b55cd1228fd5b60d96d4fa8afcb6a9c0a031b1",
+                "message": "fix(linear): resend queued edits when Linear is reachable again\n\nA refresh that reaches Linear resends the entries whose last send failed\n(held fields stay held); system resume triggers a refresh.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:22:36Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "60f981d7e13ffe945394517e571c643a659fde87",
+                "message": "fix(linear): a start without network stays connected-intent and recovers on refresh\n\nresume() reports 'offline' with the reason when tokens are stored but Linear\ncannot be reached; every refresh tries the tokens again, then resends the\nqueue. Settings shows the reason and Déconnecter, never « Connecter Linear ».\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:25:09Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "e63ff4866aed5f83811919f20d7c0137531337f7",
+                "message": "fix(linear): launched issues and issues with unsent edits stay listed\n\nOne visibility rule (listGroup) in shared/linear.ts for main and renderer:\na kept issue with a hidden status (Canceled, Duplicate) shows in Terminé\nwith its Linear name. Issues with pending edits are kept like launched ones\n(even deleted in Linear) until their queue is empty; then the departure\nnotice gives the true reason.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:26:28Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "c10bcebb0ab0a41daa4315d97c512d89e5732ce2",
+                "message": "fix(linear): a patch Linear ignores is held, and lost parameters are reported\n\nThe connection check also verifies save_issue.patch/id and\nlist_issues.assignee/cursor in the tool schemas. A patch save answered with\nthe description read just before (normalised) is held with both versions\n(« Linear n’a pas appliqué la modification »), never reported sent.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:27:15Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "d408ca940e21d62c0db3ebd61f33e53aa1576ac4",
+                "message": "fix(linear): edit queue re-plans before a lone resend, rewrites good entries, names uncertain conflicts\n\n- After a refused combined save, the description is re-read and re-planned\n  before going alone: a partly applied save never applies insert ops twice.\n- A queue file with malformed entries is rewritten with the good ones at load.\n- The uncertain-resend conflict has its own reason (UNCERTAIN_REASON), shown\n  by the editor through conflictHint().\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:28:20Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "3441457ec87bd146eb639d18cdbc3dc38fec7a96",
+                "message": "fix(linear): comment drafts and every stranded editor text are kept and counted\n\n- A comment being typed is kept per issue (back in the next editor) and\n  counts as unsaved until posted; text typed during the send stays.\n- Closed editors' savers with unsent text are kept as a list per issue:\n  none overwrites another, so every one counted at quit can be reopened.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:29:32Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "c1a639bb8291565cd086fee8cfc21081e48565ee",
+                "message": "fix(linear): label edits keep a colleague's labels; Linear's own limits\n\n- LinearChange.labels is { base, next }: main re-reads the issue and applies\n  Bastien's additions and removals to Linear's current set (applyLabels);\n  queued label edits chain from the first base; nothing is sent when Linear\n  already has the set.\n- IPC validation uses LINEAR_MAX_TITLE/LABELS/LABEL (1000/100/200) from\n  shared/linear.ts instead of the local-ticket limits.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:31:01Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "74099b59b70cd1db61a2408fd42d6a3131bcd230",
+                "message": "refactor(linear): one description normalisation shared by main and the editor\n\nnormalizeDescription/sameDescription move to shared/linear.ts; the\nrenderer's own sameText (which also stripped no-break spaces Linear keeps)\nis gone.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:31:34Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "aad7712a6d506b0dc56f0485dbdb3c805863dcbd",
+                "message": "fix(linear): quit says which Linear edits wait for a decision\n\nHeld entries (conflict, refusal) add « Certaines modifications Linear\nattendent ta décision dans l’éditeur. »; the « partiront dès que Linear sera\njoignable » sentence is kept for the entries with a field that will go.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:32:55Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "12286310a9ba42de0a5988040bbf0ffec245046f",
+                "message": "fix(linear): settings offer Déconnecter while expired or offline; new missing-tools text\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:33:18Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "58de03346c29840dce9083d7d34abe04c9d63d9c",
+                "message": "fix(linear): refresh when an issue leaves the edit queue, so a kept issue departs with its notice\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T18:34:04Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "12d1e2d6151a7393eced72c28775338ceec4ce6e",
+                "message": "Merge origin/develop into feat/linear-tickets\n\nBrings #6 (CLAUDE.md), #7 (claude.ai mockups linked to tickets) and #8\n(sessions start in the last picked mode).\n\nResolutions:\n- main/index.ts: both imports; registerIpc gets the shared TicketStore\n  and the new MockupStore; the Linear wiring is unchanged.\n- preload/index.ts, shared/api.ts: the Linear and the mockup surfaces side by side.\n- App.tsx: connectLinear and connectMockups both run; the Tickets view\n  keeps OpenTicket (TicketKey), the Mockups view is added.\n- store.ts: selectedTicket/openTicket stay TicketKey; the mockup fields\n  are added (pendingMockupTicket is a local ticket ID).\n- LaunchPanel.tsx: « Joindre les maquettes liées » for local tickets only:\n  a mockup links a local ticket by its bare ID, which a Linear issue can\n  share (CAN-7), so a Linear issue gets no mockups. No « Passer En cours »\n  for Linear, as before.\n- launchFlow.ts: runLaunch sends launchText (prompt + mockups), runLinearLaunch\n  unchanged (linearLaunchPrompt, expectLinear); shared showLaunched.\n- tickets.css: the branch's Linear block, then develop's mockup block.\n- launchFlow.test.ts: both suites.\n- TicketKey migration of #7's code: MockupsScreen opens local:<id>,\n  launchFromMockup selects local:<id> (mockupStore.test updated).\n\n#8's remembered mode (tab.mode) and this branch's expectLinear are separate\nstart options of startSession: they compose.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:23:10Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "7b2b42614c892fed9eeb9dc89a211d85e733653d",
+                "message": "perf(linear): list without descriptions, 250 per page\n\nBastien's list and an issue's sub-issues ask for the list fields only\n(no description) at Linear's maximum page size. The description is read\nwith get_issue (editor, launch prompt, edit rebase), never from the list.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:23:34Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "84aeb30279ea7bb6019a9778277960f9f73c3dac",
+                "message": "perf(linear): look up departed issues five at a time, a deleted launched issue only once\n\nIssues missing from the assigned list are looked up in batches of 5\ninstead of one after the other. A launched issue Linear says no longer\nexists departs once (« introuvable ») and its link is dropped, so later\nrefreshes never ask for it again. One with an unsent edit stays until\nBastien decides, as before; a failed lookup forgets nothing.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:25:56Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "2130d8dc260a3288b8e26b9e39a398286460f30d",
+                "message": "perf(linear): an open editor reads the issue again only when Linear changed it\n\nlinear:changed now names the issues touched ({ ids }: a sync commit's\nchanged, added, removed or departed issues, the issue whose edit queue\nchanged, the departures acknowledged); a connection change sends {}.\n\nThe open editor reads its queue (local) when its issue is named, and the\nissue itself (get_issue, sub-issue and comment pages) only for an event\nnaming no issue or when the list holds a newer copy than the one shown:\nits own save answer is reused, never read back. Reads are debounced\n(300 ms). The list re-reads without listing every linked repo's branches\nfor an event that names no linked issue; a launch reads the links itself.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:26:53Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "8143de0ce05e45868401f927af4928d7d61f1ce1",
+                "message": "perf(linear): skip the focus refresh within 30 s of the last sync\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:26:53Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "b4319600061775a7417fcb3efcc0c1dadff1d8c7",
+                "message": "fix(linear): keep a launched ticket's branch link when Linear cannot find it\n\n« Not found » also comes from a lost team access or another workspace, so\ndropping the link was irreversible for an issue that still exists. The\nsync now keeps the launched issues not found aside (in its cache): each\ndeparts once as « introuvable », is not asked for again, and keeps its\nlink and branch. The set is emptied on a connect, an account change and a\ndisconnect; an issue back in the list is listed again.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:44:18Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "7fb439ff51c4a621b027f87219c3bbf684c573ab",
+                "message": "fix(linear): an open editor of an issue outside the list follows Linear's changes\n\nA sub-issue assigned to a colleague, or an issue that left the list, has no\nlist copy to compare with: any other list or queue change now reads it\nagain (debounced). Its own queue change still reads the queue only.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:48:42Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "a7d30ec608d027c32a4a85f872ed607d03622a70",
+                "message": "docs: describe the Linear connector and its test fake in CLAUDE.md\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T20:51:03Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "bca86021c24ab5e74ad4275d1cdcb2379543eb2e",
+                "message": "fix(linear): never send an edit the queue could not save\n\nA failed write of the queue before a send kept going to Linear: a crash\nafterwards lost an edit Linear had applied. The edit now stays queued in\nmemory with the disk error, and the next save or retry writes it first.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T21:13:03Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "2e7c0f8eef1166dbc78143789aabd42f6ef7d20d",
+                "message": "fix(linear): hand typed Linear text to the queue before an update restart\n\nThe update restart only wrote local ticket editors, while its dialog\npromised every unsaved ticket would be saved first. Linear editors now\ncommit their title and description to main's queue in the same wait.\nComments being typed cannot be posted automatically: the dialog now\nsays they will be lost instead of counting them as saved.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T21:14:42Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "6cad4255e52dec3e7c994bc467f631acdeeb923e",
+                "message": "fix(linear): launch an issue with the title and description still queued\n\nThe launch prompt used Linear's text even when Bastien's own edit was\nstill waiting in the queue. The launch now takes the queued title and\ndescription, and still writes nothing to Linear.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T21:15:33Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            },
+            {
+              "commit": {
+                "oid": "df675607f097bdde58d3bfca0200378290c4e8b1",
+                "message": "fix(linear): show an expired connection in the list from startup\n\nRefused tokens at startup left the header on « synchro il y a N min »\nuntil a manual refresh. The sync is now marked expired at once, without\na call to Linear.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T21:16:25Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": null
+              }
+            }
+          ]
+        },
+        "files": {
+          "totalCount": 119,
+          "nodes": [
+            {
+              "path": "CLAUDE.md",
+              "changeType": "MODIFIED",
+              "additions": 3,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "docs/superpowers/plans/2026-11-08-linear-connector.md",
+              "changeType": "ADDED",
+              "additions": 308,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "docs/superpowers/specs/2026-11-08-linear-connector-design.md",
+              "changeType": "ADDED",
+              "additions": 157,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "package-lock.json",
+              "changeType": "MODIFIED",
+              "additions": 976,
+              "deletions": 28,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "package.json",
+              "changeType": "MODIFIED",
+              "additions": 1,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "scripts/linear-capture.mjs",
+              "changeType": "ADDED",
+              "additions": 255,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/appStore.ts",
+              "changeType": "MODIFIED",
+              "additions": 93,
+              "deletions": 10,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/index.ts",
+              "changeType": "MODIFIED",
+              "additions": 42,
+              "deletions": 6,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/ipc.ts",
+              "changeType": "MODIFIED",
+              "additions": 1,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/auth.ts",
+              "changeType": "ADDED",
+              "additions": 209,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/client.ts",
+              "changeType": "ADDED",
+              "additions": 316,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/descriptionPatch.ts",
+              "changeType": "ADDED",
+              "additions": 111,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/edits.ts",
+              "changeType": "ADDED",
+              "additions": 468,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/launch.ts",
+              "changeType": "ADDED",
+              "additions": 33,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/linearIpc.ts",
+              "changeType": "ADDED",
+              "additions": 304,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/parse.ts",
+              "changeType": "ADDED",
+              "additions": 187,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/replay.ts",
+              "changeType": "ADDED",
+              "additions": 266,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/linear/sync.ts",
+              "changeType": "ADDED",
+              "additions": 252,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/quit.ts",
+              "changeType": "MODIFIED",
+              "additions": 38,
+              "deletions": 12,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/sessions/SessionManager.ts",
+              "changeType": "MODIFIED",
+              "additions": 10,
+              "deletions": 1,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/sessions/validate.ts",
+              "changeType": "MODIFIED",
+              "additions": 4,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/main/tickets/launch.ts",
+              "changeType": "MODIFIED",
+              "additions": 21,
+              "deletions": 13,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/preload/index.ts",
+              "changeType": "MODIFIED",
+              "additions": 14,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/App.tsx",
+              "changeType": "MODIFIED",
+              "additions": 14,
+              "deletions": 1,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/mockups/MockupsScreen.tsx",
+              "changeType": "MODIFIED",
+              "additions": 2,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/mockups/mockupStore.ts",
+              "changeType": "MODIFIED",
+              "additions": 2,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/sessions/Composer.tsx",
+              "changeType": "MODIFIED",
+              "additions": 1,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/sessions/SidePanel.tsx",
+              "changeType": "MODIFIED",
+              "additions": 4,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/sessions/panelPrompts.ts",
+              "changeType": "MODIFIED",
+              "additions": 9,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/sessions/sessionStore.ts",
+              "changeType": "MODIFIED",
+              "additions": 35,
+              "deletions": 3,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/sessions/sessions.css",
+              "changeType": "MODIFIED",
+              "additions": 5,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/shell/Header.tsx",
+              "changeType": "MODIFIED",
+              "additions": 5,
+              "deletions": 1,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/shell/Settings.tsx",
+              "changeType": "MODIFIED",
+              "additions": 78,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/shell/WorktreeList.tsx",
+              "changeType": "MODIFIED",
+              "additions": 10,
+              "deletions": 6,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/store.ts",
+              "changeType": "MODIFIED",
+              "additions": 6,
+              "deletions": 5,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/theme.css",
+              "changeType": "MODIFIED",
+              "additions": 3,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/LaunchPanel.tsx",
+              "changeType": "MODIFIED",
+              "additions": 18,
+              "deletions": 11,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/LinearEditor.tsx",
+              "changeType": "ADDED",
+              "additions": 400,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/TicketEditor.tsx",
+              "changeType": "MODIFIED",
+              "additions": 23,
+              "deletions": 11,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/TicketsScreen.tsx",
+              "changeType": "MODIFIED",
+              "additions": 117,
+              "deletions": 31,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/launchFlow.ts",
+              "changeType": "MODIFIED",
+              "additions": 18,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/linearReload.ts",
+              "changeType": "ADDED",
+              "additions": 61,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/linearSave.ts",
+              "changeType": "ADDED",
+              "additions": 318,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/linearStore.ts",
+              "changeType": "ADDED",
+              "additions": 144,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/listModel.ts",
+              "changeType": "ADDED",
+              "additions": 80,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/tickets/tickets.css",
+              "changeType": "MODIFIED",
+              "additions": 163,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/unsaved.ts",
+              "changeType": "MODIFIED",
+              "additions": 6,
+              "deletions": 3,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/update/stash.ts",
+              "changeType": "MODIFIED",
+              "additions": 4,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/shared/api.ts",
+              "changeType": "MODIFIED",
+              "additions": 45,
+              "deletions": 2,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/shared/linear.ts",
+              "changeType": "ADDED",
+              "additions": 225,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/shared/tickets.ts",
+              "changeType": "MODIFIED",
+              "additions": 15,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/e2e/linear.spec.ts",
+              "changeType": "ADDED",
+              "additions": 240,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/README.md",
+              "changeType": "ADDED",
+              "additions": 65,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-1.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-1_default.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-2.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-2_default.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-3.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-3_default.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-4.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_CAN-4_default.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/get_issue_unknown.json",
+              "changeType": "ADDED",
+              "additions": 9,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_comments_CAN-1.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_comments_CAN-2.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_comments_CAN-3.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_comments_CAN-4.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_issue_labels.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_issue_statuses.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_issues_children_CAN-3.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_issues_me.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_issues_me_page1.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_issues_me_page2.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/list_users.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-insert-after-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-insert-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-insert-before-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-insert-before.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-original.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-all-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-all.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-duplicate-anchor-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-duplicate-anchor.json",
+              "changeType": "ADDED",
+              "additions": 9,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-missing-anchor-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-missing-anchor.json",
+              "changeType": "ADDED",
+              "additions": 9,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-unique-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-replace-unique.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-restore-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-restore.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-setup-append.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-two-ops-one-failing-after.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/patch-two-ops-one-failing.json",
+              "changeType": "ADDED",
+              "additions": 9,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/tools.json",
+              "changeType": "ADDED",
+              "additions": 4688,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/fixtures/linear/whoami.json",
+              "changeType": "ADDED",
+              "additions": 8,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/helpers/fakeLinear.ts",
+              "changeType": "ADDED",
+              "additions": 21,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/main/appStore.test.ts",
+              "changeType": "MODIFIED",
+              "additions": 71,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/main/linear/auth.test.ts",
+              "changeType": "ADDED",
+              "additions": 211,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/main/linear/client.test.ts",
+              "changeType": "ADDED",
+              "additions": 349,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/main/linear/descriptionPatch.test.ts",
+              "changeType": "ADDED",
+              "additions": 124,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/main/linear/edits.test.ts",
+              "changeType": "ADDED",
+              "additions": 517,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/main/linear/launch.test.ts",
+              "changeType": "ADDED",
+              "additions": 83,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
