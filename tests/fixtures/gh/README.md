@@ -1,6 +1,6 @@
 # Fixtures gh
 
-Réponses brutes de `gh` capturées sur `BastienPailloux/canopy` le 2026-11-09, avec gh 2.61.0 (2024-11-06). Lues par `tests/main/github/query.test.ts` et `gatewayRead.test.ts`. Seuls des appels en lecture ont servi : rien n'a été créé ni modifié sur GitHub.
+Réponses brutes de `gh` capturées sur `BastienPailloux/canopy` le 2026-11-09 (recapturées le même jour quand `PR_QUERY` est passée à `timelineItems(last: 100)`, `reviewThreads(last: 100)` et à l'alias `lastCommit` : à refaire à chaque changement de la requête), avec gh 2.61.0 (2024-11-06). Lues par `tests/main/github/query.test.ts` et `gatewayRead.test.ts`. Seuls des appels en lecture ont servi : rien n'a été créé ni modifié sur GitHub.
 
 Partout, l'adresse `noreply@anthropic.com` des lignes `Co-Authored-By` des messages de commit est remplacée par `user@example.com`. Aucun jeton ni autre adresse n'apparaît dans les réponses.
 
@@ -24,7 +24,8 @@ Copie **modifiée à la main** de la réponse pour la PR #8 (mergée, plus petit
 - `labels` : `enhancement` ; `assignees` : `BastienPailloux` ;
 - `reviewRequests` : un utilisateur `octocat` et une équipe `acme/core` (inventés) ;
 - ajout d'un `IssueComment` (id `IC_kwDOVmYqg87fake01`, databaseId `3500000001`) qui finit par la signature `— Claude via Canopy`, `filteredCount` passé à 4 ;
-- `statusCheckRollup` du premier commit : `SUCCESS` sans contexte ; du dernier : `FAILURE` avec 4 contextes inventés (ids, URLs et durées fictifs) : `unit` (Actions, succès), `e2e` (Actions, échec), `Greptile Review` (autre app, sans `workflowRun`, `NEUTRAL`) et un `StatusContext` `deploy/preview` en attente.
+- `commits` : `statusCheckRollup` du premier commit `{ state: SUCCESS }`, du dernier `{ state: FAILURE }` (la liste ne demande que l'état) ;
+- `lastCommit` (alias `commits(last: 1)`, seul à demander les contextes) : `statusCheckRollup` `FAILURE` avec 4 contextes inventés (ids, URLs et durées fictifs) : `unit` (Actions, succès), `e2e` (Actions, échec), `Greptile Review` (autre app, sans `workflowRun`, `NEUTRAL`) et un `StatusContext` `deploy/preview` en attente.
 
 L'état brouillon se teste en passant `isDraft` à `true` sur la réponse lue.
 

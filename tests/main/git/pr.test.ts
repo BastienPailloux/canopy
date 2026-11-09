@@ -40,23 +40,32 @@ test('the runner rejects with the child\'s stderr', async () => {
   await expect(runWith('sh')(['-c', 'echo oops >&2; exit 1'], '/')).rejects.toMatchObject({ stderr: 'oops\n' })
 })
 
-const states = (...list: { headRefName: string; state: string; isCrossRepository?: boolean; updatedAt: string }[]): GhRunner => async () => JSON.stringify(list)
+const states = (...list: { number: number; headRefName: string; state: string; isCrossRepository?: boolean }[]): GhRunner => async () => JSON.stringify(list)
 
 test('branchPrStates keeps the latest PR per branch', async () => {
   const got = await branchPrStates('/repo', states(
-    { headRefName: 'feat/a', state: 'CLOSED', updatedAt: '2026-11-01T10:00:00Z' },
-    { headRefName: 'feat/a', state: 'MERGED', updatedAt: '2026-11-05T10:00:00Z' },
-    { headRefName: 'feat/a', state: 'OPEN', updatedAt: '2026-11-03T10:00:00Z' },
-    { headRefName: 'feat/b', state: 'OPEN', updatedAt: '2026-11-02T10:00:00Z' },
-    { headRefName: 'main', state: 'OPEN', isCrossRepository: true, updatedAt: '2026-11-09T10:00:00Z' },
+    { number: 2, headRefName: 'feat/a', state: 'CLOSED' },
+    { number: 6, headRefName: 'feat/a', state: 'MERGED' },
+    { number: 4, headRefName: 'feat/a', state: 'OPEN' },
+    { number: 3, headRefName: 'feat/b', state: 'OPEN' },
+    { number: 9, headRefName: 'main', state: 'OPEN', isCrossRepository: true },
   ))
   expect(got).toEqual(new Map([['feat/a', 'merged'], ['feat/b', 'open']]))
+})
+
+test('branchPrStates: the latest PR is the newest one, as find sees it, not the last updated', async () => {
+  // gh lists the newest first, but an old PR touched last must not win over a newer one either way
+  const got = await branchPrStates('/repo', states(
+    { number: 5, headRefName: 'feat/a', state: 'MERGED' },
+    { number: 7, headRefName: 'feat/a', state: 'OPEN' },
+  ))
+  expect(got).toEqual(new Map([['feat/a', 'open']]))
 })
 
 test('branchPrStates: one call for every state, null on failure', async () => {
   const calls: string[][] = []
   await branchPrStates('/repo', async (args) => { calls.push(args); return '[]' })
-  expect(calls).toEqual([['pr', 'list', '--state', 'all', '--limit', '200', '--json', 'headRefName,state,isCrossRepository,updatedAt']])
+  expect(calls).toEqual([['pr', 'list', '--state', 'all', '--limit', '200', '--json', 'number,headRefName,state,isCrossRepository']])
   expect(await branchPrStates('/repo', fail('', 'ENOENT'))).toBeNull()
   expect(await branchPrStates('/repo', async () => '{}')).toBeNull()
 })

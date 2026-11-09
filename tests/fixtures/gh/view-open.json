@@ -184,11 +184,7 @@
                   }
                 },
                 "statusCheckRollup": {
-                  "state": "SUCCESS",
-                  "contexts": {
-                    "totalCount": 0,
-                    "nodes": []
-                  }
+                  "state": "SUCCESS"
                 }
               }
             },
@@ -203,6 +199,19 @@
                     "login": "BastienPailloux"
                   }
                 },
+                "statusCheckRollup": {
+                  "state": "FAILURE"
+                }
+              }
+            }
+          ]
+        },
+        "lastCommit": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "7f65fa200879ac3689b62436fc8bd7156f3bc198",
+                "committedDate": "2026-11-08T17:33:14Z",
                 "statusCheckRollup": {
                   "state": "FAILURE",
                   "contexts": {

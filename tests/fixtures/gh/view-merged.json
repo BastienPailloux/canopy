@@ -1470,6 +1470,17 @@
             }
           ]
         },
+        "lastCommit": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "df675607f097bdde58d3bfca0200378290c4e8b1",
+                "committedDate": "2026-11-08T21:16:25Z",
+                "statusCheckRollup": null
+              }
+            }
+          ]
+        },
         "files": {
           "totalCount": 119,
           "nodes": [

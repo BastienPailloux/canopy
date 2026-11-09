@@ -1,12 +1,21 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { parsePrDetail } from '../../../src/main/github/query'
+import { PR_QUERY, parsePrDetail } from '../../../src/main/github/query'
 
 const FIXTURES = join(__dirname, '../../fixtures/gh')
 // A fresh copy each time: tests edit the raw answer.
 const fixture = (name: string): any => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8'))
 const prOf = (raw: any): any => raw.data.repository.pullRequest
+
+test('the query keeps the newest timeline items and threads, and reads checks of the last commit only', () => {
+  const q = PR_QUERY.replace(/\s+/g, ' ')
+  expect(q).toContain('reviewThreads(last: 100)')
+  expect(q).toContain('timelineItems(last: 100, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT])')
+  expect(q).toContain('commits(last: 100) { totalCount nodes { commit { oid message committedDate author { name user { login } } statusCheckRollup { state } } } }')
+  expect(q).toContain('lastCommit: commits(last: 1)')
+  expect(q.match(/contexts\(/g)).toHaveLength(1)
+})
 
 test('parses a merged PR', () => {
   const pr = parsePrDetail(fixture('view-merged.json'), 'BastienPailloux')
@@ -153,4 +162,10 @@ test('refuses an unknown shape', () => {
   prOf(raw).number = '8'
   expect(() => parsePrDetail(raw, 'x')).toThrow('Réponse GitHub illisible')
   expect(() => parsePrDetail({ data: { repository: { pullRequest: null } } }, 'x')).toThrow('Réponse GitHub illisible')
+})
+
+test('marks truncated checks of the last commit', () => {
+  const raw = fixture('view-open.json')
+  prOf(raw).lastCommit.nodes[0].commit.statusCheckRollup.contexts.totalCount = 104
+  expect(parsePrDetail(raw, 'x').truncated.checks).toBe(100)
 })

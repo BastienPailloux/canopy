@@ -50,20 +50,20 @@ export type BranchPrState = 'open' | 'merged' | 'closed'
 const PR_STATES: Record<string, BranchPrState> = { OPEN: 'open', MERGED: 'merged', CLOSED: 'closed' }
 
 /**
- * The state of the latest PR (by update) of every branch of `repo`, any state, in one gh call; forks left out.
- * Null when gh fails or answers something else. Never throws.
+ * The state of the latest PR (highest number, the one `gh pr list --head` returns first) of every branch of `repo`,
+ * any state, in one gh call; forks left out. Null when gh fails or answers something else. Never throws.
  */
 export async function branchPrStates(repo: string, run: GhRunner = runGh): Promise<Map<string, BranchPrState> | null> {
   try {
-    const out = await run(['pr', 'list', '--state', 'all', '--limit', MAX_PRS, '--json', 'headRefName,state,isCrossRepository,updatedAt'], repo)
-    const list = JSON.parse(out) as { headRefName: string; state: string; isCrossRepository?: boolean; updatedAt: string }[]
+    const out = await run(['pr', 'list', '--state', 'all', '--limit', MAX_PRS, '--json', 'number,headRefName,state,isCrossRepository'], repo)
+    const list = JSON.parse(out) as { number: number; headRefName: string; state: string; isCrossRepository?: boolean }[]
     if (!Array.isArray(list)) return null
-    const latest = new Map<string, { state: BranchPrState; updatedAt: string }>()
+    const latest = new Map<string, { state: BranchPrState; number: number }>()
     for (const p of list) {
       const state = PR_STATES[p.state]
       if (p.isCrossRepository || !state) continue
       const seen = latest.get(p.headRefName)
-      if (!seen || p.updatedAt > seen.updatedAt) latest.set(p.headRefName, { state, updatedAt: p.updatedAt })
+      if (!seen || p.number > seen.number) latest.set(p.headRefName, { state, number: p.number })
     }
     return new Map([...latest].map(([b, v]) => [b, v.state]))
   } catch {

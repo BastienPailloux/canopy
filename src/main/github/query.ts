@@ -42,7 +42,7 @@ export const PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
         }
       }
       latestReviews(first: 100) { nodes { state author { __typename login } } }
-      reviewThreads(first: 100) {
+      reviewThreads(last: 100) {
         totalCount
         nodes {
           id
@@ -54,7 +54,7 @@ export const PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
           comments(first: 50) { nodes { id databaseId body createdAt diffHunk author { __typename login } } }
         }
       }
-      timelineItems(first: 100, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT]) {
+      timelineItems(last: 100, itemTypes: [ISSUE_COMMENT, PULL_REQUEST_REVIEW, PULL_REQUEST_COMMIT]) {
         filteredCount
         nodes {
           __typename
@@ -63,14 +63,13 @@ export const PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
           ... on PullRequestCommit { commit { oid committedDate author { name user { login } } } }
         }
       }
-      commits(last: 100) {
-        totalCount
+      commits(last: 100) { totalCount nodes { commit { oid message committedDate author { name user { login } } statusCheckRollup { state } } } }
+      # Checks are only shown for the head commit: its contexts alone, not 100 commits' worth.
+      lastCommit: commits(last: 1) {
         nodes {
           commit {
             oid
-            message
             committedDate
-            author { name user { login } }
             statusCheckRollup {
               state
               contexts(first: 100) {
@@ -102,11 +101,11 @@ export const PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
 `
 
 /** GitHub answered something this parser does not know: a schema change, or not GitHub at all. */
-const unreadable = (): Error => new Error('Réponse GitHub illisible')
+export const unreadable = (): Error => new Error('Réponse GitHub illisible')
 
 type Obj = Record<string, unknown>
 
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+export const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 function obj(v: unknown): Obj {
   if (!isObj(v)) throw unreadable()
@@ -298,7 +297,7 @@ export function parsePrDetail(raw: unknown, viewerLogin: string): PrDetail {
     oid: str(c, 'oid'), message: str(c, 'message'), author: gitActor(c.author), at: str(c, 'committedDate'), outcome: rollupOutcome(c.statusCheckRollup),
   }))
 
-  const lastCommit = commitNodes[commitNodes.length - 1]
+  const lastCommit = nodes(pr, 'lastCommit').map((n) => obj(n.commit))[0]
   const rollup = lastCommit && isObj(lastCommit.statusCheckRollup) ? lastCommit.statusCheckRollup : null
   const checks = rollup ? nodes(rollup, 'contexts').map(check) : []
 

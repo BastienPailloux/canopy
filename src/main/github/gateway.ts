@@ -1,6 +1,6 @@
 import type { PrOptions, PrState, PrSummary, PrDetail } from '../../shared/pr'
 import { branchPrStates, runGh, type BranchPrState, type GhRunner } from '../git/pr'
-import { PR_QUERY, parsePrDetail, viewerOf } from './query'
+import { PR_QUERY, isObj, parsePrDetail, unreadable, viewerOf } from './query'
 
 /** Everything the PR tab asks GitHub. `ghGateway` in the app, a fake one in the e2e. */
 export interface PrGateway {
@@ -44,11 +44,9 @@ function json(out: string): unknown {
   try {
     return JSON.parse(out)
   } catch {
-    throw new Error('Réponse GitHub illisible')
+    throw unreadable()
   }
 }
-
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** The real gateway: every call is one or two `gh` runs in the worktree. */
 export function ghGateway(run: GhRunner = runGh): PrGateway {
@@ -68,7 +66,7 @@ export function ghGateway(run: GhRunner = runGh): PrGateway {
     if (!p) {
       p = gh(['repo', 'view', '--json', 'owner,name'], cwd).then((out) => {
         const r = json(out)
-        if (!isObj(r) || !isObj(r.owner) || typeof r.owner.login !== 'string' || typeof r.name !== 'string') throw new Error('Réponse GitHub illisible')
+        if (!isObj(r) || !isObj(r.owner) || typeof r.owner.login !== 'string' || typeof r.name !== 'string') throw unreadable()
         return { owner: r.owner.login, name: r.name }
       })
       // a failure (offline, logged out) is retried next time
@@ -91,11 +89,11 @@ export function ghGateway(run: GhRunner = runGh): PrGateway {
     async find(cwd, branch) {
       const out = await gh(['pr', 'list', '--head', branch, '--state', 'all', '--limit', '1', '--json', 'number,state,title,url,isCrossRepository,isDraft'], cwd)
       const list = json(out)
-      if (!Array.isArray(list)) throw new Error('Réponse GitHub illisible')
+      if (!Array.isArray(list)) throw unreadable()
       const p = list[0]
       if (!isObj(p) || p.isCrossRepository) return null
       const state = SUMMARY_STATES[String(p.state)]
-      if (typeof p.number !== 'number' || !state || typeof p.title !== 'string' || typeof p.url !== 'string') throw new Error('Réponse GitHub illisible')
+      if (typeof p.number !== 'number' || !state || typeof p.title !== 'string' || typeof p.url !== 'string') throw unreadable()
       return { number: p.number, state: state === 'open' && p.isDraft ? 'draft' : state, title: p.title, url: p.url }
     },
 
@@ -108,7 +106,7 @@ export function ghGateway(run: GhRunner = runGh): PrGateway {
       const raw = await graphql(cwd, OPTIONS_QUERY, { number })
       const repo = isObj(raw) && isObj(raw.data) && isObj(raw.data.repository) ? raw.data.repository : null
       const pr = repo && isObj(repo.pullRequest) ? repo.pullRequest : null
-      if (!repo || !pr || !isObj(repo.owner)) throw new Error('Réponse GitHub illisible')
+      if (!repo || !pr || !isObj(repo.owner)) throw unreadable()
       const names = (c: unknown, key: string): string[] =>
         isObj(c) && Array.isArray(c.nodes) ? c.nodes.flatMap((n) => (isObj(n) && typeof n[key] === 'string' ? [n[key] as string] : [])) : []
       const suggested: PrOptions['suggested'] = (Array.isArray(pr.suggestedReviewers) ? pr.suggestedReviewers : []).flatMap((s) => {
