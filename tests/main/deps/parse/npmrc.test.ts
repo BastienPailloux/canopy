@@ -79,4 +79,21 @@ describe('applyRegistryConfig', () => {
     expect(privateNames(applyRegistryConfig(unit(), [cfg({ defaultPublic: true }), cfg({ scopes: ['@public'] })], { strictScopes: true }))).toEqual(['@public/x'])
     expect(applyRegistryConfig(unit(), [], { strictScopes: true }).transitive.map((d) => d.name)).toEqual(['debug'])
   })
+  it('strict rule alone sets unmappedScope; other private causes do not', () => {
+    const u = applyRegistryConfig(unit(), [cfg({ scopes: ['@public'] })], { strictScopes: true })
+    const by = (n: string) => u.deps.find((d) => d.name === n)!
+    expect(by('@corp/ui').unmappedScope).toBe('@corp')
+    // custom registry mapping: private for another reason
+    expect(by('@public/x').private).toBe(true)
+    expect(by('@public/x').unmappedScope).toBeUndefined()
+    expect(by('left-pad').unmappedScope).toBeUndefined()
+    // default registry overridden: not the strict rule
+    const o = applyRegistryConfig(unit(), [cfg({ overridden: true })], { strictScopes: true })
+    expect(o.deps.every((d) => d.unmappedScope === undefined)).toBe(true)
+    // already private (alias, private URL): untouched
+    const a = applyRegistryConfig(unit({ deps: [dep('@corp/ui', { private: true })] }), [], { strictScopes: true })
+    expect(a.deps[0].unmappedScope).toBeUndefined()
+    // non-strict never sets it
+    expect(applyRegistryConfig(unit(), [cfg({ scopes: ['@corp'] })]).deps.every((d) => d.unmappedScope === undefined)).toBe(true)
+  })
 })

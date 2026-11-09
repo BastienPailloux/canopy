@@ -41,6 +41,14 @@ export function selectableKeys(entries: DepEntry[]): string[] {
   return entries.filter((e) => e.level !== 'private' && e.level !== 'pinless').map((e) => e.key)
 }
 
+/** Private entries blocked only by the strict-scope rule; `line` is the `.npmrc` line that would map the first scope. */
+export function scopeNotice(entries: DepEntry[]): { count: number; scopes: string[]; line: string } | null {
+  const hit = entries.filter((e) => e.level === 'private' && e.unmappedScope)
+  if (hit.length === 0) return null
+  const scopes = [...new Set(hit.map((e) => e.unmappedScope!))].sort()
+  return { count: hit.length, scopes, line: `${scopes[0]}:registry=https://registry.npmjs.org/` }
+}
+
 /** A run of banner text; `bold` for a package name. */
 export interface BannerPart { text: string; bold: boolean }
 const plain = (text: string): BannerPart => ({ text, bold: false })

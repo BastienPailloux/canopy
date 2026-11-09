@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DepEntry } from '../../shared/deps'
 import { basename, useApp } from '../store'
 import { DepsLaunchDialog } from './DepsLaunchDialog'
-import { canSelect, emptyNotes, initialSelection, levelLabel, nextSelection, selectableKeys, statusLine } from './depsModel'
+import { canSelect, emptyNotes, initialSelection, levelLabel, nextSelection, scopeNotice, selectableKeys, statusLine } from './depsModel'
 import { recheckDeps, useDeps } from './depsStore'
 
 /** Only the two URLs main builds (advisory, registry) are ever opened, through the checked external opener. */
@@ -117,6 +117,7 @@ export function DepsScreen(): React.JSX.Element {
     </table>
   )
 
+  const notice = report && report.manifests > 0 ? scopeNotice(entries) : null
   return (
     <div className="deps-screen">
       <div className="deps-head">
@@ -124,6 +125,12 @@ export function DepsScreen(): React.JSX.Element {
         {checked && (entries.length > 0 || report?.manifests === 0) && <span className="deps-checked">{checked}</span>}
       </div>
       <div className="deps-body">
+        {notice && (
+          <p className="deps-scope-notice" data-testid="deps-scope-notice">
+            {notice.count} {notice.count > 1 ? 'paquets à scope non vérifiés' : 'paquet à scope non vérifié'} ({notice.scopes.slice(0, 3).join(', ')}{notice.scopes.length > 3 ? ', …' : ''}) : leur registre n'est pas déclaré.
+            {' '}Pour les vérifier, ajoute au <code>.npmrc</code> du projet une ligne par scope, par exemple : <code className="mono">{notice.line}</code>
+          </p>
+        )}
         {body}
         {error && <p className="deps-error" role="alert">{error}</p>}
         {report && report.manifests > 0 && report.errors.length > 0 && (

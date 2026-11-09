@@ -83,6 +83,12 @@ describe('classify', () => {
     const e = classify(dep({ version: '5.0.1' }), [], info({ latest: '5.0.8' }), NOW)!
     expect([e.level, e.reason]).toEqual(['later', 'Correctifs disponibles'])
   })
+  it('a private dep with an unmapped scope carries it and a dedicated reason', () => {
+    const p = classify(dep({ private: true, name: '@babel/core', unmappedScope: '@babel' }), [], null, NOW)!
+    expect([p.level, p.unmappedScope, p.reason]).toEqual(['private', '@babel', 'Scope sans registre déclaré : non vérifié'])
+    const q = classify(dep({ private: true }), [], null, NOW)!
+    expect([q.unmappedScope, q.reason]).toEqual([undefined, 'Source privée ou locale : non vérifiée'])
+  })
   it('private and pinless deps', () => {
     const p = classify(dep({ private: true }), [], null, NOW)!
     expect([p.level, p.reason, p.registryUrl]).toEqual(['private', 'Source privée ou locale : non vérifiée', null])

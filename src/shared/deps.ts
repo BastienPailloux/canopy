@@ -4,7 +4,9 @@ export type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'unknown'
 export type Level = 'critical' | 'soon' | 'later'
 
 /** A dependency as read from a lockfile. `private`: never sent to any service. */
-export interface Dep { ecosystem: Ecosystem; name: string; version: string | null; manifest: string; private: boolean; via?: string[] }
+export interface Dep { ecosystem: Ecosystem; name: string; version: string | null; manifest: string; private: boolean; via?: string[]
+  /** Set only when private because a strict unit (pnpm, yarn berry) has no registry declared for this scope, e.g. '@babel'. */
+  unmappedScope?: string }
 export interface Advisory { id: string; package: string; severity: Severity; summary: string; fixed: string | null; url: string }
 export interface PackageInfo { latest: string | null; deprecated: string | null; yanked: boolean; inactive: boolean; lastRelease: string | null }
 export interface DepEntry {
@@ -19,6 +21,8 @@ export interface DepEntry {
   /** French, shown as is */
   reason: string
   advisories: Advisory[]; registryUrl: string | null
+  /** Private entries only: the scope whose registry is not declared (see `Dep.unmappedScope`). */
+  unmappedScope?: string
 }
 export interface DepsReport {
   repo: string; checkedAt: number | null; entries: DepEntry[]
@@ -122,7 +126,10 @@ function adviceReason(a: Advisory, d: Dep): string {
 /** Highest-impact reason first; null when up to date. */
 export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | null, now: number): DepEntry | null {
   const base = { key: depKey(d), ecosystem: d.ecosystem, name: d.name, manifest: d.manifest, installed: d.version, advisories, registryUrl: registryUrl(d) }
-  if (d.private) return { ...base, target: null, level: 'private', cause: 'private', reason: 'Source privée ou locale : non vérifiée' }
+  if (d.private) {
+    const reason = d.unmappedScope ? 'Scope sans registre déclaré : non vérifié' : 'Source privée ou locale : non vérifiée'
+    return { ...base, target: null, level: 'private', cause: 'private', reason, ...(d.unmappedScope ? { unmappedScope: d.unmappedScope } : {}) }
+  }
   if (d.version === null) return { ...base, target: info?.latest ?? null, level: 'pinless', cause: 'pinless', reason: 'Version non épinglée' }
 
   const sorted = [...advisories].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])

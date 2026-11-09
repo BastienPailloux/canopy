@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Advisory, DepEntry, DepsReport } from '../../../src/shared/deps'
 import {
-  bannerParts, canSelect, emptyNotes, initialSelection, nextSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
+  bannerParts, canSelect, emptyNotes, initialSelection, nextSelection, lastCheckText, levelLabel, promptSplit, scopeNotice, selectableKeys, statusLine
 } from '../../../src/renderer/deps/depsModel'
 
 const adv = (severity: Advisory['severity'], id = 'GHSA-xxxx-yyyy-zzzz'): Advisory =>
@@ -143,5 +143,18 @@ describe('nextSelection', () => {
   it('drops a tick whose entry became private', () => {
     const z = entry('z')
     expect(nextSelection(new Set([z.key]), [z], [{ ...z, level: 'private', cause: 'private' }])).toEqual(new Set())
+  })
+})
+
+describe('scopeNotice', () => {
+  const priv = (name: string, unmappedScope?: string) => entry(name, { level: 'private', cause: 'private', unmappedScope })
+  it('is null without unmapped scopes', () => {
+    expect(scopeNotice([])).toBeNull()
+    expect(scopeNotice([entry('a'), priv('corp-lib')])).toBeNull()
+  })
+  it('counts entries, lists sorted unique scopes and gives the npmrc line of the first', () => {
+    expect(scopeNotice([priv('@types/node', '@types')])).toEqual({ count: 1, scopes: ['@types'], line: '@types:registry=https://registry.npmjs.org/' })
+    expect(scopeNotice([priv('@types/node', '@types'), priv('@babel/core', '@babel'), priv('@babel/cli', '@babel')]))
+      .toEqual({ count: 3, scopes: ['@babel', '@types'], line: '@babel:registry=https://registry.npmjs.org/' })
   })
 })

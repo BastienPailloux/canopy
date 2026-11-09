@@ -167,3 +167,6 @@
 .deps-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .deps-table tr[data-disabled] td { color: var(--fg-3); }
 .deps-table tr[data-disabled] input[type='checkbox'] { opacity: 0.4; }
+
+.deps-scope-notice { margin: 0 0 10px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); color: var(--fg-3); font-size: 12.5px; }
+.deps-scope-notice code { color: var(--fg); }

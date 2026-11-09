@@ -73,12 +73,21 @@ export function applyRegistryConfig(unit: Unit, configs: RegistryConfig[], o: { 
   const scopes = new Set(configs.flatMap((c) => c.scopes))
   const publicScopes = new Set(configs.flatMap((c) => c.publicScopes))
   const defaultPublic = configs.some((c) => c.defaultPublic)
-  const isPrivate = (name: string) => {
+  const explicitlyPrivate = (name: string) => {
     const s = scopeOf(name)
-    if (overridden || (s !== null && scopes.has(s))) return true
-    return !!o.strictScopes && s !== null && !publicScopes.has(s) && !defaultPublic
+    return overridden || (s !== null && scopes.has(s))
   }
-  const deps = unit.deps.map((d) => (d.private || !isPrivate(d.name) ? d : { ...d, private: true }))
+  const unmapped = (name: string) => {
+    const s = scopeOf(name)
+    return !!o.strictScopes && s !== null && !publicScopes.has(s) && !defaultPublic ? s : null
+  }
+  const isPrivate = (name: string) => explicitlyPrivate(name) || unmapped(name) !== null
+  const deps = unit.deps.map((d) => {
+    if (d.private || !isPrivate(d.name)) return d
+    // Only the strict rule explains itself: a configured private registry is a deliberate choice.
+    const scope = explicitlyPrivate(d.name) ? null : unmapped(d.name)
+    return scope ? { ...d, private: true, unmappedScope: scope } : { ...d, private: true }
+  })
   const privateDirect = new Set(deps.filter((d) => d.private).map((d) => `${d.manifest}\0${d.name}`))
   const transitive = unit.transitive.filter((t) => !isPrivate(t.name) && !privateDirect.has(`${t.manifest}\0${t.via?.[0]}`))
   return { ...unit, deps, transitive }
