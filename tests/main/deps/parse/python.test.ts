@@ -70,6 +70,25 @@ dependencies = [{ name = "ghost" }]
     expect(u.deps).toEqual([expect.objectContaining({ name: 'ghost', version: null, private: true })])
   })
 
+  it('ORs the private flag when a name is declared twice', () => {
+    const u = parseUvLock('', `[[package]]
+name = "app"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [{ name = "x" }]
+
+[package.dev-dependencies]
+dev = [{ name = "X" }]
+
+[[package]]
+name = "x"
+version = "1.0.0"
+source = { git = "https://example.com/x" }
+`)
+    expect(u.deps).toHaveLength(1)
+    expect(u.deps[0].private).toBe(true)
+  })
+
   it('accepts a virtual root', () => {
     const u = parseUvLock('', `[[package]]
 name = "app"
@@ -186,6 +205,11 @@ url = "https://pypi.org/simple/"
     expect(u.deps.map((d) => [d.name, d.private])).toEqual([['a', true], ['b', false], ['c', true], ['d', false]])
   })
 
+  it('ORs the private flag when a name is declared twice', () => {
+    const u = parsePoetryLock('', '[tool.poetry.dependencies]\nx = "1"\n[tool.poetry.group.dev.dependencies]\nX = { git = "https://example.com/x" }\n', '[[package]]\nname = "x"\nversion = "1.0.0"\n')
+    expect(u.deps).toEqual([expect.objectContaining({ name: 'x', private: true })])
+  })
+
   it('reads PEP 621 project.dependencies', () => {
     const u = parsePoetryLock('', '[project]\ndependencies = ["Flask>=2.0", "requests[socks]==2.31.0 ; python_version > \'3.8\'"]\n', `[[package]]
 name = "flask"
@@ -236,6 +260,15 @@ describe('parsePipfileLock', () => {
     expect(parsePipfileLock('', lock([{ name: 'pypi', url: 'https://pypi.org/simple' }])).deps[0].private).toBe(false)
     expect(parsePipfileLock('', lock([{ name: 'corp', url: 'https://corp.example/simple' }])).deps[0].private).toBe(false)
   })
+  it('marks entries without index private when no source is public', () => {
+    const u = parsePipfileLock('', JSON.stringify({ _meta: { sources: [{ name: 'corp', url: 'https://corp.example/simple' }] }, default: { a: { version: '==1.0' } } }))
+    expect(u.deps[0].private).toBe(true)
+  })
+  it('ORs the private flag across default and develop', () => {
+    const u = parsePipfileLock('', JSON.stringify({ default: { a: { version: '==1.0' } }, develop: { A: { path: '.' } } }))
+    expect(u.deps).toHaveLength(1)
+    expect(u.deps[0].private).toBe(true)
+  })
   it('returns an error unit for a corrupt lockfile', () => {
     expect(parsePipfileLock('', '{nope')).toEqual({ dir: '', ecosystem: 'PyPI', deps: [], transitive: [], error: 'Fichier illisible : Pipfile.lock' })
   })
@@ -249,9 +282,8 @@ numpy>=1.0
 django>=3,<5
 pinned===2.0
 wild==1.*
--r other.txt
--c constraints.txt
---hash-only-line
+-r requirements-other.txt
+-c requirements-c.txt
 ./local/path
 git+https://github.com/acme/x.git
 https://example.com/pkg.whl
@@ -306,10 +338,37 @@ long==3.0 \\
     }
   })
   it('keeps allowlisted options and public indexes public', () => {
-    for (const line of ['-i https://pypi.org/simple', '-ihttps://pypi.org/simple', '--extra-index-url https://pypi.org/simple', '-r other.txt', '--requirement other.txt', '-c c.txt', '--constraint=c.txt', '--require-hashes', '--pre', '--prefer-binary', '--only-binary :all:', '--no-binary :none:', '--hash=sha256:abc']) {
+    for (const line of ['-i https://pypi.org/simple', '-ihttps://pypi.org/simple', '--extra-index-url https://pypi.org/simple', '-r requirements-other.txt', '--requirement requirements-other.txt', '-c requirements-c.txt', '--constraint=requirements-c.txt', '--require-hashes', '--pre', '--prefer-binary', '--only-binary :all:', '--no-binary :none:', '--hash=sha256:abc']) {
       const u = parseRequirements('', 'requirements.txt', `${line}\na==1 --hash=sha256:abc\n`)
       expect(u.deps.map((d) => d.private), line).toEqual([false])
     }
+  })
+  it('taints for options that merely start like an allowlisted one', () => {
+    for (const line of ['--pre-foo', '--hash-foo', '--requirement-x']) {
+      expect(parseRequirements('', 'requirements.txt', `${line}\na==1\n`).deps.map((d) => d.private), line).toEqual([true])
+    }
+  })
+  it('taints for -r/-c targets that are not requirements files below the directory', () => {
+    for (const t of ['../requirements.txt', 'a/../../requirements.txt', '/etc/requirements.txt', 'https://x/requirements.txt', 'deps.txt', 'req.in']) {
+      expect(parseRequirements('', 'requirements.txt', `-r ${t}\na==1\n`).deps.map((d) => d.private), t).toEqual([true])
+    }
+  })
+  it('reports -r/-c targets as repo-relative includes', () => {
+    const u = parseRequirements('api', 'requirements-dev.txt', '-r requirements.txt\n-crequirements/requirements-base.txt\n--requirement=sub/requirements-x.txt\na==1\n')
+    expect(u.includes).toEqual(['api/requirements.txt', 'api/requirements/requirements-base.txt', 'api/sub/requirements-x.txt'])
+    expect(u.deps.map((d) => d.private)).toEqual([false])
+  })
+  it('ORs the private flag for a repeated name', () => {
+    const u = parseRequirements('', 'requirements.txt', 'a==1\n-e git+https://x/a.git#egg=A\n')
+    expect(u.deps).toEqual([expect.objectContaining({ name: 'a', private: true })])
+  })
+  it('checks every option on a line and trailing options', () => {
+    for (const text of ['--pre --index-url https://corp/simple\na==1', '-r requirements.txt -i https://corp/simple\na==1', 'a==1 --index-url=https://corp/simple', 'a==1 ; python_version<"3" -ihttps://corp/simple', 'a==1 --find-links ./w']) {
+      expect(parseRequirements('', 'requirements.txt', text).deps.map((d) => d.private), text).toEqual([true])
+    }
+    const ok = parseRequirements('', 'requirements.txt', '--pre -i https://pypi.org/simple -r requirements-b.txt\na==1 --hash=sha256:abc --hash sha256:def\n')
+    expect(ok.deps.map((d) => d.private)).toEqual([false])
+    expect(ok.includes).toEqual(['requirements-b.txt'])
   })
   it('dedupes by name', () => {
     expect(parseRequirements('', 'requirements.txt', 'A==1\na==1\n').deps).toHaveLength(1)

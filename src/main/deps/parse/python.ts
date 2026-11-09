@@ -8,6 +8,12 @@ const PYPI_INDEXES = new Set(['https://pypi.org/simple', 'https://pypi.python.or
 type Obj = Record<string, any>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const join = (...parts: string[]) => posix.join(...parts.filter(Boolean))
+/** Same name declared twice: keep the first entry, but private if any declaration is. */
+function put(map: Map<string, Dep>, d: Dep) {
+  const prev = map.get(d.name)
+  if (!prev) map.set(d.name, d)
+  else if (d.private) prev.private = true
+}
 const fail = (dir: string, file: string): Unit => ({ dir, ecosystem: 'PyPI', deps: [], transitive: [], error: `Fichier illisible : ${join(dir, file)}` })
 const dep = (name: string, version: string | null, manifest: string, priv: boolean): Dep =>
   ({ ecosystem: 'PyPI', name, version, manifest, private: priv })
@@ -47,9 +53,8 @@ export function parseUvLock(dir: string, lockText: string): Unit {
       for (const ref of refs) {
         if (!isObj(ref) || typeof ref.name !== 'string') continue
         const name = normalize(ref.name)
-        if (deps.has(name)) continue
         const p = byName.get(name)
-        deps.set(name, dep(name, typeof p?.version === 'string' ? p.version : null, manifest, p ? uvSourcePrivate(p.source) : true))
+        put(deps, dep(name, typeof p?.version === 'string' ? p.version : null, manifest, p ? uvSourcePrivate(p.source) : true))
       }
     }
     return { dir, ecosystem: 'PyPI', deps: [...deps.values()], transitive: [] }
@@ -80,7 +85,7 @@ export function parsePoetryLock(dir: string, pyproject: string | null, lockText:
     }
     // name -> declared as git/path/url, or from a non-public named source, in pyproject
     const declared = new Map<string, boolean>()
-    const add = (name: string, direct: boolean) => { if (!declared.has(name)) declared.set(name, direct) }
+    const add = (name: string, direct: boolean) => declared.set(name, direct || declared.get(name) === true)
     const poetry = isObj(project.tool) && isObj(project.tool.poetry) ? project.tool.poetry : {}
     const tables: unknown[] = [poetry.dependencies, poetry['dev-dependencies']]
     if (isObj(poetry.group)) for (const g of Object.values(poetry.group)) if (isObj(g)) tables.push(g.dependencies)
@@ -128,11 +133,11 @@ export function parsePipfileLock(dir: string, lockText: string): Unit {
       if (!isObj(lock[group])) continue
       for (const [raw, e] of Object.entries<any>(lock[group])) {
         const name = normalize(raw)
-        if (deps.has(name) || !isObj(e)) continue
+        if (!isObj(e)) continue
         const local = !!(e.git || e.path || e.file || e.editable || e.hg || e.svn || e.bzr)
-        const otherIndex = typeof e.index === 'string' && !publicSources.has(e.index)
+        const otherIndex = typeof e.index === 'string' ? !publicSources.has(e.index) : sources.length > 0 && !sources.some((s) => isPublicIndex(s.url))
         const version = typeof e.version === 'string' ? pinnedVersion(e.version) : null
-        deps.set(name, dep(name, version, manifest, local || otherIndex))
+        put(deps, dep(name, version, manifest, local || otherIndex))
       }
     }
     return { dir, ecosystem: 'PyPI', deps: [...deps.values()], transitive: [] }
@@ -142,7 +147,40 @@ export function parsePipfileLock(dir: string, lockText: string): Unit {
 }
 
 /** Options that cannot change where packages come from. */
-const SAFE_OPTION = /^(?:-[rc]|--requirement\b|--constraint\b|--hash\b|--require-hashes\b|--pre\b|--prefer-binary\b|--only-binary\b|--no-binary\b)/
+const FLAG_OPTIONS = new Set(['--require-hashes', '--pre', '--prefer-binary'])
+const VALUE_OPTIONS = new Set(['--hash', '--only-binary', '--no-binary'])
+const INCLUDE_FILE = /^requirements[A-Za-z0-9._-]*\.txt$/
+
+/** An include we can follow: a relative requirements file that stays below the directory. */
+const includeOk = (t: string) => !t.includes(':') && !t.startsWith('/') && !t.split('/').includes('..') && INCLUDE_FILE.test(posix.basename(t))
+
+/**
+ * Checks every option token (`--opt=value`, `--opt value`, `-iURL`). Fail closed: the result is
+ * `clean` only when each option is allowlisted and each index is public PyPI.
+ */
+function scanOptions(tokens: string[]): { clean: boolean; includes: string[] } {
+  const includes: string[] = []
+  let clean = true
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
+    const eq = tok.startsWith('--') ? tok.indexOf('=') : -1
+    const opt = eq > 0 ? tok.slice(0, eq) : tok.startsWith('--') ? tok : tok.slice(0, 2)
+    const attached = eq > 0 ? tok.slice(eq + 1) : tok.startsWith('--') ? '' : tok.slice(2)
+    const value = () => attached || (eq > 0 ? '' : tokens[++i] ?? '')
+    if (FLAG_OPTIONS.has(opt) && eq < 0) continue
+    if (VALUE_OPTIONS.has(opt)) { value(); continue }
+    if (opt === '-r' || opt === '-c' || opt === '--requirement' || opt === '--constraint') {
+      const v = value()
+      if (v && includeOk(v)) includes.push(v)
+      else clean = false
+    } else if (opt === '-i' || opt === '--index-url' || opt === '--extra-index-url') {
+      if (!isPublicIndex(value())) clean = false
+    } else {
+      clean = false
+    }
+  }
+  return { clean, includes }
+}
 
 /** Drops hashes and inline comments; backslash-continued lines are joined first. */
 function logicalLines(text: string): string[] {
@@ -163,17 +201,20 @@ export function parseRequirements(dir: string, file: string, text: string): Unit
     // Several indexes make resolution ambiguous, so any non-PyPI index taints the whole file.
     let allPrivate = false
     const found = new Map<string, Dep>()
+    const includes: string[] = []
+    const scan = (opts: string) => {
+      const r = scanOptions(opts.trim().split(/\s+/))
+      if (!r.clean) allPrivate = true
+      includes.push(...r.includes.map((t) => join(dir, posix.dirname(file), t)))
+    }
     for (const line of logicalLines(text)) {
       let editable = false
       let body = line
       if (/^(?:-e|--editable)\s/.test(body)) { editable = true; body = body.replace(/^\S+\s+/, '') }
-      else if (body.startsWith('-')) {
-        // Fail closed: any option we do not know could redirect resolution away from PyPI.
-        const index = /^(?:(?:--index-url|--extra-index-url)(?:=|\s+)|-i\s*)(\S+)/.exec(body)
-        if (index) { if (!isPublicIndex(index[1])) allPrivate = true }
-        else if (!SAFE_OPTION.test(body)) allPrivate = true
-        continue
-      }
+      else if (body.startsWith('-')) { scan(body); continue }
+      // Options may trail a requirement; a specifier or marker never contains whitespace followed by '-'.
+      const tail = /\s-{1,2}[A-Za-z]/.exec(body)
+      if (tail) { scan(body.slice(tail.index)); body = body.slice(0, tail.index) }
       body = body.replace(/\s*;.*$/, '').trim()
 
       let name: string | null = null
@@ -192,10 +233,10 @@ export function parseRequirements(dir: string, file: string, text: string): Unit
       }
       if (!name) continue
       const key = normalize(name)
-      if (!found.has(key)) found.set(key, dep(key, version, manifest, priv))
+      put(found, dep(key, version, manifest, priv))
     }
     const deps = [...found.values()].map((d) => (allPrivate ? { ...d, private: true } : d))
-    return { dir, ecosystem: 'PyPI', deps, transitive: [] }
+    return { dir, ecosystem: 'PyPI', deps, transitive: [], ...(includes.length ? { includes } : {}) }
   } catch {
     return fail(dir, file)
   }

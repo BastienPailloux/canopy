@@ -7,7 +7,9 @@ import type { Dep, Ecosystem } from '../../../shared/deps'
  * `deps` are the direct dependencies, `transitive` the public packages they bring (one per direct,
  * `via` = names of the direct deps); `error` is set when the lockfile could not be read.
  */
-export interface Unit { dir: string; ecosystem: Ecosystem; deps: Dep[]; transitive: Dep[]; error?: string }
+export interface Unit { dir: string; ecosystem: Ecosystem; deps: Dep[]; transitive: Dep[]; error?: string
+  /** Requirements units only: repo-relative `-r`/`-c` targets, whose privacy taints this file. */
+  includes?: string[] }
 
 const REGISTRIES = ['https://registry.npmjs.org/', 'https://registry.yarnpkg.com/']
 const PRIVATE_PREFIXES = ['file:', 'git+', 'git:', 'github:', 'http:', 'https:', 'link:', 'workspace:', 'portal:', 'patch:']
