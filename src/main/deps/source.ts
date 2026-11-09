@@ -334,6 +334,26 @@ export async function readInventory(repo: string, o: { fetch?: boolean; fetchTim
   return { ...read, repo: root, notes: [...notes, ...read.notes] }
 }
 
+/** Blob ids by path, and file names by directory outside EXCLUDED_DIRS, from `git ls-tree -r -z` output. */
+export function groupListing(listing: string): { tree: Tree; byDir: Map<string, string[]> } {
+  const tree: Tree = new Map()
+  const byDir = new Map<string, string[]>()
+  // `<mode> <type> <oid>\t<path>`: only blobs are files (gitlinks are submodules).
+  for (const record of listing.split('\0')) {
+    const m = /^\d+ blob ([0-9a-f]{40,64})\t(.+)$/s.exec(record)
+    if (!m) continue
+    const [, oid, path] = m
+    tree.set(path, oid)
+    const segments = path.split('/')
+    if (segments.some((s) => EXCLUDED_DIRS.includes(s))) continue
+    const dir = segments.slice(0, -1).join('/')
+    const names = byDir.get(dir)
+    if (names) names.push(segments[segments.length - 1])
+    else byDir.set(dir, [segments[segments.length - 1]])
+  }
+  return { tree, byDir }
+}
+
 /** Lists and reads the lockfiles at `ref`. A listing failure (ref gone since it was resolved) is a note, not a throw. */
 /**
  * `root`: the main worktree root, whose working tree rc files are read too. `home`: where the user's own rc files are
@@ -348,19 +368,7 @@ export async function readAtRef(root: string, ref: string, o: { home?: string; e
     const reason = (stderr.trim() || (e as Error).message).split('\n')[0].trim().slice(0, 160)
     return { repo: root, baseRef: ref, units: [], notes: [`Liste des fichiers illisible : ${reason}`] }
   }
-  const tree: Tree = new Map()
-  const byDir = new Map<string, string[]>()
-  // `<mode> <type> <oid>\t<path>`: only blobs are files (gitlinks are submodules).
-  for (const record of listing.split('\0')) {
-    const m = /^\d+ blob ([0-9a-f]{40,64})\t(.+)$/s.exec(record)
-    if (!m) continue
-    const [, oid, path] = m
-    tree.set(path, oid)
-    const segments = path.split('/')
-    if (segments.some((s) => EXCLUDED_DIRS.includes(s))) continue
-    const dir = segments.slice(0, -1).join('/')
-    byDir.set(dir, [...byDir.get(dir) ?? [], segments[segments.length - 1]])
-  }
+  const { tree, byDir } = groupListing(listing)
   const units: Unit[] = []
   const user = await userConfigs(o.home ?? homedir(), o.env ?? process.env)
   for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!, user))

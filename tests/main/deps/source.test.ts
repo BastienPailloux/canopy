@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import { git as gitSpy } from '../../../src/main/git/exec'
-import { EXCLUDED_DIRS, readAtRef, readInventory } from '../../../src/main/deps/source'
+import { EXCLUDED_DIRS, groupListing, readAtRef, readInventory } from '../../../src/main/deps/source'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 // Pass-through spy: lets a test list the git commands readInventory ran.
@@ -604,5 +604,23 @@ describe('registry config sources', { timeout: 60_000 }, () => {
         await rm(prefix, { recursive: true, force: true })
       }
     })
+  })
+})
+
+describe('groupListing', () => {
+  const OID = 'a'.repeat(40)
+  test('groups blobs by directory, skips excluded dirs from the groups but keeps them in the tree', () => {
+    const listing = [`100644 blob ${OID}\tpackage.json`, `100644 blob ${OID}\tweb/yarn.lock`, `160000 commit ${OID}\tsub`, `100644 blob ${OID}\tnode_modules/x/package.json`].join('\0')
+    const { tree, byDir } = groupListing(listing)
+    expect([...byDir]).toEqual([['', ['package.json']], ['web', ['yarn.lock']]])
+    expect([...tree.keys()]).toEqual(['package.json', 'web/yarn.lock', 'node_modules/x/package.json'])
+  })
+
+  test('runs in linear time on a huge directory', () => {
+    const listing = Array.from({ length: 50_000 }, (_, i) => `100644 blob ${OID}\tbig/f${i}.txt`).join('\0')
+    const start = performance.now()
+    const { byDir } = groupListing(listing)
+    expect(performance.now() - start).toBeLessThan(500)
+    expect(byDir.get('big')).toHaveLength(50_000)
   })
 })
