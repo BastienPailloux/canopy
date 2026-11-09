@@ -307,3 +307,40 @@ describe('linearLinks', () => {
     expect(new AppStore(file).linearLinks('/q')).toEqual({})
   })
 })
+
+describe('branchHistory', () => {
+  it('records branches most recent last without duplicates', () => {
+    const s = new AppStore(file)
+    s.recordBranch('/w', 'a')
+    s.recordBranch('/w', 'b')
+    s.recordBranch('/w', 'a')
+    expect(s.branchHistory('/w')).toEqual(['b', 'a'])
+    expect(s.branchHistory('/other')).toEqual([])
+  })
+
+  it('keeps the 50 most recent branches', () => {
+    const s = new AppStore(file)
+    for (let i = 0; i < 60; i++) s.recordBranch('/w', `b${i}`)
+    const h = s.branchHistory('/w')
+    expect(h).toHaveLength(50)
+    expect(h[0]).toBe('b10')
+    expect(h[49]).toBe('b59')
+  })
+
+  it('survives a reload and drops a malformed history', () => {
+    const a = new AppStore(file)
+    a.recordBranch('/w', 'a')
+    expect(new AppStore(file).branchHistory('/w')).toEqual(['a'])
+    writeFileSync(file, JSON.stringify({ branchHistory: { '/w': ['a', 3], '/x': 'no' } }))
+    const b = new AppStore(file)
+    expect(b.branchHistory('/w')).toEqual(['a'])
+    expect(b.branchHistory('/x')).toEqual([])
+  })
+
+  it("forgets a worktree's history", () => {
+    const s = new AppStore(file)
+    s.recordBranch('/w', 'a')
+    s.forgetBranchHistory('/w')
+    expect(new AppStore(file).branchHistory('/w')).toEqual([])
+  })
+})

@@ -18,7 +18,7 @@ import { cachedBaseRef, cachedWorktrees, clearSharedReads, Coalescer, setBaseOve
 import { worktreeStats } from './git/diff'
 import { OrphanTracker, removeAndStop, type LiveProcesses } from './worktreeLife'
 import { createWorktree, mainWorktreeRoot, removalRisks, removeWorktree } from './git/worktrees'
-import { dirtyCount, hasSetAsideChanges, switchableBranches, switchBranch } from './git/switchBranch'
+import { currentBranch, dirtyCount, hasSetAsideChanges, switchableBranches, switchBranch } from './git/switchBranch'
 import { parseUnsaved, type UnsavedCounts } from './quit'
 import { parseStash, takeStash } from './update/stash'
 import type { Updater } from './update/updater'
@@ -315,6 +315,7 @@ export function registerIpc(
       throw e
     })
     orphans.observe(repo, list)
+    for (const w of list) if (w.branch !== null) store.recordBranch(w.path, w.branch)
     // Branches deleted since forget the base they were stacked on.
     const main = list.find((w) => w.isMain)
     if (main) await localBranches(main.path).then((b) => store.pruneBranchBases(main.path, b), () => undefined)
@@ -350,6 +351,7 @@ export function registerIpc(
     if (o.base !== undefined && !o.existing && o.base !== defaultBase?.name && o.base !== defaultBase?.ref) {
       store.setBranchBase(await mainWorktreeRoot(repo), o.branch, o.base)
     }
+    store.recordBranch(created.path, o.branch)
     clearSharedReads()
     return created
   })
@@ -365,6 +367,7 @@ export function registerIpc(
     assertPath(repo)
     assertPath(path)
     await removeAndStop(repo, path, force === true, live, removeWorktree)
+    store.forgetBranchHistory(path)
     clearSharedReads()
   })
 
@@ -378,7 +381,10 @@ export function registerIpc(
     assertPath(path)
     if (typeof branch !== 'string' || branch === '') throw new Error('Branche manquante')
     try {
-      return await switchBranch(path, branch, { trusted: await isConfigTrusted(store, path) })
+      const result = await switchBranch(path, branch, { trusted: await isConfigTrusted(store, path) })
+      const now = await currentBranch(path).catch(() => null)
+      if (now !== null) store.recordBranch(path, now)
+      return result
     } finally {
       clearSharedReads()
     }
