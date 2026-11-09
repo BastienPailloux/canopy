@@ -44,7 +44,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 - **Binaires natifs** (SDK Claude, node-pty, ripgrep, serveur LSP) sont en `asarUnpack` dans `electron-builder.yml`. Toute nouvelle dépendance qui spawn un binaire doit y être ajoutée, sinon elle casse uniquement en build packagé.
 - **Worktrees** : créés par défaut sous `<repo>/.worktrees/` (ignoré par git). `.canopy/config.json` décrit le setup et les services lancés par « Tester la PR » ; le port est fourni via `PORT`.
 - **Tickets** : fichiers Markdown dans `.tickets/` du checkout principal, hors git. Un ticket local peut avoir un `parent` (sous-ticket).
-- **MCP `canopy`** (`src/main/mcp/`) : serveur MCP en process (SDK) donné à chaque session : tickets locaux et Linear, sous-tickets, maquettes. Les outils de lecture sont autorisés sans demande ; l'écriture est refusée en mode plan.
+- **MCP `canopy`** (`src/main/mcp/`) : serveur MCP en process (SDK) donné à chaque session : tickets locaux et Linear, sous-tickets, maquettes. Tous ses outils sont autorisés sans demande ; les outils d'écriture sont refusés en mode plan (vérifié dans l'outil, le mode étant relu à chaque appel).
 - **Linear** : connecteur dans `src/main/linear/`, uniquement via le serveur MCP officiel (`https://mcp.linear.app/mcp`, OAuth avec enregistrement dynamique, jeton chiffré par `safeStorage`). Les modifications passent par une file sur disque (`linear-pending.json`) et la description part en `patch` : ne jamais envoyer une description complète. Comportement réel du serveur : `tests/fixtures/linear/README.md`.
 
 ## Conventions de code
