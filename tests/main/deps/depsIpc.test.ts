@@ -100,3 +100,21 @@ describe('deps ipc', () => {
     await other.cleanup()
   })
 })
+
+describe('deps critical path handling', () => {
+  it('passes a recent entry as is and normalizes a worktree to its main root', async () => {
+    const seen: [string, string | undefined][] = []
+    const spy = { ...service, critical: (p: string, e?: string) => { seen.push([p, e]); return 0 } } as DepsService
+    const h = new Map<string, (...a: unknown[]) => unknown>()
+    registerDepsIpc({ handle: (n, fn) => { h.set(n, fn) }, service: spy, store, launch: { tickets: new TicketStore(), store, activity: () => 'idle', sessions: () => 0, trusted: async () => false } })
+    const wt = join(root, '.worktrees', 'w2')
+    execFileSync('git', ['worktree', 'add', '-b', 'w2', wt], { cwd: root })
+    await h.get('deps:critical')!(root, wt)
+    await h.get('deps:critical')!(wt)
+    expect(seen).toEqual([[root, root], [root, undefined]])
+    // A recent entry that is a folder of repos is not a repo: kept untouched.
+    store.addRecentRepo('/tmp')
+    await h.get('deps:critical')!('/tmp', root)
+    expect(seen[2]).toEqual(['/tmp', root])
+  })
+})

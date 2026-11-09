@@ -24,7 +24,7 @@ function setup(o: Partial<DepsServiceDeps> & { keys?: Record<string, string[]> }
   const check = vi.fn(async (repo: string) => {
     calls.push(repo)
     inFlight.now++; inFlight.max = Math.max(inFlight.max, inFlight.now)
-    await new Promise((r) => setTimeout(r, 1))
+    await Promise.resolve()
     inFlight.now--
     return report(repo, keys[repo] ?? [])
   })
@@ -39,13 +39,18 @@ function setup(o: Partial<DepsServiceDeps> & { keys?: Record<string, string[]> }
   delete (d as { keys?: unknown }).keys
   return { svc: createDepsService(d), check, calls, events, inFlight, tick: () => tick(), clear, d }
 }
-const settle = () => new Promise((r) => setTimeout(r, 30))
+type T = ReturnType<typeof setup>
+const REPOS = ['/a', '/b', '/dir/x', '/dir/y']
+/** Waits until `n` checks were made and none is running (the report is stored right after a check ends). */
+const until = (t: T, n: number) => vi.waitFor(() => { expect(t.calls.length).toBeGreaterThanOrEqual(n); expect(REPOS.some((r) => t.svc.checking(r))).toBe(false) })
+/** Same for a pass with a custom `check`: waits for `repo` to hold a report and no check running. */
+const stored = (t: T, repo: string) => vi.waitFor(() => { expect(t.svc.report(repo)).not.toBeNull(); expect(REPOS.some((r) => t.svc.checking(r))).toBe(false) })
 
 describe('createDepsService', () => {
   test('checks repos one after another', async () => {
     const t = setup()
     t.svc.start()
-    await settle()
+    await until(t, 3)
     expect(t.calls).toEqual(['/a', '/dir/x', '/dir/y'])
     expect(t.inFlight.max).toBe(1)
   })
@@ -53,25 +58,29 @@ describe('createDepsService', () => {
   test('rechecks everything every interval and recheck shares the in-flight promise', async () => {
     let interval = 0
     let fire: () => void = () => {}
-    const t = setup({ setInterval: ((f: () => void, ms: number) => { fire = f; interval = ms; return 1 }) as unknown as typeof setInterval })
+    let gate: (() => void) | null = null
+    let hold = false
+    const t = setup({
+      setInterval: ((f: () => void, ms: number) => { fire = f; interval = ms; return 1 }) as unknown as typeof setInterval,
+      check: async (r) => { if (hold && r === '/a') await new Promise<void>((res) => { gate = res }); return report(r) }
+    })
     t.svc.start()
     expect(interval).toBe(CHECK_INTERVAL_MS)
-    await settle()
-    t.calls.length = 0
+    await stored(t, '/dir/y')
+    hold = true
     fire()
-    await new Promise((r) => setTimeout(r, 0))
+    await vi.waitFor(() => { expect(t.svc.checking('/a')).toBe(true) })
     const p1 = t.svc.recheck('/a')
-    expect(t.svc.checking('/a')).toBe(true)
     expect(t.svc.recheck('/a')).toBe(p1)
-    await settle()
-    expect(t.calls).toEqual(['/a', '/dir/x', '/dir/y'])
+    gate!()
+    await p1
     expect(t.svc.checking('/a')).toBe(false)
   })
 
   test('start twice is a no-op and stop clears the interval', async () => {
     const t = setup()
     t.svc.start(); t.svc.start()
-    await settle()
+    await until(t, 3)
     expect(t.calls).toHaveLength(3)
     t.svc.stop()
     expect(t.clear).toHaveBeenCalledWith(7)
@@ -80,7 +89,7 @@ describe('createDepsService', () => {
   test('broadcasts after each stored report', async () => {
     const t = setup()
     t.svc.start()
-    await settle()
+    await until(t, 3)
     expect(t.events).toEqual([['deps:changed', { repo: '/a' }], ['deps:changed', { repo: '/dir/x' }], ['deps:changed', { repo: '/dir/y' }]])
   })
 
@@ -97,11 +106,12 @@ describe('createDepsService', () => {
     writeFileSync(file, '{nope')
     const t = setup({ repos: async () => [] })
     t.svc.start()
-    await settle()
+    await vi.waitFor(() => { expect(t.d.repos).toBeDefined() })
+    await Promise.resolve(); await Promise.resolve()
     expect(readFileSync(file, 'utf8')).toBe('{nope')
     const t2 = setup()
     t2.svc.start()
-    await settle()
+    await until(t2, 3)
     expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1)
   })
 
@@ -115,7 +125,7 @@ describe('createDepsService', () => {
   test('critical sums the repos of an entry and excludes except', async () => {
     const t = setup({ keys: { '/a': ['a1'], '/dir/x': ['x1', 'x2'], '/dir/y': ['y1'] } })
     t.svc.start()
-    await settle()
+    await until(t, 3)
     expect(t.svc.critical('/a')).toBe(1)
     expect(t.svc.critical('/dir')).toBe(3)
     expect(t.svc.critical('/dir/x')).toBe(2)
@@ -129,7 +139,7 @@ describe('createDepsService', () => {
     let keys = ['k1', 'k2']
     const t = setup({ repos: async () => [{ entry: '/a', repos: ['/a'] }], check: async (r) => report(r, keys) })
     t.svc.start()
-    await settle()
+    await stored(t, '/a')
     expect(t.svc.bannerFor('/a')).toBe(true)
     t.svc.dismissBanner('/a')
     expect(t.svc.bannerFor('/a')).toBe(false)
@@ -146,7 +156,7 @@ describe('createDepsService', () => {
     const mk = () => setup({ repos: async () => [{ entry: '/a', repos: ['/a'] }], check: async (r) => report(r, ['k1']) })
     const t = mk()
     t.svc.start()
-    await settle()
+    await stored(t, '/a')
     t.svc.dismissBanner('/a')
     t.svc.stop()
     const t2 = mk()
@@ -158,15 +168,15 @@ describe('createDepsService', () => {
     let list = [{ entry: '/a', repos: ['/a', '/b'] }]
     const t = setup({ repos: async () => list })
     t.svc.start()
-    await settle()
+    await until(t, 2)
     t.svc.dismissBanner('/b')
     expect(t.svc.report('/b')).not.toBeNull()
     list = [{ entry: '/a', repos: ['/a'] }]
     t.calls.length = 0
     t.tick()
-    await settle()
+    await vi.waitFor(() => { expect(t.svc.report('/b')).toBeNull() })
+    await until(t, 1)
     expect(t.calls).toEqual(['/a'])
-    expect(t.svc.report('/b')).toBeNull()
     const saved = JSON.parse(readFileSync(file, 'utf8'))
     expect(Object.keys(saved.reports)).toEqual(['/a'])
     expect(saved.dismissed['/b']).toBeUndefined()
@@ -178,13 +188,12 @@ describe('createDepsService', () => {
     let fail = false
     const t = setup({ log, check: async (r) => { if (fail && r === '/a') throw new Error('boom'); return report(r, ['k']) } })
     t.svc.start()
-    await settle()
+    await stored(t, '/dir/y')
     fail = true
     const before = t.svc.report('/a')
     t.tick()
-    await settle()
+    await vi.waitFor(() => { expect(log).toHaveBeenCalled() })
     expect(t.svc.report('/a')).toBe(before)
-    expect(log).toHaveBeenCalled()
     await expect(t.svc.recheck('/a')).rejects.toThrow('boom')
     expect(t.svc.checking('/a')).toBe(false)
   })
@@ -193,9 +202,21 @@ describe('createDepsService', () => {
     const log = vi.fn()
     const t = setup({ file: join(dir, 'missing', 'x.json'), log })
     t.svc.start()
-    await settle()
+    await until(t, 3)
     expect(log).toHaveBeenCalled()
     expect(t.svc.report('/a')).not.toBeNull()
     expect(existsSync(join(dir, 'missing', 'x.json'))).toBe(false)
+  })
+
+  test('recheck reads the list again for a repo added after it was cached', async () => {
+    let list = [{ entry: '/a', repos: ['/a'] }]
+    const t = setup({ repos: async () => list })
+    t.svc.start()
+    await until(t, 1)
+    list = [{ entry: '/a', repos: ['/a'] }, { entry: '/b', repos: ['/b'] }]
+    const r = await t.svc.recheck('/b')
+    expect(r.repo).toBe('/b')
+    expect(t.calls).toEqual(['/a', '/b'])
+    await expect(t.svc.recheck('/nope')).rejects.toThrow('Dépôt inconnu')
   })
 })

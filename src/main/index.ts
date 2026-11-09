@@ -160,11 +160,6 @@ void app.whenReady().then(async () => {
   const linearLinked = new LinkedIssues(store, localBranches)
   const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
     () => linearEdits.pending().map((p) => p.id))
-  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }
-  const running = (): RunningCounts => ({
-    sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
-  })
-  // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const depsService = createDepsService({
     check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now }, repo, prev),
     repos: () => listDepsRepos(store.recentRepos),
@@ -172,6 +167,11 @@ void app.whenReady().then(async () => {
     now: Date.now, setInterval, clearInterval, broadcast
   })
   let depsHooks: ReturnType<typeof registerDepsIpc> | null = null
+  let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }
+  const running = (): RunningCounts => ({
+    sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
+  })
+  // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
   const quit = createQuitFlow({
     counts: running,
     confirm: async (counts) => {
@@ -211,12 +211,7 @@ void app.whenReady().then(async () => {
   const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
-    launch: {
-      tickets, store,
-      activity: (cwd) => sessions.activity(cwd),
-      sessions: (cwd) => sessions.liveCount(cwd),
-      trusted: (cwd) => isConfigTrusted(store, cwd)
-    },
+    launch: launchDeps,
     broadcast
   })
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.

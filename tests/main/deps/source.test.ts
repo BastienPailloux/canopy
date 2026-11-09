@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { cp, mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import { git as gitSpy } from '../../../src/main/git/exec'
 import { EXCLUDED_DIRS, readAtRef, readInventory } from '../../../src/main/deps/source'
 import { createRepo, type TestRepo } from '../../helpers/repo'
@@ -40,21 +41,25 @@ DEPENDENCIES
 BUNDLED WITH
    2.5.0
 `
+/** Several files in one commit: three git processes however many files, instead of three per file. */
+async function commitAll(r: TestRepo, files: Record<string, string>): Promise<void> {
+  for (const [f, c] of Object.entries(files)) {
+    await mkdir(dirname(join(r.path, f)), { recursive: true })
+    await writeFile(join(r.path, f), c)
+  }
+  sh(r.path, 'add', '--', ...Object.keys(files))
+  sh(r.path, 'commit', '-q', '-m', 'update')
+}
 const names = (u: { deps: { name: string }[] }) => u.deps.map((d) => d.name).sort()
 
-describe('readInventory', () => {
+describe('readInventory', { timeout: 60_000 }, () => {
   test('exports the excluded directories', () => {
     expect(EXCLUDED_DIRS).toEqual(['node_modules', 'vendor', '.venv', '.worktrees'])
   })
 
   test('reads lockfiles committed on the base, including in subfolders, and skips excluded dirs', async () => {
     repo = await createRepo()
-    await repo.commit('package-lock.json', npmLock('left-pad'))
-    await repo.commit('package.json', PKG('left-pad'))
-    await repo.commit('api/Gemfile.lock', GEMS)
-    await repo.commit('node_modules/x/package-lock.json', npmLock('evil'))
-    await repo.commit('.worktrees/w/package-lock.json', npmLock('evil'))
-    await repo.commit('vendor/Gemfile.lock', GEMS)
+    await commitAll(repo, { 'package-lock.json': npmLock('left-pad'), 'package.json': PKG('left-pad'), 'api/Gemfile.lock': GEMS, 'node_modules/x/package-lock.json': npmLock('evil'), '.worktrees/w/package-lock.json': npmLock('evil'), 'vendor/Gemfile.lock': GEMS })
     const inv = await readInventory(repo.path)
     expect(inv.repo).toBe(repo.path)
     expect(inv.baseRef).toBe('main')
@@ -65,8 +70,7 @@ describe('readInventory', () => {
 
   test('reads the base, not the checkout', async () => {
     repo = await createRepo()
-    await repo.commit('package-lock.json', npmLock('committed'))
-    await repo.commit('package.json', PKG('committed'))
+    await commitAll(repo, { 'package-lock.json': npmLock('committed'), 'package.json': PKG('committed') })
     await writeFile(join(repo.path, 'package-lock.json'), npmLock('uncommitted'))
     const inv = await readInventory(repo.path)
     expect(names(inv.units[0])).toEqual(['committed'])
@@ -101,22 +105,36 @@ describe('readInventory', () => {
   describe('fetch hardening', () => {
     const UNSAFE = 'Branche de base non rafraîchie : configuration locale non sûre'
     const exists = (p: string) => stat(p).then(() => true, () => false)
-    const pushOther = async () => {
-      const other = join(repo!.path, '..', 'other')
-      sh(repo!.path, 'clone', '-q', join(repo!.path, '..', 'remote.git'), other)
+    // One repo whose remote holds a commit it never fetched; each test works on a copy (a few git calls instead of ~13).
+    let template: TestRepo
+    beforeAll(async () => {
+      template = await createRepo({ remote: true })
+      const other = join(template.path, '..', 'other')
+      sh(template.path, 'clone', '-q', join(template.path, '..', 'remote.git'), other)
       await writeFile(join(other, 'Gemfile.lock'), GEMS)
       sh(other, 'add', '.')
       sh(other, 'commit', '-q', '-m', 'gems')
       sh(other, 'push', '-q', 'origin', 'main')
+      await rm(other, { recursive: true, force: true })
+    })
+    afterAll(async () => { await template.cleanup() })
+    const copyOfTemplate = async (): Promise<TestRepo> => {
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'canopy-test-')))
+      await cp(join(template.path, '..'), root, { recursive: true })
+      const path = join(root, 'repo')
+      sh(path, 'remote', 'set-url', 'origin', join(root, 'remote.git'))
+      const commit: TestRepo['commit'] = async (file, content) => {
+        await commitAll({ path } as TestRepo, { [file]: content })
+        return sh(path, 'rev-parse', 'HEAD').trim()
+      }
+      return { path, commit, cleanup: () => rm(root, { recursive: true, force: true }) }
     }
-
     test.each([
       ['credential.helper', (m: string) => `!touch '${m}'`],
       ['remote.origin.uploadpack', (m: string) => `touch '${m}'; git-upload-pack`],
       ['core.sshCommand', (m: string) => `touch '${m}'; ssh`]
     ])('skips the fetch when local config sets %s', async (key, value) => {
-      repo = await createRepo({ remote: true })
-      await pushOther()
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       sh(repo.path, 'config', key, value(marker))
       const inv = await readInventory(repo.path)
@@ -126,7 +144,7 @@ describe('readInventory', () => {
     })
 
     test('never runs an ext:: remote', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       sh(repo.path, 'remote', 'set-url', 'origin', `ext::sh -c "touch '${marker}'"`)
       const inv = await readInventory(repo.path)
@@ -135,7 +153,7 @@ describe('readInventory', () => {
     })
 
     test('protocol.ext.allow in local config does not let an ext:: remote run', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       sh(repo.path, 'config', 'protocol.ext.allow', 'always')
       sh(repo.path, 'remote', 'set-url', 'origin', `ext::sh -c "touch '${marker}'"`)
@@ -144,7 +162,7 @@ describe('readInventory', () => {
     })
 
     test('core.alternateRefsCommand never runs', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       sh(repo.path, 'config', 'core.alternateRefsCommand', `touch '${marker}'`)
       await writeFile(join(repo.path, '.git', 'objects', 'info', 'alternates'), join(repo.path, '..', 'remote.git', 'objects') + '\n')
@@ -153,8 +171,7 @@ describe('readInventory', () => {
     })
 
     test('an unknown local key skips the fetch', async () => {
-      repo = await createRepo({ remote: true })
-      await pushOther()
+      repo = await copyOfTemplate()
       sh(repo.path, 'config', 'foo.bar', 'baz')
       const inv = await readInventory(repo.path)
       expect(inv.notes).toEqual([UNSAFE])
@@ -190,7 +207,7 @@ describe('readInventory', () => {
     })
 
     test('reading a missing object never lazy-fetches from a promisor remote', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       await repo.commit('d/f', 'x')
       sh(repo.path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
@@ -208,7 +225,7 @@ describe('readInventory', () => {
     })
 
     test('resolving the base branch never lazy-fetches a missing commit', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       await repo.commit('d/f', 'x')
       sh(repo.path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
@@ -225,7 +242,7 @@ describe('readInventory', () => {
     })
 
     test('a partial clone is skipped before any object read or fetch', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       const marker = join(repo.path, '..', 'ran')
       await repo.commit('d/f', 'x')
       sh(repo.path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
@@ -246,7 +263,7 @@ describe('readInventory', () => {
     })
 
     test('a promisor remote alone (git boolean) marks a partial clone', async () => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       sh(repo.path, 'config', 'remote.Evil.promisor', 'yes')
       const inv = await readInventory(repo.path, { fetch: false })
       expect(inv.notes).toEqual(['Dépôt partiel : dépendances non vérifiées'])
@@ -259,7 +276,7 @@ describe('readInventory', () => {
       ['remote.evil.promisor', '2'],
       ['remote.evil.partialclonefilter', 'blob:none']
     ])('%s=%s marks a partial clone', async (key, value) => {
-      repo = await createRepo({ remote: true })
+      repo = await copyOfTemplate()
       sh(repo.path, 'config', key, value)
       vi.mocked(gitSpy).mockClear()
       const inv = await readInventory(repo.path)
@@ -270,8 +287,7 @@ describe('readInventory', () => {
     })
 
     test('a remote.origin.fetch refspec cannot move a local branch', async () => {
-      repo = await createRepo({ remote: true })
-      await pushOther()
+      repo = await copyOfTemplate()
       sh(repo.path, 'branch', 'keep')
       const before = sh(repo.path, 'rev-parse', 'keep')
       sh(repo.path, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/heads/keep')
@@ -280,8 +296,7 @@ describe('readInventory', () => {
     })
 
     test('still fetches from a plain local remote', async () => {
-      repo = await createRepo({ remote: true })
-      await pushOther()
+      repo = await copyOfTemplate()
       const inv = await readInventory(repo.path)
       expect(inv.notes).toEqual([])
       expect(inv.units).toHaveLength(1)
@@ -331,18 +346,15 @@ describe('readInventory', () => {
 
   test('JS priority: package-lock > pnpm > yarn', async () => {
     repo = await createRepo()
-    await repo.commit('package.json', PKG('yarndep'))
-    await repo.commit('yarn.lock', '# yarn lockfile v1\n\n\nyarndep@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/yarndep/-/yarndep-1.0.0.tgz#x"\n')
+    await commitAll(repo, { 'package.json': PKG('yarndep'), 'yarn.lock': '# yarn lockfile v1\n\n\nyarndep@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/yarndep/-/yarndep-1.0.0.tgz#x"\n' })
     let inv = await readInventory(repo.path)
     expect(inv.units).toHaveLength(1)
     expect(names(inv.units[0])).toEqual(['yarndep'])
-    await repo.commit('package.json', PKG('pnpmdep'))
-    await repo.commit('pnpm-lock.yaml', "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpmdep:\n        specifier: ^1.0.0\n        version: 1.0.0\npackages:\n  pnpmdep@1.0.0:\n    resolution: {integrity: sha512-x}\n")
+    await commitAll(repo, { 'package.json': PKG('pnpmdep'), 'pnpm-lock.yaml': "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpmdep:\n        specifier: ^1.0.0\n        version: 1.0.0\npackages:\n  pnpmdep@1.0.0:\n    resolution: {integrity: sha512-x}\n" })
     inv = await readInventory(repo.path)
     expect(inv.units).toHaveLength(1)
     expect(names(inv.units[0])).toEqual(['pnpmdep'])
-    await repo.commit('package.json', PKG('npmdep'))
-    await repo.commit('package-lock.json', npmLock('npmdep'))
+    await commitAll(repo, { 'package.json': PKG('npmdep'), 'package-lock.json': npmLock('npmdep') })
     inv = await readInventory(repo.path)
     expect(inv.units).toHaveLength(1)
     expect(names(inv.units[0])).toEqual(['npmdep'])
@@ -363,8 +375,7 @@ describe('readInventory', () => {
     expect(both.units.map((u) => names(u)[0]).sort()).toEqual(['devdep', 'reqdep'])
     await repo.commit('Pipfile.lock', JSON.stringify({ default: { pipdep: { version: '==1.0.0', index: 'pypi' } }, develop: {} }))
     await only('pipdep')
-    await repo.commit('pyproject.toml', '[tool.poetry]\nname = "x"\n[tool.poetry.dependencies]\npoetrydep = "^1.0"\n')
-    await repo.commit('poetry.lock', '[[package]]\nname = "poetrydep"\nversion = "1.0.0"\n\n[package.source]\ntype = "legacy"\n')
+    await commitAll(repo, { 'pyproject.toml': '[tool.poetry]\nname = "x"\n[tool.poetry.dependencies]\npoetrydep = "^1.0"\n', 'poetry.lock': '[[package]]\nname = "poetrydep"\nversion = "1.0.0"\n\n[package.source]\ntype = "legacy"\n' })
     await only('poetrydep')
     await repo.commit('uv.lock', 'version = 1\n\n[[package]]\nname = "app"\nversion = "0.1.0"\nsource = { virtual = "." }\ndependencies = [{ name = "uvdep" }]\n\n[[package]]\nname = "uvdep"\nversion = "1.0.0"\nsource = { registry = "https://pypi.org/simple" }\n')
     await only('uvdep')
@@ -372,8 +383,7 @@ describe('readInventory', () => {
 
   test('an unparsable lockfile becomes an error unit and the rest is still read', async () => {
     repo = await createRepo()
-    await repo.commit('web/package-lock.json', '{not json')
-    await repo.commit('Gemfile.lock', GEMS)
+    await commitAll(repo, { 'web/package-lock.json': '{not json', 'Gemfile.lock': GEMS })
     const inv = await readInventory(repo.path)
     expect(inv.units.find((u) => u.dir === 'web')?.error).toBe('Fichier illisible : web/package-lock.json')
     expect(inv.units.find((u) => u.ecosystem === 'RubyGems')?.error).toBeUndefined()
@@ -385,15 +395,13 @@ describe('readInventory', () => {
 
     test('a private index in an included file makes the including file private', async () => {
       repo = await createRepo()
-      await repo.commit('requirements.txt', '--index-url https://corp/simple\nfoo==1.0\n')
-      await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      await commitAll(repo, { 'requirements.txt': '--index-url https://corp/simple\nfoo==1.0\n', 'requirements-dev.txt': '-r requirements.txt\npytest==8.0\n' })
       expect(priv(dev(await readInventory(repo.path)))).toEqual([true])
     })
 
     test('an include with only a private index taints the including file', async () => {
       repo = await createRepo()
-      await repo.commit('requirements.txt', '--index-url https://corp/simple\n')
-      await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      await commitAll(repo, { 'requirements.txt': '--index-url https://corp/simple\n', 'requirements-dev.txt': '-r requirements.txt\npytest==8.0\n' })
       expect(priv(dev(await readInventory(repo.path)))).toEqual([true])
     })
 
@@ -405,25 +413,20 @@ describe('readInventory', () => {
 
     test('a clean include leaves the file public', async () => {
       repo = await createRepo()
-      await repo.commit('requirements.txt', 'foo==1.0\n')
-      await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      await commitAll(repo, { 'requirements.txt': 'foo==1.0\n', 'requirements-dev.txt': '-r requirements.txt\npytest==8.0\n' })
       expect(priv(dev(await readInventory(repo.path)))).toEqual([false])
     })
 
     test('taint is followed transitively and cycles terminate', async () => {
       repo = await createRepo()
-      await repo.commit('requirements-a.txt', '-r requirements-b.txt\nfoo==1.0\n')
-      await repo.commit('requirements-b.txt', '-r requirements-a.txt\n-r requirements-c.txt\nbar==1.0\n')
-      await repo.commit('requirements-c.txt', '--extra-index-url https://corp/simple\nbaz==1.0\n')
-      await repo.commit('requirements-dev.txt', '-r requirements-a.txt\npytest==8.0\n')
+      await commitAll(repo, { 'requirements-a.txt': '-r requirements-b.txt\nfoo==1.0\n', 'requirements-b.txt': '-r requirements-a.txt\n-r requirements-c.txt\nbar==1.0\n', 'requirements-c.txt': '--extra-index-url https://corp/simple\nbaz==1.0\n', 'requirements-dev.txt': '-r requirements-a.txt\npytest==8.0\n' })
       const inv = await readInventory(repo.path)
       expect(inv.units.every((u) => u.deps.every((d) => d.private))).toBe(true)
     })
 
     test('an include in a subdirectory is resolved repo-relative', async () => {
       repo = await createRepo()
-      await repo.commit('py/requirements.txt', '--index-url https://corp/simple\nfoo==1.0\n')
-      await repo.commit('py/requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      await commitAll(repo, { 'py/requirements.txt': '--index-url https://corp/simple\nfoo==1.0\n', 'py/requirements-dev.txt': '-r requirements.txt\npytest==8.0\n' })
       const inv = await readInventory(repo.path)
       expect(inv.units.find((u) => u.deps.some((d) => d.manifest === 'py/requirements-dev.txt'))!.deps.every((d) => d.private)).toBe(true)
     })
