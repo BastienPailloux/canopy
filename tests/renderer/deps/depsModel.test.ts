@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Advisory, DepEntry, DepsReport } from '../../../src/shared/deps'
 import {
-  bannerText, canSelect, emptyNotes, initialSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
+  bannerText, canSelect, emptyNotes, initialSelection, nextSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
 } from '../../../src/renderer/deps/depsModel'
 
 const adv = (severity: Advisory['severity'], id = 'GHSA-xxxx-yyyy-zzzz'): Advisory =>
@@ -121,5 +121,24 @@ describe('emptyNotes', () => {
   it('shows why the repo was skipped instead', () => {
     expect(emptyNotes({ ...r, errors: ['Dépôt partiel : dépendances non vérifiées'] })).toEqual(['Dépôt partiel : dépendances non vérifiées'])
     expect(emptyNotes({ ...r, errors: ['Branche de base introuvable'] })).toEqual(['Branche de base introuvable'])
+  })
+})
+
+describe('nextSelection', () => {
+  it('keeps the ticks still present and adds the newly critical entries', () => {
+    const zustand = entry('zustand'), electron = entry('electron'), gone = entry('gone')
+    const before = [tar, request, zustand, electron, gone]
+    // The user unticked request and ticked zustand and gone.
+    const ticks = new Set([tar.key, zustand.key, gone.key])
+    const newCritical = entry('lodash', { level: 'critical', cause: 'advisory', advisories: [adv('high')] })
+    const after = [tar, request, zustand, electron, newCritical, entry('secret', { level: 'private', cause: 'private' })]
+    expect(nextSelection(ticks, before, after)).toEqual(new Set([tar.key, zustand.key, newCritical.key]))
+  })
+  it('does not tick again an entry that was already critical', () => {
+    expect(nextSelection(new Set(), [tar], [tar])).toEqual(new Set())
+  })
+  it('drops a tick whose entry became private', () => {
+    const z = entry('z')
+    expect(nextSelection(new Set([z.key]), [z], [{ ...z, level: 'private', cause: 'private' }])).toEqual(new Set())
   })
 })

@@ -17,6 +17,20 @@ export function initialSelection(entries: DepEntry[]): Set<string> {
   return new Set(entries.filter((e) => e.level === 'critical').map((e) => e.key))
 }
 
+/**
+ * After a background check of the same repo: the user's ticks that still apply, plus the entries that just became
+ * critical (those are pre-checked as on a first load). A repo change starts over with `initialSelection`.
+ */
+export function nextSelection(ticks: Set<string>, before: DepEntry[], after: DepEntry[]): Set<string> {
+  const wasCritical = new Set(before.filter((e) => e.level === 'critical').map((e) => e.key))
+  const next = new Set<string>()
+  for (const e of after) {
+    if (!canSelect(e)) continue
+    if (ticks.has(e.key) || (e.level === 'critical' && !wasCritical.has(e.key))) next.add(e.key)
+  }
+  return next
+}
+
 /** A private or local source is never checked, so it cannot be handed to Claude either. */
 export function canSelect(e: DepEntry): boolean {
   return e.level !== 'private'

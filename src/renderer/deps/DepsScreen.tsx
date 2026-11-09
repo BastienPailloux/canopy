@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DepEntry } from '../../shared/deps'
 import { basename, useApp } from '../store'
 import { DepsLaunchDialog } from './DepsLaunchDialog'
-import { canSelect, emptyNotes, initialSelection, levelLabel, selectableKeys, statusLine } from './depsModel'
+import { canSelect, emptyNotes, initialSelection, levelLabel, nextSelection, selectableKeys, statusLine } from './depsModel'
 import { recheckDeps, useDeps } from './depsStore'
 
 /** Only the two URLs main builds (advisory, registry) are ever opened, through the checked external opener. */
@@ -60,9 +60,15 @@ export function DepsScreen(): React.JSX.Element {
   const [selected, setSelected] = useState<Set<string>>(() => initialSelection(entries))
   const [launching, setLaunching] = useState(false)
 
-  // A new check (or another repo) starts from its critical entries again.
+  // Another repo starts from its critical entries; a new check of the same repo keeps the user's ticks.
   const stamp = `${report?.repo ?? ''}:${report?.checkedAt ?? ''}`
-  useEffect(() => { setSelected(initialSelection(entries)) }, [stamp])
+  const shown = useRef<{ repo: string | null; entries: DepEntry[] }>({ repo: report?.repo ?? null, entries })
+  useEffect(() => {
+    const before = shown.current
+    const sameRepo = before.repo !== null && before.repo === (report?.repo ?? null)
+    setSelected((s) => (sameRepo ? nextSelection(s, before.entries, entries) : initialSelection(entries)))
+    shown.current = { repo: report?.repo ?? null, entries }
+  }, [stamp])
 
   const chosen = entries.filter((e) => selected.has(e.key) && canSelect(e))
   const selectable = selectableKeys(entries)
