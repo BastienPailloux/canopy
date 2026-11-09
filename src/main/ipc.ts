@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { applyShortcutContext, parseShortcutContext } from './shortcutMenu'
 import { access } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { NewWorktree } from '../shared/api'
@@ -163,6 +164,10 @@ export function registerIpc(
   })
   ipcMain.handle('update:whatsNewSeen', () => { store.setPrefs({ ...store.prefs, lastSeenVersion: app.getVersion() }) })
   ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
+  ipcMain.handle('shortcuts:context', (_e, ctx: unknown) => {
+    const parsed = parseShortcutContext(ctx)
+    if (parsed) applyShortcutContext(Menu.getApplicationMenu(), parsed)
+  })
 
   const prs = new PrCache()
   const orphans = new OrphanTracker()

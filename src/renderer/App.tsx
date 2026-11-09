@@ -25,6 +25,7 @@ import { LinearEditor } from './tickets/LinearEditor'
 import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
+import { connectShortcutContext } from './shell/shortcuts'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
 import { UpdateBanner } from './update/UpdateBanner'
@@ -130,6 +131,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
   useEffect(() => connectUnsaved(), [])
+  useEffect(() => connectShortcutContext(), [])
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => connectTickets(), [])

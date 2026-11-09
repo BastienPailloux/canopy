@@ -42,3 +42,10 @@ export function displayKeys(accelerator: string): string {
   const mods = parts.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
   return [...mods, key].map((p) => GLYPHS[p] ?? p).join('')
 }
+
+/** What is active in the page, as far as the shortcuts care. */
+export interface ShortcutContext { repo: boolean; worktree: boolean }
+
+export function shortcutEnabled(s: Shortcut, ctx: ShortcutContext): boolean {
+  return s.needs === null || ctx[s.needs]
+}
