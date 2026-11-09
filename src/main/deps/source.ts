@@ -18,11 +18,25 @@ const unreadable = (path: string, ecosystem: Unit['ecosystem']): Unit =>
   ({ dir: posix.dirname(path) === '.' ? '' : posix.dirname(path), ecosystem, deps: [], transitive: [], error: `Fichier illisible : ${path}` })
 
 /** Never prompts (credentials, host keys): an unattended fetch must fail rather than hang. */
-const FETCH_ENV = { GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' }
+const FETCH_ENV = {
+  GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes',
+  GIT_ASKPASS: '/usr/bin/false', SSH_ASKPASS: '/usr/bin/false'
+}
+/** Only the plain transports: `ext::` and the like would run a command named by the remote URL. */
+const FETCH_PROTOCOLS = ['-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', 'protocol.git.allow=always', '-c', 'protocol.file.allow=always']
+/** Settings that make a fetch run a command or reroute it; the repo's own config must not set any. */
+const RISKY_CONFIG = '^(credential\\..*helper|core\\.askpass|core\\.gitproxy|core\\.sshcommand|remote\\..*\\.(uploadpack|receivepack|proxy)|http\\..*proxy|url\\..*\\.(insteadof|pushinsteadof))$'
+const OWN_SCOPES = new Set(['local', 'worktree'])
+
+async function hasRiskyLocalConfig(root: string): Promise<boolean> {
+  const out = await git(root, ['config', '--show-scope', '--get-regexp', RISKY_CONFIG], { okCodes: [1] })
+  return out.split('\n').some((line) => OWN_SCOPES.has(line.split('\t')[0]))
+}
 
 async function refresh(root: string, branch: string, timeoutMs: number): Promise<string | null> {
   try {
-    await git(root, ['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
+    if (await hasRiskyLocalConfig(root)) return 'Branche de base non rafraîchie : configuration locale non sûre'
+    await git(root, [...FETCH_PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--upload-pack=git-upload-pack', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
     return null
   } catch (e) {
     const stderr = (e as { stderr?: string }).stderr ?? ''

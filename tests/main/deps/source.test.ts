@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { EXCLUDED_DIRS, readAtRef, readInventory } from '../../../src/main/deps/source'
@@ -89,6 +89,51 @@ describe('readInventory', () => {
     sh(other, 'commit', '-q', '-m', 'gems')
     sh(other, 'push', '-q', 'origin', 'main')
     expect((await readInventory(repo.path, { fetch: false })).units).toEqual([])
+  })
+
+  describe('fetch hardening', () => {
+    const UNSAFE = 'Branche de base non rafraîchie : configuration locale non sûre'
+    const exists = (p: string) => stat(p).then(() => true, () => false)
+    const pushOther = async () => {
+      const other = join(repo!.path, '..', 'other')
+      sh(repo!.path, 'clone', '-q', join(repo!.path, '..', 'remote.git'), other)
+      await writeFile(join(other, 'Gemfile.lock'), GEMS)
+      sh(other, 'add', '.')
+      sh(other, 'commit', '-q', '-m', 'gems')
+      sh(other, 'push', '-q', 'origin', 'main')
+    }
+
+    test.each([
+      ['credential.helper', (m: string) => `!touch '${m}'`],
+      ['remote.origin.uploadpack', (m: string) => `touch '${m}'; git-upload-pack`],
+      ['core.sshCommand', (m: string) => `touch '${m}'; ssh`]
+    ])('skips the fetch when local config sets %s', async (key, value) => {
+      repo = await createRepo({ remote: true })
+      await pushOther()
+      const marker = join(repo.path, '..', 'ran')
+      sh(repo.path, 'config', key, value(marker))
+      const inv = await readInventory(repo.path)
+      expect(await exists(marker)).toBe(false)
+      expect(inv.notes).toEqual([UNSAFE])
+      expect(inv.units).toEqual([])
+    })
+
+    test('never runs an ext:: remote', async () => {
+      repo = await createRepo({ remote: true })
+      const marker = join(repo.path, '..', 'ran')
+      sh(repo.path, 'remote', 'set-url', 'origin', `ext::sh -c "touch '${marker}'"`)
+      const inv = await readInventory(repo.path)
+      expect(await exists(marker)).toBe(false)
+      expect(inv.notes).toHaveLength(1)
+    })
+
+    test('still fetches from a plain local remote', async () => {
+      repo = await createRepo({ remote: true })
+      await pushOther()
+      const inv = await readInventory(repo.path)
+      expect(inv.notes).toEqual([])
+      expect(inv.units).toHaveLength(1)
+    })
   })
 
   test('skips the fetch without a remote', async () => {
