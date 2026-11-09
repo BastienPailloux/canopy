@@ -149,4 +149,11 @@ describe('advisoriesFor', () => {
     expect(again.get(advisoryKey(dep('a', '1.0.2')))![0]).toMatchObject({ version: '1.0.2', fixed: '1.0.5', severity: 'high' })
     expect(f.gets).toHaveLength(1)
   })
+
+  test('a querybatch answer without one result per query throws', async () => {
+    for (const results of [undefined, 'x', [], [{}, {}]]) {
+      const http: Http = { async getJson() { throw new Error('no') }, async postJson() { return results === undefined ? {} : { results } } }
+      await expect(advisoriesFor(http, [dep('a', '1.0.0')], new Map()), JSON.stringify(results)).rejects.toThrow('Réponse inattendue')
+    }
+  })
 })

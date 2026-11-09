@@ -77,7 +77,9 @@ export async function advisoriesFor(http: Http, deps: Dep[], cache: DetailCache 
     const res: any = await http.postJson('https://api.osv.dev/v1/querybatch', {
       queries: chunk.map((d) => ({ package: { name: d.name, ecosystem: d.ecosystem }, version: d.version }))
     })
-    const results = Array.isArray(res?.results) ? res.results : []
+    // A partial answer would read as « no flaw »: fail, so the previous results are kept.
+    if (!Array.isArray(res?.results) || res.results.length !== chunk.length) throw new Error('Réponse inattendue : https://api.osv.dev/v1/querybatch')
+    const results = res.results as Raw[]
     chunk.forEach((d, j) => {
       const vulns = Array.isArray(results[j]?.vulns) ? results[j].vulns : []
       const byId = new Map<string, string | null>()
