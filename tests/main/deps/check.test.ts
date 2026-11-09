@@ -117,4 +117,21 @@ describe('checkRepo', () => {
   test('propagates an inventory failure', async () => {
     await expect(checkRepo({ http, now: () => NOW, inventory: async () => { throw new Error('no repo') } }, '/r', null)).rejects.toThrow('no repo')
   })
+
+  test('groups registry errors per ecosystem and reason', async () => {
+    const deps = [dep('a', '1.0.0'), dep('b', '1.0.0'), dep('c', '1.0.0'), dep('r', '1.0.0', { ecosystem: 'RubyGems' }), dep('d', '1.0.0')]
+    const r = await run(inv([unit(deps)]), { packageInfo: async (_h, d) => { throw d.name === 'd' ? new HttpError(429, 'u') : new Error('fetch failed') } })
+    expect(r.errors).toEqual(['RubyGems : r non vérifié (fetch failed)', 'npm : 3 paquets non vérifiés (fetch failed)', 'npm : d non vérifié (HTTP 429)'].sort())
+  })
+
+  test('keeps the previous checkedAt when every lookup failed', async () => {
+    const offline = { advisories: async () => { throw new Error('offline') }, packageInfo: async () => { throw new Error('offline') } }
+    const prev = prevReport([])
+    expect((await run(inv([unit([dep('a', '1.0.0')])]), offline, prev)).checkedAt).toBe(1)
+    expect((await run(inv([unit([dep('a', '1.0.0', { private: true })])]), offline, prev)).checkedAt).toBe(1)
+    expect((await run(inv([unit([dep('a', '1.0.0')])]), offline, null)).checkedAt).toBeNull()
+    // One answer is enough to call it a check.
+    expect((await run(inv([unit([dep('a', '1.0.0')])]), { advisories: offline.advisories }, prev)).checkedAt).toBe(NOW)
+    expect((await run(inv([unit([dep('a', '1.0.0')])]), { packageInfo: offline.packageInfo }, prev)).checkedAt).toBe(NOW)
+  })
 })

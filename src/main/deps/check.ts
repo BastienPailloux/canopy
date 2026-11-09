@@ -37,6 +37,9 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
 
   const limit = createLimiter(6)
   const jobs: Promise<DepEntry | null>[] = []
+  // Offline, every package fails the same way: one line per ecosystem and reason, not one per package.
+  const registryFailures = new Map<string, { ecosystem: string; why: string; names: string[] }>()
+  let registryAnswers = 0
   for (const u of inventory.units) {
     for (const d of u.deps) {
       jobs.push((async () => {
@@ -57,9 +60,15 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
         let info: PackageInfo | null = null
         let failed = osvFailed
         if (!d.private && isValidPackageName(d.ecosystem, d.name)) {
-          try { info = await limit(() => getInfo(deps.http, d)) } catch (e) {
+          try {
+            info = await limit(() => getInfo(deps.http, d))
+            registryAnswers++
+          } catch (e) {
             const why = e instanceof HttpError ? `HTTP ${e.status}` : messageOf(e)
-            errors.push(`${d.ecosystem} : ${d.name} non vérifié (${why})`)
+            const k = `${d.ecosystem}\0${why}`
+            const group = registryFailures.get(k) ?? { ecosystem: d.ecosystem, why, names: [] }
+            group.names.push(d.name)
+            registryFailures.set(k, group)
             failed = true
           }
         }
@@ -71,8 +80,13 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
     }
   }
   const entries = (await Promise.all(jobs)).filter((e): e is DepEntry => e !== null)
+  for (const { ecosystem, why, names } of registryFailures.values()) {
+    errors.push(names.length === 1 ? `${ecosystem} : ${names[0]} non vérifié (${why})` : `${ecosystem} : ${names.length} paquets non vérifiés (${why})`)
+  }
   const uniqueErrors = [...new Set(errors)].sort()
   entries.sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] || a.name.localeCompare(b.name, 'fr') || a.manifest.localeCompare(b.manifest))
 
-  return { repo: inventory.repo, checkedAt: deps.now(), entries, errors: uniqueErrors, baseRef: inventory.baseRef, manifests: inventory.units.length }
+  // Nothing answered: not a check, so the screen keeps showing when the last real one was.
+  const checkedAt = osvFailed && registryAnswers === 0 ? previous?.checkedAt ?? null : deps.now()
+  return { repo: inventory.repo, checkedAt, entries, errors: uniqueErrors, baseRef: inventory.baseRef, manifests: inventory.units.length }
 }
