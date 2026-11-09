@@ -1,6 +1,7 @@
 import { lstat, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, posix } from 'node:path'
+import { currentEnv } from '../env'
 import { git as run } from '../git/exec'
 import { resolveBaseRef } from '../git/refs'
 import { mainWorktreeRoot } from '../git/worktrees'
@@ -368,7 +369,7 @@ export function groupListing(listing: string): { tree: Tree; byDir: Map<string, 
 /** Lists and reads the lockfiles at `ref`. A listing failure (ref gone since it was resolved) is a note, not a throw. */
 /**
  * `root`: the main worktree root, whose working tree rc files are read too. `home`: where the user's own rc files are
- * (the user's home directory by default). `env`: where the npm_config variables are read (process.env by default).
+ * (the user's home directory by default). `env`: where the npm_config variables are read (the login-shell env by default: a Dock-launched app lacks the shell's exports in process.env).
  */
 export async function readAtRef(root: string, ref: string, o: { home?: string; env?: NodeJS.ProcessEnv } = {}): Promise<Inventory> {
   let listing: string
@@ -381,7 +382,7 @@ export async function readAtRef(root: string, ref: string, o: { home?: string; e
   }
   const { tree, byDir } = groupListing(listing)
   const units: Unit[] = []
-  const user = await userConfigs(o.home ?? homedir(), o.env ?? process.env)
+  const user = await userConfigs(o.home ?? homedir(), o.env ?? currentEnv())
   const cache = repoCache(root)
   const read = ++cache.read
   for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!, user))

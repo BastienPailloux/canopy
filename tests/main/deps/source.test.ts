@@ -4,8 +4,15 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import { git as gitSpy } from '../../../src/main/git/exec'
+import { currentEnv } from '../../../src/main/env'
 import { EXCLUDED_DIRS, forgetRepo, groupListing, readAtRef, readInventory } from '../../../src/main/deps/source'
 import { createRepo, type TestRepo } from '../../helpers/repo'
+
+// Pass-through: lets a test give the login-shell env that the app would see.
+vi.mock('../../../src/main/env', async (original) => {
+  const m = await original<typeof import('../../../src/main/env')>()
+  return { ...m, currentEnv: vi.fn(m.currentEnv) }
+})
 
 // Pass-through spy: lets a test list the git commands readInventory ran.
 vi.mock('../../../src/main/git/exec', async (original) => {
@@ -607,6 +614,17 @@ describe('registry config sources', { timeout: 60_000 }, () => {
       await commitAll(repo!, { 'package-lock.json': npmLock('@corp/ui', 'other'), 'package.json': PKG('@corp/ui', 'other') })
       const all = await read({ 'NPM_CONFIG_@CORP:REGISTRY': 'https://npm.corp.example/' })
       expect(priv(all)).toMatchObject({ '@corp/ui': true, other: false })
+    })
+
+    test('reads npm_config variables from the login-shell env by default, not process.env', async () => {
+      await setup()
+      const shell = { ...process.env, NPM_CONFIG_REGISTRY: 'https://npm.corp.example/' }
+      vi.mocked(currentEnv).mockReturnValue(shell)
+      try {
+        expect(priv(await readInventory(repo!.path, { home }))).toEqual({ '@pub/x': true, 'left-pad': true })
+      } finally {
+        vi.mocked(currentEnv).mockReset()
+      }
     })
 
     test("pnpm's global rc and the npm prefix's etc/npmrc", async () => {
