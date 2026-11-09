@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { CHECK_INTERVAL_MS, createDepsService, type DepsServiceDeps } from '../../../src/main/deps/service'
+import { CHECK_INTERVAL_MS, createDepsService, FIRST_PASS_DELAY_MS, type DepsServiceDeps } from '../../../src/main/deps/service'
 import type { DepEntry, DepsReport } from '../../../src/shared/deps'
 
 const entry = (key: string, level: DepEntry['level'] = 'critical'): DepEntry =>
@@ -34,6 +34,8 @@ function setup(o: Partial<DepsServiceDeps> & { keys?: Record<string, string[]> }
     file, now: () => 1,
     setInterval: ((f: () => void) => { tick = f; return 7 }) as unknown as typeof setInterval,
     clearInterval: clear as unknown as typeof clearInterval,
+    setTimeout: ((f: () => void) => { f(); return 9 }) as unknown as typeof setTimeout,
+    clearTimeout: clear as unknown as typeof clearTimeout,
     broadcast: (...a) => events.push(a), log: () => {}, ...o
   }
   delete (d as { keys?: unknown }).keys
@@ -75,6 +77,28 @@ describe('createDepsService', () => {
     gate!()
     await p1
     expect(t.svc.checking('/a')).toBe(false)
+  })
+
+  test('delays the first pass but lists the repos and serves stored reports at once', async () => {
+    writeFileSync(file, JSON.stringify({ version: 1, reports: { '/dir/x': report('/dir/x', ['k']) }, dismissed: {} }))
+    let first: (() => void) | null = null
+    let delay = 0
+    const t = setup({ setTimeout: ((f: () => void, ms: number) => { first = f; delay = ms; return 9 }) as unknown as typeof setTimeout })
+    t.svc.start()
+    expect(delay).toBe(FIRST_PASS_DELAY_MS)
+    expect(FIRST_PASS_DELAY_MS).toBe(30_000)
+    await vi.waitFor(() => { expect(t.svc.critical('/dir')).toBe(1) })
+    expect(t.calls).toEqual([])
+    first!()
+    await until(t, 3)
+    expect(t.calls).toEqual(['/a', '/dir/x', '/dir/y'])
+  })
+
+  test('the first pass delay can be injected', () => {
+    let delay = -1
+    const t = setup({ firstPassDelayMs: 0, setTimeout: ((_f: () => void, ms: number) => { delay = ms; return 9 }) as unknown as typeof setTimeout })
+    t.svc.start()
+    expect(delay).toBe(0)
   })
 
   test('start twice is a no-op and stop clears the interval', async () => {

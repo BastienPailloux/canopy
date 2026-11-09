@@ -37,6 +37,7 @@ beforeEach(async () => {
   service = createDepsService({
     check, repos: () => listDepsRepos(store.recentRepos), file: join(dir, 'deps.json'), now: () => 1,
     setInterval: (() => 0) as unknown as typeof setInterval, clearInterval: (() => undefined) as typeof clearInterval,
+    setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout: (() => undefined) as typeof clearTimeout,
     broadcast: (e) => { events.push(e) }, log: () => undefined
   })
   handlers = new Map()

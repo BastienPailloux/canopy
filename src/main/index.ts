@@ -13,7 +13,7 @@ import { openExternalUrl } from './externalLinks'
 import { isConfigTrusted } from './repoTrust'
 import { listDepsRepos, registerDepsIpc } from './deps/depsIpc'
 import { checkRepo } from './deps/check'
-import { selectDepsHttp } from './deps/replay'
+import { depsFirstPassDelay, selectDepsHttp } from './deps/replay'
 import { createDepsService } from './deps/service'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
@@ -164,7 +164,8 @@ void app.whenReady().then(async () => {
     check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now }, repo, prev),
     repos: () => listDepsRepos(store.recentRepos),
     file: join(userData, 'deps-reports.json'),
-    now: Date.now, setInterval, clearInterval, broadcast
+    now: Date.now, setInterval, clearInterval, setTimeout, clearTimeout, broadcast,
+    firstPassDelayMs: depsFirstPassDelay({ isPackaged: app.isPackaged, env: process.env })
   })
   let depsHooks: ReturnType<typeof registerDepsIpc> | null = null
   let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }

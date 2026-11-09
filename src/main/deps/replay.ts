@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fetchHttp, HttpError, type Http } from './http'
+import { FIRST_PASS_DELAY_MS } from './service'
 
 /** Raw path segment is the file name; its decoded form must not climb or smuggle separators. */
 function fileFor(dir: string, url: string): string {
@@ -44,4 +45,9 @@ export function replayHttp(dir: string): Http {
 export function selectDepsHttp(o: { isPackaged: boolean; env: NodeJS.ProcessEnv }): Http {
   const dir = o.isPackaged ? undefined : o.env.CANOPY_FAKE_DEPS
   return dir ? replayHttp(resolve(dir)) : fetchHttp()
+}
+
+/** Replayed E2E runs check at once: the delay only spares a real start. */
+export function depsFirstPassDelay(o: { isPackaged: boolean; env: NodeJS.ProcessEnv }): number {
+  return !o.isPackaged && o.env.CANOPY_FAKE_DEPS ? 0 : FIRST_PASS_DELAY_MS
 }

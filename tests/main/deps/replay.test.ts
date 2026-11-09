@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { HttpError, fetchHttp } from '../../../src/main/deps/http'
-import { replayHttp, selectDepsHttp } from '../../../src/main/deps/replay'
+import { depsFirstPassDelay, replayHttp, selectDepsHttp } from '../../../src/main/deps/replay'
+import { FIRST_PASS_DELAY_MS } from '../../../src/main/deps/service'
 import { advisoriesFor } from '../../../src/main/deps/osv'
 import { createRegistry } from '../../../src/main/deps/registries'
 
@@ -59,6 +60,14 @@ describe('selectDepsHttp', () => {
     await expect(selectDepsHttp({ isPackaged: false, env }).getJson('https://registry.npmjs.org/zustand')).resolves.toBeTruthy()
     // packaged: the real client, which refuses non-allowlisted hosts before any fetch
     await expect(selectDepsHttp({ isPackaged: true, env }).getJson('https://example.com/x')).rejects.toThrow()
+  })
+})
+
+describe('depsFirstPassDelay', () => {
+  test('no delay only when replaying', () => {
+    expect(depsFirstPassDelay({ isPackaged: false, env: { CANOPY_FAKE_DEPS: FIX } })).toBe(0)
+    expect(depsFirstPassDelay({ isPackaged: true, env: { CANOPY_FAKE_DEPS: FIX } })).toBe(FIRST_PASS_DELAY_MS)
+    expect(depsFirstPassDelay({ isPackaged: false, env: {} })).toBe(FIRST_PASS_DELAY_MS)
   })
 })
 

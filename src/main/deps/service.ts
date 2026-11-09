@@ -2,6 +2,8 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { criticalKeys, type DepsReport } from '../../shared/deps'
 
 export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+/** Parsing lockfiles runs on the main process: leave the app time to open first. */
+export const FIRST_PASS_DELAY_MS = 30_000
 
 export interface DepsServiceDeps {
   check: (repo: string, previous: DepsReport | null) => Promise<DepsReport>
@@ -12,13 +14,20 @@ export interface DepsServiceDeps {
   now: () => number
   setInterval: typeof setInterval
   clearInterval: typeof clearInterval
+  setTimeout: typeof setTimeout
+  clearTimeout: typeof clearTimeout
+  /** FIRST_PASS_DELAY_MS by default. */
+  firstPassDelayMs?: number
   broadcast: (event: string, payload: unknown) => void
   log?: (msg: string, err: unknown) => void
 }
 
 /** Repo arguments are main worktree roots, as listed by `repos()`. */
 export interface DepsService {
-  /** Loads the file (broadcasts nothing), checks every repo, then again every CHECK_INTERVAL_MS. No-op when already started. */
+  /**
+   * Loads the file (broadcasts nothing) and lists the repos, checks every repo after FIRST_PASS_DELAY_MS,
+   * then again every CHECK_INTERVAL_MS. No-op when already started.
+   */
   start(): void
   stop(): void
   report(repo: string): DepsReport | null
@@ -41,6 +50,7 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
   let entries: Entries | null = null
   const inflight = new Map<string, Promise<DepsReport>>()
   let timer: ReturnType<typeof setInterval> | null = null
+  let firstPass: ReturnType<typeof setTimeout> | null = null
   let started = false
 
   const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -107,11 +117,18 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
       if (started) return
       started = true
       load()
-      void pass()
-      timer = d.setInterval(() => { void pass() }, CHECK_INTERVAL_MS)
+      // The picker counts per entry need the list; stored reports show before any check.
+      void refreshEntries().catch((e: unknown) => { log('deps: cannot list repos', e) })
+      firstPass = d.setTimeout(() => {
+        firstPass = null
+        void pass()
+        timer = d.setInterval(() => { void pass() }, CHECK_INTERVAL_MS)
+      }, d.firstPassDelayMs ?? FIRST_PASS_DELAY_MS)
     },
     stop() {
+      if (firstPass !== null) d.clearTimeout(firstPass)
       if (timer !== null) d.clearInterval(timer)
+      firstPass = null
       timer = null
     },
     report: (repo) => reports[repo] ?? null,

@@ -471,3 +471,31 @@ describe('private registries', { timeout: 60_000 }, () => {
     expect(priv(await readInventory(repo.path))).toEqual({ 'left-pad': false })
   })
 })
+
+describe('parsed lockfile cache', { timeout: 60_000 }, () => {
+  const reads = () => vi.mocked(gitSpy).mock.calls.filter(([, args]) => args.includes('show') || args.includes('cat-file')).length
+  const priv = (inv: { units: { deps: { name: string; private: boolean }[] }[] }) =>
+    Object.fromEntries(inv.units.flatMap((u) => u.deps.map((d) => [d.name, d.private])))
+
+  test('an unchanged tree reads no file again', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'package-lock.json': npmLock('left-pad'), 'package.json': PKG('left-pad'), 'Gemfile.lock': GEMS, 'requirements.txt': '-r requirements-base.txt\nfoo==1.0\n', 'requirements-base.txt': 'bar==1.0\n' })
+    const first = await readAtRef(repo.path, 'main')
+    vi.mocked(gitSpy).mockClear()
+    const second = await readAtRef(repo.path, 'main')
+    expect(reads()).toBe(0)
+    expect(second.units).toEqual(first.units)
+  })
+
+  test('a changed sibling package.json, rc file or included requirements file is read again', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'package-lock.json': JSON.stringify({ lockfileVersion: 1, dependencies: { a: { version: '1.0.0', resolved: 'https://registry.npmjs.org/a/-/a-1.0.0.tgz' }, b: { version: '1.0.0', resolved: 'https://registry.npmjs.org/b/-/b-1.0.0.tgz' } } }), 'package.json': PKG('a'), 'requirements.txt': '-r requirements-base.txt\nfoo==1.0\n', 'requirements-base.txt': 'bar==1.0\n' })
+    expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: false, bar: false, foo: false })
+    await commitAll(repo, { 'package.json': PKG('a', 'b') })
+    expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: false, b: false, bar: false, foo: false })
+    await commitAll(repo, { '.npmrc': 'registry=https://npm.corp.example/\n' })
+    expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: true, b: true, bar: false, foo: false })
+    await commitAll(repo, { 'requirements-base.txt': '--index-url https://corp/simple\nbar==1.0\n' })
+    expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: true, b: true, bar: true, foo: true })
+  })
+})
