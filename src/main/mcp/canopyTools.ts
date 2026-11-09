@@ -84,7 +84,8 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     const source = str(args.source)
     const query = str(args.query) ? fold(args.query as string) : undefined
     const status = str(args.status)?.toLowerCase()
-    const includeDone = args.includeDone === true
+    // A status filter names what Claude wants: done or canceled tickets included.
+    const includeDone = args.includeDone === true || status !== undefined
     const rows: (ReturnType<typeof localRow> | ReturnType<typeof linearRow>)[] = []
     const unreadable: { file: string; error: string }[] = []
     let linearError: string | undefined
@@ -93,11 +94,13 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
       const entries = await deps.tickets.list(repoRoot)
       const live = entries.flatMap((e) => (e.kind === 'ticket' ? [e.ticket] : []))
       for (const e of entries) if (e.kind === 'unreadable') unreadable.push({ file: e.file, error: e.error })
+      const children = new Map<string, number>()
+      for (const t of live) if (t.parent) children.set(t.parent, (children.get(t.parent) ?? 0) + 1)
       for (const t of live) {
         if (!includeDone && t.status === 'done') continue
         if (status && t.status !== status) continue
         if (query && !fold(`${t.title}\n${t.description}`).includes(query)) continue
-        rows.push(localRow(t, live.filter((c) => c.parent === t.id).length))
+        rows.push(localRow(t, children.get(t.id) ?? 0))
       }
     }
 
@@ -232,7 +235,7 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     if (named && teams.length === 0) return named
     const known = named ? teams.find((t) => t.name.toLowerCase() === named.toLowerCase()) : undefined
     if (known) return known.id
-    if (name === undefined && teams.length === 1) return teams[0].id
+    if (named === undefined && teams.length === 1) return teams[0].id
     throw new Error(teams.length ? `Précise l'équipe Linear : ${teams.map((t) => t.name).join(', ')}` : "Précise l'équipe Linear.")
   }
 
@@ -345,12 +348,19 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
       throw new Error(`Statut de maquette inconnu : ${String(args.status)}. Statuts possibles : ${MOCKUP_STATUSES.join(', ')}`)
     }
     if (ticket === undefined && args.status === undefined) throw new Error('Rien à modifier.')
+    const added = parsed !== null && !(await mockupsOf()).some((m) => m.id === id)
     if (parsed) await deps.mockups.add(repoRoot, parsed.url)
-    const m = await deps.mockups.patch(repoRoot, id, {
-      ...(ticket !== undefined ? { ticket } : {}),
-      ...(args.status !== undefined ? { status: args.status as MockupStatus } : {}),
-    })
-    return mockupRow(m)
+    try {
+      const m = await deps.mockups.patch(repoRoot, id, {
+        ...(ticket !== undefined ? { ticket } : {}),
+        ...(args.status !== undefined ? { status: args.status as MockupStatus } : {}),
+      })
+      return mockupRow(m)
+    } catch (e) {
+      // Claude would otherwise believe nothing changed and add it again elsewhere.
+      if (added) throw new Error(`Maquette ajoutée mais non liée : ${e instanceof Error ? e.message : String(e)}`)
+      throw e
+    }
   }
 
   return {

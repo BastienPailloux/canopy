@@ -136,6 +136,19 @@ describe('canopy read tools', () => {
       expect(r2.tickets.map((t) => t.key)).toEqual(['linear:ENG-2'])
     })
 
+    it('an explicit status filter includes done tickets without includeDone', async () => {
+      await tickets.create(repo.path, fields('Open'))
+      await tickets.create(repo.path, fields('Finished', { status: 'done' }))
+      issues = [
+        linearIssue('ENG-1', 'Open'),
+        linearIssue('ENG-2', 'Completed', { status: { id: null, name: 'Done', type: 'completed' } }),
+        linearIssue('ENG-3', 'Canceled', { status: { id: null, name: 'Canceled', type: 'canceled' } }),
+      ]
+      const keys = async (a: Record<string, unknown>) => ((await tools.list_tickets(a)) as { tickets: { key: string }[] }).tickets.map((t) => t.key).sort()
+      expect(await keys({ status: 'done' })).toEqual(['linear:ENG-2', 'local:CAN-2'])
+      expect(await keys({ status: 'canceled' })).toEqual(['linear:ENG-3'])
+    })
+
     it('not connected: local rows plus linearError, no throw', async () => {
       await tickets.create(repo.path, fields('A'))
       issues = [linearIssue('ENG-1', 'C')]
@@ -340,6 +353,16 @@ describe('canopy read tools', () => {
       expect(list[0]).toMatchObject({ id: 'BBBBBBBBBBBBBBBBBBBBBB', ticket: 'CAN-1' })
     })
 
+    it('a new mockup added but not linked says so', async () => {
+      await tickets.create(repo.path, fields('One'))
+      vi.spyOn(mockups, 'patch').mockRejectedValue(new Error('disque plein'))
+      await expect(tools.link_mockup({ mockup: URL2, ticket: 'local:CAN-1' })).rejects.toThrow('Maquette ajoutée mais non liée : disque plein')
+      expect((await mockups.list(repo.path) as { mockups: unknown[] }).mockups).toHaveLength(1)
+      // Already registered: nothing was added, the error stays as is.
+      await expect(tools.link_mockup({ mockup: URL2, ticket: 'local:CAN-1' })).rejects.toThrow(/^disque plein$/)
+      await expect(tools.link_mockup({ mockup: 'CCCCCCCCCCCCCCCCCCCCCC', ticket: 'local:CAN-1' })).rejects.toThrow(/^disque plein$/)
+    })
+
     it('refuses unknown or Linear tickets and bad mockups', async () => {
       await expect(tools.link_mockup({ mockup: URL1, ticket: 'local:CAN-9' })).rejects.toThrow('Ticket introuvable : CAN-9')
       await expect(tools.link_mockup({ mockup: URL1, ticket: 'linear:ENG-1' })).rejects.toThrow("Une maquette ne se lie qu'à un ticket local.")
@@ -512,6 +535,9 @@ describe('canopy Linear writes', () => {
 
     it('team: the only known one, else the team argument, else an error listing them', async () => {
       await tools.create_ticket({ source: 'linear', title: 'Solo' })
+      expect(saves()[0].team).toBe('78589deb-f061-45b7-b299-bb1c34d4b638')
+      fake.calls.length = 0
+      await tools.create_ticket({ source: 'linear', title: 'Empty team', team: '' })
       expect(saves()[0].team).toBe('78589deb-f061-45b7-b299-bb1c34d4b638')
       fake.calls.length = 0
       issues = [...issues, linearIssue('ENG-1', 'Other', { team: { id: 'team-eng', name: 'Engineering' } })]
