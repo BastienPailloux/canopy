@@ -5,14 +5,13 @@ import type { AppStore } from '../appStore'
 import { git } from '../git/exec'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { clearSharedReads } from '../git/sharedReads'
-import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, STATUSES } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, STATUSES, TICKET_ID_RE } from '../../shared/tickets'
 import type { LaunchRequest, LaunchTarget, TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
 import { branchBaseAt } from './branchBase'
 import { launchCandidates, launchTicket, type LaunchDeps } from './launch'
 import type { TicketStore } from './store'
 import { watchTickets } from './watch'
 
-const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
 const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base', 'parent']
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -23,7 +22,7 @@ function assertPath(p: unknown): asserts p is string {
 }
 
 function assertId(id: unknown): asserts id is string {
-  if (typeof id !== 'string' || !ID_RE.test(id)) throw bad('Identifiant')
+  if (typeof id !== 'string' || !TICKET_ID_RE.test(id)) throw bad('Identifiant')
 }
 
 
@@ -46,7 +45,7 @@ export function parseFields(raw: unknown): Partial<TicketFields> {
   if (branch !== undefined && typeof branch !== 'string') throw bad('Branche')
   if (worktree !== undefined && (typeof worktree !== 'string' || !isAbsolute(worktree))) throw bad('Worktree')
   if (base !== undefined && (typeof base !== 'string' || base === '' || base.startsWith('-'))) throw bad('Base')
-  if (parent !== undefined && parent !== null && (typeof parent !== 'string' || !ID_RE.test(parent))) throw bad('Parent')
+  if (parent !== undefined && parent !== null && (typeof parent !== 'string' || !TICKET_ID_RE.test(parent))) throw bad('Parent')
   const out: Record<string, unknown> = {}
   for (const k of FIELD_KEYS) if (raw[k] !== undefined) out[k] = k === 'subtasks'
     ? (raw[k] as { title: string; done: boolean }[]).map((s) => ({ title: s.title, done: s.done }))
