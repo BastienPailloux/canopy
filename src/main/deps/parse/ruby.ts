@@ -18,7 +18,6 @@ export function parseGemfileLock(dir: string, lockText: string): Unit {
   try {
     const specs = new Map<string, Spec>()
     const direct: string[] = []
-    const banged = new Set<string>()
     let section = ''
     let known = false
     let remotes: string[] = []
@@ -37,7 +36,6 @@ export function parseGemfileLock(dir: string, lockText: string): Unit {
       if (section === 'DEPENDENCIES') {
         const m = /^ {2}([^\s!(]+)/.exec(line)
         if (m && !direct.includes(m[1])) direct.push(m[1])
-        if (m && /!\s*$/.test(line)) banged.add(m[1])
         continue
       }
       if (section !== 'GEM' && section !== 'GIT' && section !== 'PATH') continue
@@ -62,7 +60,8 @@ export function parseGemfileLock(dir: string, lockText: string): Unit {
     const transitive = new Map<string, Dep>()
     for (const name of direct) {
       const s = specs.get(name)
-      deps.push(dep(name, s?.version ?? null, manifest, s?.private ?? banged.has(name)))
+      // Without a spec its source is unknown: fail closed, like uv and poetry.
+      deps.push(dep(name, s?.version ?? null, manifest, s?.private ?? true))
       if (!s || s.private) continue
       const seen = new Set([name])
       const queue = [name]

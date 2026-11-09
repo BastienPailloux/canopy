@@ -117,14 +117,9 @@ DEPENDENCIES
     expect(u.deps[0].manifest).toBe('api/Gemfile')
   })
 
-  it('keeps a direct dep without spec unpinned', () => {
-    const u = parseGemfileLock('', 'DEPENDENCIES\n  ghost\n')
-    expect(u.deps).toEqual([expect.objectContaining({ name: 'ghost', version: null, private: false })])
-  })
-
-  it('marks a bang dependency without spec private (fail closed)', () => {
+  it('marks a direct dep without spec private (fail closed: its source is unknown)', () => {
     const u = parseGemfileLock('', 'DEPENDENCIES\n  ghost!\n  plain\n')
-    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['ghost', true], ['plain', false]])
+    expect(u.deps.map((d) => [d.name, d.version, d.private])).toEqual([['ghost', null, true], ['plain', null, true]])
   })
 
   it('returns an error unit for a corrupt lockfile', () => {

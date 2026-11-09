@@ -210,6 +210,13 @@ describe('parseYarnLock', () => {
       ['a', '1.0.5', false], ['w', '0.0.0-use.local', true], ['p', '1.0.0', true], ['n', '2.0.0', false]
     ])
   })
+  it('marks a scoped direct dep missing from yarn.lock private (fail closed)', () => {
+    const pkgs = JSON.stringify({ dependencies: { '@corp/ui': '^1', plain: '^1' } })
+    const v1 = parseYarnLock('', pkgs, '# yarn lockfile v1\n')
+    expect(v1.deps.map((d) => [d.name, d.version, d.private])).toEqual([['@corp/ui', null, true], ['plain', null, false]])
+    const berry = parseYarnLock('', pkgs, '__metadata:\n  version: 6\n')
+    expect(berry.deps.map((d) => [d.name, d.private])).toEqual([['@corp/ui', true], ['plain', false]])
+  })
   it('returns an error unit for a yarn v1 text without blocks', () => {
     expect(parseYarnLock('', pkg, 'garbage\nmore garbage').error).toBe('Fichier illisible : yarn.lock')
   })

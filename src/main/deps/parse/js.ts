@@ -244,7 +244,8 @@ export function parseYarnLock(dir: string, pkgJson: string, lockText: string): U
       for (const [name, spec] of Object.entries<any>(pkg[field] ?? {})) {
         if (typeof spec !== 'string') continue
         const found = (berry ? entries.get(`${name}@npm:${spec}`) : undefined) ?? entries.get(`${name}@${spec}`)
-        deps.push(dep(name, found?.version ?? null, manifest, hasPrivatePrefix(spec) || isAlias(spec) || (found?.private ?? false)))
+        // Missing from the lockfile, a scoped name may come from a private registry: fail closed, like package-lock and pnpm.
+        deps.push(dep(name, found?.version ?? null, manifest, hasPrivatePrefix(spec) || isAlias(spec) || (found ? found.private : name.startsWith('@'))))
       }
     }
     return { dir, ecosystem: 'npm', deps, transitive: [] }
