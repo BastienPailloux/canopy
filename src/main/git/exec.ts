@@ -24,7 +24,10 @@ interface GitOptions {
    * Otherwise both are suppressed.
    */
   trusted?: boolean
-  /** Merged after the default environment, so it overrides it. */
+  /**
+   * Merged after the default environment, so it overrides it. Untrusted, its command-line config keys
+   * (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n, GIT_CONFIG_PARAMETERS) are dropped: they could undo the blanking of filters.
+   */
   env?: NodeJS.ProcessEnv
   /** The command is killed past this delay. */
   timeoutMs?: number
@@ -95,7 +98,10 @@ async function blankFilters(cwd: string): Promise<NodeJS.ProcessEnv> {
   ])
 }
 
+const CONFIG_ENV = /^GIT_CONFIG_(COUNT|PARAMETERS|KEY_\d+|VALUE_\d+)$/
+
 export async function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string> {
   if (opts.trusted) return run(cwd, args, opts)
-  return run(cwd, args, opts, await blankFilters(cwd), NO_HOOKS)
+  const env = opts.env && Object.fromEntries(Object.entries(opts.env).filter(([k]) => !CONFIG_ENV.test(k)))
+  return run(cwd, args, { ...opts, env }, await blankFilters(cwd), NO_HOOKS)
 }

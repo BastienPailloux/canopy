@@ -67,6 +67,15 @@ describe('filters a repo sets for itself', () => {
     expect(await ran('clean-ran')).toBe(false)
   })
 
+  test("a caller's env cannot undo the blanking of filters", async () => {
+    await filtered('evil')
+    config('filter.evil.clean', `touch '${marker('env-ran')}'; cat`)
+    for (const env of [{ GIT_CONFIG_COUNT: '0' }, { GIT_CONFIG_KEY_0: 'core.quotepath', GIT_CONFIG_VALUE_0: 'false' }, { GIT_CONFIG_PARAMETERS: `'filter.evil.clean'='touch ${marker('env-ran')}; cat'` }]) {
+      await git(repo!.path, ['diff', '--numstat', 'HEAD'], { env })
+      expect(await ran('env-ran'), JSON.stringify(env)).toBe(false)
+    }
+  })
+
   test('a filter with an empty name does not run either', async () => {
     await filtered('')
     config('filter..clean', `touch '${marker('empty-name-ran')}'; cat`)
