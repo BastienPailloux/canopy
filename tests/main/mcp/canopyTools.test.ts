@@ -476,6 +476,14 @@ describe('canopy Linear writes', () => {
       expect(saves()[0].team).toBe('78589deb-f061-45b7-b299-bb1c34d4b638')
     })
 
+    it('no known team: the team argument goes to Linear as is, none is an error', async () => {
+      issues = []
+      await expect(tools.create_ticket({ source: 'linear', title: 'x' })).rejects.toThrow(/^Précise l'équipe Linear\.$/)
+      expect(saves()).toEqual([])
+      await tools.create_ticket({ source: 'linear', title: 'x', team: 'Canopy' })
+      expect(saves()[0].team).toBe('Canopy')
+    })
+
     it('refuses a local parent', async () => {
       await expect(tools.create_ticket({ source: 'linear', title: 'x', parent: 'local:CAN-1' })).rejects.toThrow('Le parent doit venir de la même source que le ticket.')
     })

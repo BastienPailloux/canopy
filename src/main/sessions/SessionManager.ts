@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import type {
-  CanUseTool, getSessionMessages, listSessions, ModelInfo, Options, PermissionMode, PermissionResult, PermissionUpdate,
+  CanUseTool, getSessionMessages, listSessions, McpSdkServerConfigWithInstance, ModelInfo, Options, PermissionMode, PermissionResult, PermissionUpdate,
   query, Query, SDKMessage, SDKResultMessage, SDKUserMessage, SessionMessage, SlashCommand
 } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvents, StartSessionOptions } from '../../shared/api'
@@ -28,6 +28,11 @@ export interface SessionManagerDeps {
    * Emptied at startup: no session outlives the app. Unset, documents are sent with no copy.
    */
   attachmentsDir?: string
+  /**
+   * The `canopy` MCP server of a session, on the tickets and mockups of `repoRoot`. Called once per session;
+   * `mode` reads the session's current mode, which `setMode` or Claude may change mid-session.
+   */
+  canopyServer?: (ctx: { repoRoot: string; mode: () => PermissionMode }) => McpSdkServerConfigWithInstance
 }
 
 type EventMap = { [K in keyof SessionEvents]: [SessionEvents[K]] }
@@ -61,6 +66,9 @@ interface Session {
   reported?: SessionState
   closed: boolean
 }
+
+/** Prefix of the canopy tools: Claude uses them with no prompt, as Bastien decided (plan mode is refused in the tools). */
+const CANOPY_TOOL_PREFIX = 'mcp__canopy__'
 
 const WITHDRAWN: PermissionResult = { behavior: 'deny', message: 'Demande annulée.' }
 const INTERRUPTED: readonly unknown[] = ['aborted_tools', 'aborted_streaming']
@@ -145,10 +153,12 @@ export class SessionManager extends EventEmitter<EventMap> {
     let session: Session | undefined
     const canUseTool: CanUseTool = (toolName, toolInput, opts) =>
       session ? this.askPermission(session, toolName, toolInput, opts) : Promise.resolve(WITHDRAWN)
+    const mode = (): PermissionMode => session?.mode ?? o.mode ?? 'default'
 
     let q: Query
     try {
-      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.makeCopiesDir(localId)) })
+      const canopy = this.deps.canopyServer?.({ repoRoot: o.repoRoot ?? cwd, mode })
+      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.makeCopiesDir(localId), canopy) })
     } catch (err) {
       input.close()
       // Deferred so that the caller holds the localId before hearing about it.
@@ -288,7 +298,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     sessionId: string,
     o: StartSessionOptions,
     canUseTool: CanUseTool,
-    copiesDir: string | undefined
+    copiesDir: string | undefined,
+    canopy: McpSdkServerConfigWithInstance | undefined
   ): Options {
     // The injected env alone: it already holds the login shell env (USER included) and never ELECTRON_RUN_AS_NODE.
     // The Artifact tool (mockups on claude.ai) only exists with CLAUDE_CODE_ARTIFACT=1.
@@ -305,6 +316,7 @@ export class SessionManager extends EventEmitter<EventMap> {
       ...(o.model ? { model: o.model } : {}),
       // Claude reads the copies there with no permission prompt.
       ...(copiesDir ? { additionalDirectories: [copiesDir] } : {}),
+      ...(canopy ? { mcpServers: { canopy }, allowedTools: ['mcp__canopy'] } : {}),
       ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {})
     }
   }
@@ -395,6 +407,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     o: CanUseToolOptions
   ): Promise<PermissionResult> {
     if (s.closed || o.signal.aborted) return Promise.resolve(WITHDRAWN)
+    // allowedTools already lets them through; this covers a mode where the SDK still asks.
+    if (toolName.startsWith(CANOPY_TOOL_PREFIX)) return Promise.resolve({ behavior: 'allow', updatedInput: input })
     const { requestId, signal } = o
     // Other suggestion types would also switch the session's mode or widen its directories.
     const rules = o.suppressAlwaysAllowRule ? [] : (o.suggestions ?? []).filter((u) => u.type === 'addRules')

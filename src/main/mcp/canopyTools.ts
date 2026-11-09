@@ -213,13 +213,18 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     return { f: parseFields(rest), ...(status !== undefined ? { status: status as string } : {}) }
   }
 
-  /** Team of a new issue: the parent's, else the only team of Bastien's issues, else the one Claude named among them. */
+  /**
+   * Team of a new issue: the parent's, else the only team of Bastien's issues, else the one Claude named among them.
+   * With no known team (no assigned issue) the name goes to Linear as is: it is the only one able to check it.
+   */
   function linearTeam(name: unknown): string {
     const teams = [...new Map(deps.sync.state().issues.map((i) => [i.team.id, i.team])).values()]
-    const named = typeof name === 'string' ? teams.find((t) => t.name.toLowerCase() === name.toLowerCase()) : undefined
-    if (named) return named.id
+    const named = str(name)
+    if (named && teams.length === 0) return named
+    const known = named ? teams.find((t) => t.name.toLowerCase() === named.toLowerCase()) : undefined
+    if (known) return known.id
     if (name === undefined && teams.length === 1) return teams[0].id
-    throw new Error(`Précise l'équipe Linear : ${teams.map((t) => t.name).join(', ')}`)
+    throw new Error(teams.length ? `Précise l'équipe Linear : ${teams.map((t) => t.name).join(', ')}` : "Précise l'équipe Linear.")
   }
 
   // Not queued: the queue only knows edits of an existing issue, so offline the creation fails with its reason.
