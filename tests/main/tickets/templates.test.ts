@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_TEMPLATES, assertTemplateSlug, parseTemplate, parseTemplateFields, serializeTemplate } from '../../../src/main/tickets/templates'
-import { TEMPLATE_SLUG_RE, sortTemplates, templateSlug, type TemplateFields, type TicketTemplate } from '../../../src/shared/tickets'
+import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TEMPLATE_NAME, MAX_TITLE, TEMPLATE_SLUG_RE, sortTemplates, templateSlug, type TemplateFields, type TicketTemplate } from '../../../src/shared/tickets'
 
 describe('template format', () => {
   it('round-trips a template', () => {
@@ -30,6 +30,20 @@ describe('template format', () => {
   it('refuses an unknown priority and a missing front matter', () => {
     expect(() => parseTemplate('---\nname: X\npriority: huge\n---\n', 'x')).toThrow('Priorité inconnue : huge')
     expect(() => parseTemplate('no front matter', 'x')).toThrow('Front matter manquant')
+  })
+
+  it('refuses values beyond the limits the templates screen and ticket creation enforce', () => {
+    const f = (over: Partial<TemplateFields>): string => serializeTemplate({ name: 'X', description: '', priority: 'none', labels: [], subtasks: [], ...over })
+    expect(() => parseTemplate(f({ name: 'n'.repeat(MAX_TEMPLATE_NAME + 1) }), 'x')).toThrow('Champ « name » trop long')
+    expect(() => parseTemplate(f({ name: ' ' }), 'x')).toThrow('Champ « name » invalide')
+    expect(() => parseTemplate(f({ description: 'd'.repeat(MAX_DESCRIPTION + 1) }), 'x')).toThrow('Description trop longue')
+    expect(() => parseTemplate(f({ labels: Array.from({ length: MAX_LABELS + 1 }, (_, i) => `l${i}`) }), 'x')).toThrow('Champ « labels » invalide')
+    expect(() => parseTemplate(f({ labels: ['l'.repeat(MAX_LABEL + 1)] }), 'x')).toThrow('Champ « labels » invalide')
+    expect(() => parseTemplate('---\nname: X\nlabels: [""]\n---\n', 'x')).toThrow('Champ « labels » invalide')
+    expect(() => parseTemplate(f({ subtasks: Array.from({ length: MAX_SUBTASKS + 1 }, () => ({ title: 't', done: false })) }), 'x')).toThrow('Trop de sous-tâches')
+    expect(() => parseTemplate(f({ subtasks: [{ title: 't'.repeat(MAX_TITLE + 1), done: false }] }), 'x')).toThrow('Sous-tâche trop longue')
+    const max = f({ name: 'n'.repeat(MAX_TEMPLATE_NAME), labels: ['l'.repeat(MAX_LABEL)], subtasks: [{ title: 't'.repeat(MAX_TITLE), done: false }] })
+    expect(parseTemplate(max, 'x').name).toHaveLength(MAX_TEMPLATE_NAME)
   })
 })
 

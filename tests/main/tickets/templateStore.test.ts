@@ -2,11 +2,24 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TicketStore } from '../../../src/main/tickets/store'
 import type { TemplateFields, TicketFields } from '../../../src/shared/tickets'
 import { TEMPLATE_SLUG_RE } from '../../../src/shared/tickets'
 import { createRepo, type TestRepo } from '../../helpers/repo'
+
+// Set by a test to make writing that path fail with EIO, an error other than « already exists ».
+const failing = vi.hoisted(() => ({ path: '' }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...fs,
+    writeFile: (async (file, ...rest) => {
+      if (failing.path && String(file).endsWith(failing.path)) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })
+      return fs.writeFile(file, ...rest)
+    }) as typeof fs.writeFile
+  }
+})
 
 const fields = (): TicketFields => ({ title: 'Un ticket', description: 'desc', status: 'backlog', priority: 'none', labels: [], subtasks: [] })
 const tpl = (name: string): TemplateFields => ({ name, description: 'd', priority: 'none', labels: [], subtasks: [] })
@@ -17,7 +30,10 @@ beforeEach(async () => {
   repo = await createRepo({ dirName: 'canopy' })
   store = new TicketStore()
 })
-afterEach(() => repo.cleanup())
+afterEach(() => {
+  failing.path = ''
+  return repo.cleanup()
+})
 
 const tdir = () => join(repo.path, '.tickets', 'templates')
 
@@ -31,6 +47,11 @@ describe('TicketStore templates', () => {
     const again = await store.templates(repo.path)
     expect(again.entries).toHaveLength(3)
     expect(existsSync(join(tdir(), 'bug.md'))).toBe(false)
+  })
+
+  it('fails when a built-in template cannot be written', async () => {
+    failing.path = join('templates', 'bug.md')
+    await expect(store.templates(repo.path)).rejects.toThrow('EIO')
   })
 
   it('does not seed when the folder exists empty', async () => {

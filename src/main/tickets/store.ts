@@ -37,6 +37,9 @@ async function writeNew(file: string, data: string): Promise<void> {
   }
 }
 
+/** The error `writeNew` throws when the file already exists. */
+const isAlreadyThere = (e: unknown): boolean => e instanceof Error && e.message.startsWith('Le fichier existe déjà')
+
 function checkId(id: string): void {
   if (!ID_RE.test(id)) throw new Error(`Identifiant de ticket invalide : ${id}`)
 }
@@ -258,7 +261,10 @@ export class TicketStore {
       const dir = this.templatesDir(root)
       if (!(await lstat(dir).catch(() => undefined))) {
         await mkdir(dir, { recursive: true })
-        for (const b of BUILTIN_TEMPLATES) await writeNew(join(dir, `${b.slug}.md`), serializeTemplate(b.fields)).catch(() => undefined)
+        for (const b of BUILTIN_TEMPLATES) {
+          // Another writer seeded the same file first: theirs stays.
+          await writeNew(join(dir, `${b.slug}.md`), serializeTemplate(b.fields)).catch((e: unknown) => { if (!isAlreadyThere(e)) throw e })
+        }
         await this.guard(root)
       }
       const good: TicketTemplate[] = []
@@ -300,7 +306,7 @@ export class TicketStore {
           await writeNew(join(dir, `${candidate}.md`), data)
           return { ...f, slug: candidate }
         } catch (e) {
-          if (!(e instanceof Error) || !e.message.startsWith('Le fichier existe déjà')) throw e
+          if (!isAlreadyThere(e)) throw e
         }
       }
     })
