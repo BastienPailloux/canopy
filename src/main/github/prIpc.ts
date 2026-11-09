@@ -3,7 +3,7 @@ import { MAX_PR_BODY, type AutoMergeEntry, type CleanupRequest, type MergeMethod
 import type { AppStore } from '../appStore'
 import { clearSharedReads } from '../git/sharedReads'
 import type { AutoMergeWatch } from './autoMergeWatch'
-import { cleanupAfterMerge, deleteMergedBranch } from './cleanup'
+import { cleanupAfterMerge, deleteLocalAfterMerge } from './cleanup'
 import type { PrGateway } from './gateway'
 
 const bad = (): Error => new Error('Action invalide')
@@ -199,11 +199,12 @@ export function registerPrIpc(d: PrIpcDeps): void {
       clearSharedReads()
     }
   })
-  d.handle('pr:deleteLocalBranch', async (repo, branch, headOid) => {
+  d.handle('pr:deleteLocalBranch', async (repo, branch) => {
     assertCwd(repo)
-    const req = parseCleanupRequest({ number: 1, branch, headOid })
+    if (!isBranchName(branch)) throw badCleanup()
     try {
-      return await deleteMergedBranch(repo, req.branch, req.headOid)
+      // GitHub, not the renderer, says whether it is merged and at which head
+      return await deleteLocalAfterMerge(d.gateway, repo, branch)
     } finally {
       clearSharedReads()
     }

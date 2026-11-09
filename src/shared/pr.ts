@@ -66,10 +66,11 @@ export const MAX_PR_BODY = 65_536
 export interface CleanupRequest { number: number; branch: string; headOid: string }
 /** An auto-merge enabled from the tab; `cleanup`: its box was checked. */
 export type AutoMergeEntry = CleanupRequest & { cleanup: boolean }
-export type CleanupStep = { step: 'remote' | 'switch' | 'local' | 'update'; ok: boolean; message?: string }
+/** `check`: main asked GitHub whether the PR is merged; nothing runs when it is not. */
+export type CleanupStep = { step: 'check' | 'remote' | 'switch' | 'local' | 'update'; ok: boolean; message?: string }
 export type CleanupOutcome =
-  /** Uncommitted files: nothing done locally. */
-  | { kind: 'dirty'; files: number }
+  /** Uncommitted files, or changes Canopy set aside for the branch (`setAside`): nothing done locally. */
+  | { kind: 'dirty'; files: number; setAside?: true }
   | { kind: 'switched'; branch: string; steps: CleanupStep[] }
   /** No branch to go back to: the renderer offers to remove the worktree. */
   | { kind: 'proposeRemoval'; steps: CleanupStep[] }

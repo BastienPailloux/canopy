@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AppStore } from '../../../src/main/appStore'
 import { createAutoMergeWatch } from '../../../src/main/github/autoMergeWatch'
 import type { PrGateway } from '../../../src/main/github/gateway'
-import type { PrState } from '../../../src/shared/pr'
+import type { PrDetail, PrState } from '../../../src/shared/pr'
 
 let dir: string
 let store: AppStore
@@ -13,10 +13,11 @@ let state: PrState
 let events: [string, unknown][]
 let tick: (() => void) | null
 let period: number | null
+let mergedOid: string
 
 const gateway = (): PrGateway => ({
   find: async (_cwd, branch) => (branch === 'feat/x' ? { number: 87, state, title: 't', url: 'u' } : null),
-  view: async () => { throw new Error('unused') },
+  view: async (_cwd, n) => ({ number: n, state, head: 'feat/x', headOid: mergedOid } as PrDetail),
   options: async () => ({ labels: [], assignable: [], suggested: [] }),
   failedLog: async () => '',
   branchStates: async () => null,
@@ -35,6 +36,7 @@ beforeEach(async () => {
   events = []
   tick = null
   period = null
+  mergedOid = 'a'.repeat(40)
 })
 afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
 
@@ -52,6 +54,15 @@ describe('AutoMergeWatch', () => {
     await w.poll()
     expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req }]])
     expect(store.autoMerges).toEqual({})
+  })
+
+  it('the broadcast carries the head GitHub merged, not the one known when enabled', async () => {
+    const w = watch()
+    w.watch('/r/wt', { ...req, cleanup: true })
+    mergedOid = 'b'.repeat(40)
+    state = 'merged'
+    await w.poll()
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req: { ...req, headOid: mergedOid } }]])
   })
 
   it('forgets a closed PR silently', async () => {

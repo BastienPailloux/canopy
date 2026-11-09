@@ -156,8 +156,8 @@ describe('registerPrIpc cleanup handlers', () => {
     const s = setup()
     await expect(s.call('pr:cleanup', 'rel', req)).rejects.toThrow('Chemin invalide')
     await expect(s.call('pr:cleanup', '/r', { ...req, headOid: 'x' })).rejects.toThrow('invalide')
-    await expect(s.call('pr:deleteLocalBranch', '/r', '-D', req.headOid)).rejects.toThrow('invalide')
-    await expect(s.call('pr:deleteLocalBranch', '/r', 'feat/x', 'HEAD')).rejects.toThrow('invalide')
+    await expect(s.call('pr:deleteLocalBranch', '/r', '-D')).rejects.toThrow('invalide')
+    await expect(s.call('pr:deleteLocalBranch', 'rel', 'feat/x')).rejects.toThrow('Chemin invalide')
   })
 
   it('watches an auto-merge with its box, and stops with null', async () => {

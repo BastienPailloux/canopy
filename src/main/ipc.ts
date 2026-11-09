@@ -380,6 +380,7 @@ export function registerIpc(
     assertPath(path)
     await removeAndStop(repo, path, force === true, live, removeWorktree)
     store.forgetBranchHistory(path)
+    store.setAutoMerge(path, null)
     clearSharedReads()
   })
 

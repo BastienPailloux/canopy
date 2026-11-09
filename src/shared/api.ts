@@ -272,8 +272,8 @@ export interface CanopyApi {
   prAct(cwd: string, number: number, action: PrAction): Promise<PrActResult>
   /** After a merge from the tab, box checked: remote branch, switch to the next branch (or proposes removal), local branch. */
   prCleanup(cwd: string, req: CleanupRequest): Promise<CleanupOutcome>
-  /** Once the worktree is removed: deletes the merged branch, only at the PR's head. */
-  prDeleteLocalBranch(repo: string, branch: string, headOid: string): Promise<CleanupStep>
+  /** Once the worktree is removed: deletes the branch if GitHub says its PR is merged, only at that PR's head. */
+  prDeleteLocalBranch(repo: string, branch: string): Promise<CleanupStep>
   /** Follows an auto-merge enabled from the tab (null: stops); `pr:autoMerged` `{ cwd, req }` comes once merged, box checked. */
   prWatchAutoMerge(cwd: string, entry: AutoMergeEntry | null): Promise<void>
   linearAckDepartures(ids: string[]): Promise<void>

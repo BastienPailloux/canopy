@@ -1,14 +1,14 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AppStore } from '../../../src/main/appStore'
-import { cleanupAfterMerge, deleteMergedBranch } from '../../../src/main/github/cleanup'
+import { cleanupAfterMerge, deleteMergedBranch, deleteLocalAfterMerge, updateBase } from '../../../src/main/github/cleanup'
 import type { PrGateway } from '../../../src/main/github/gateway'
 import type { BranchPrState } from '../../../src/main/git/pr'
-import type { PrAction } from '../../../src/shared/pr'
+import type { PrAction, PrDetail, PrState } from '../../../src/shared/pr'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 const run = promisify(execFile)
@@ -35,10 +35,14 @@ let storeDir: string
 let acts: PrAction[]
 let states: Map<string, BranchPrState> | null
 let remoteFails: boolean
+/** What GitHub says of PR 87; `ghHead` null: the PR's head as committed in beforeEach. */
+let ghState: PrState
+let ghHead: string | null
+let trusted: boolean
 
 const gateway = (): PrGateway => ({
-  find: async () => null,
-  view: async () => { throw new Error('unused') },
+  find: async (_cwd, b) => (b === 'feat/x' ? { number: 87, state: ghState, title: 't', url: 'u' } : null),
+  view: async (_cwd, n) => ({ number: n, state: ghState, head: 'feat/x', headOid: ghHead ?? headOid } as PrDetail),
   options: async () => ({ labels: [], assignable: [], suggested: [] }),
   failedLog: async () => '',
   branchStates: async () => states,
@@ -48,7 +52,7 @@ const gateway = (): PrGateway => ({
     return { ok: true }
   },
 })
-const deps = () => ({ gateway: gateway(), store, trusted: false })
+const deps = () => ({ gateway: gateway(), store, trusted })
 const req = () => ({ number: 87, branch: 'feat/x', headOid })
 
 beforeEach(async () => {
@@ -61,6 +65,9 @@ beforeEach(async () => {
   acts = []
   states = new Map()
   remoteFails = false
+  ghState = 'merged'
+  ghHead = null
+  trusted = false
 })
 afterEach(async () => {
   await repo.cleanup()
@@ -155,6 +162,7 @@ describe('cleanupAfterMerge', () => {
     headOid = await commit(repo.path, 'x.txt')
     store.recordBranch(repo.path, 'main')
     store.recordBranch(repo.path, 'feat/x')
+    trusted = true
     const out = await cleanupAfterMerge(repo.path, req(), deps())
     expect(out).toEqual({
       kind: 'switched', branch: 'main',
@@ -178,6 +186,88 @@ describe('cleanupAfterMerge', () => {
   })
 })
 
+describe('cleanupAfterMerge checks', () => {
+  it('PR still open → nothing touched', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    for (const b of ['feat/y', 'feat/x']) store.recordBranch(wt, b)
+    ghState = 'open'
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toEqual({ kind: 'failed', steps: [{ step: 'check', ok: false, message: "La PR #87 n'est pas mergée : rien n'a été nettoyé" }] })
+    expect(acts).toEqual([])
+    expect(await git(wt, ['branch', '--show-current'])).toBe('feat/x')
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it('a PR whose head is another branch → nothing touched', async () => {
+    const out = await cleanupAfterMerge(wt, { ...req(), branch: 'feat/other' }, deps())
+    expect(out).toMatchObject({ kind: 'failed', steps: [{ step: 'check', ok: false }] })
+    expect(acts).toEqual([])
+  })
+
+  it('the merged head from GitHub is used for the local deletion', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    for (const b of ['feat/y', 'feat/x']) store.recordBranch(wt, b)
+    // the renderer says some other commit: GitHub's head decides
+    const out = await cleanupAfterMerge(wt, { ...req(), headOid: 'f'.repeat(40) }, deps())
+    expect(out).toMatchObject({ kind: 'switched', branch: 'feat/y' })
+    expect(await branchExists(repo.path, 'feat/x')).toBe(false)
+  })
+
+  it('a local tip GitHub never merged is kept, whatever the renderer says', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    for (const b of ['feat/y', 'feat/x']) store.recordBranch(wt, b)
+    ghHead = await git(wt, ['rev-parse', 'HEAD~1'])
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toMatchObject({ kind: 'switched' })
+    if (out.kind === 'switched') expect(out.steps.at(-1)).toEqual({ step: 'local', ok: false, message: 'La branche locale a des commits absents de la PR : conservée' })
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it('changes Canopy set aside for the branch count as uncommitted', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    for (const b of ['feat/y', 'feat/x']) store.recordBranch(wt, b)
+    await writeFile(join(wt, 'x.txt'), 'changed\n')
+    await git(wt, ['stash', 'push', '-q', '-m', 'canopy:feat/x'])
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toEqual({ kind: 'dirty', files: 0, setAside: true })
+    expect(acts).toEqual([])
+    expect(await git(wt, ['branch', '--show-current'])).toBe('feat/x')
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it('an untrusted main checkout switches to the base but does not update it', async () => {
+    await git(repo.path, ['worktree', 'remove', '--force', wt])
+    await git(repo.path, ['branch', '-D', 'feat/x'])
+    await commit(repo.path, 'upstream.txt')
+    await git(repo.path, ['push', '-q', 'origin', 'main'])
+    await git(repo.path, ['reset', '-q', '--hard', 'HEAD~1'])
+    const before = await git(repo.path, ['rev-parse', 'HEAD'])
+    await git(repo.path, ['switch', '-q', '-c', 'feat/x'])
+    headOid = await commit(repo.path, 'x.txt')
+    const out = await cleanupAfterMerge(repo.path, req(), deps())
+    expect(out).toEqual({
+      kind: 'switched', branch: 'main',
+      steps: [
+        { step: 'remote', ok: true }, { step: 'switch', ok: true },
+        { step: 'update', ok: false, message: "Base non mise à jour : la configuration du dépôt n'est pas approuvée" },
+        { step: 'local', ok: true }
+      ]
+    })
+    expect(await git(repo.path, ['rev-parse', 'HEAD'])).toBe(before)
+  })
+
+  it('the main checkout reached through a symlink is never proposed for removal', async () => {
+    await git(repo.path, ['worktree', 'remove', '--force', wt])
+    await git(repo.path, ['branch', '-D', 'feat/x'])
+    await git(repo.path, ['switch', '-q', '-c', 'feat/x'])
+    headOid = await commit(repo.path, 'x.txt')
+    const link = join(dirname(repo.path), 'link')
+    await symlink(repo.path, link)
+    const out = await cleanupAfterMerge(link, req(), deps())
+    expect(out).toMatchObject({ kind: 'switched', branch: 'main' })
+  })
+})
+
 describe('deleteMergedBranch', () => {
   it('never deletes a branch checked out in a worktree', async () => {
     const step = await deleteMergedBranch(repo.path, 'feat/x', headOid)
@@ -189,5 +279,27 @@ describe('deleteMergedBranch', () => {
     await git(repo.path, ['worktree', 'remove', '--force', wt])
     expect(await deleteMergedBranch(repo.path, 'feat/x', headOid)).toEqual({ step: 'local', ok: true })
     expect(await branchExists(repo.path, 'feat/x')).toBe(false)
+  })
+})
+
+describe('deleteLocalAfterMerge', () => {
+  it('asks GitHub: an open PR keeps the branch', async () => {
+    await git(repo.path, ['worktree', 'remove', '--force', wt])
+    ghState = 'open'
+    expect(await deleteLocalAfterMerge(gateway(), repo.path, 'feat/x')).toEqual({ step: 'local', ok: false, message: "La PR de cette branche n'est pas mergée : branche conservée" })
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it("deletes at GitHub's merged head", async () => {
+    await git(repo.path, ['worktree', 'remove', '--force', wt])
+    expect(await deleteLocalAfterMerge(gateway(), repo.path, 'feat/x')).toEqual({ step: 'local', ok: true })
+    expect(await branchExists(repo.path, 'feat/x')).toBe(false)
+  })
+})
+
+describe('updateBase', () => {
+  it('refuses a remote name that could pass for a flag', async () => {
+    expect(await updateBase(repo.path, '-x/main', true)).toMatchObject({ step: 'update', ok: false })
+    expect(await updateBase(repo.path, '/main', true)).toMatchObject({ step: 'update', ok: false })
   })
 })

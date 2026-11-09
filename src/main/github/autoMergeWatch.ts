@@ -32,14 +32,18 @@ export function createAutoMergeWatch(d: AutoMergeWatchDeps): AutoMergeWatch {
     const pr = await d.gateway.find(cwd, entry.branch).catch(() => null)
     if (pr === null || pr.number !== entry.number) return
     if (pr.state !== 'merged' && pr.state !== 'closed') return
+    let req: CleanupRequest | null = null
+    if (pr.state === 'merged' && entry.cleanup) {
+      // The head GitHub merged: commits may have been pushed since the auto-merge was enabled. Unread: asked again next time.
+      const detail = await d.gateway.view(cwd, entry.number).catch(() => null)
+      if (detail === null || detail.state !== 'merged') return
+      req = { number: entry.number, branch: entry.branch, headOid: detail.headOid }
+    }
     // Re-read: the entry may have been replaced or dropped while gh answered.
     const now = d.store.autoMerges[cwd]
     if (now === undefined || now.number !== entry.number || now.branch !== entry.branch) return
     d.store.setAutoMerge(cwd, null)
-    if (pr.state === 'merged' && entry.cleanup) {
-      const req: CleanupRequest = { number: entry.number, branch: entry.branch, headOid: entry.headOid }
-      d.broadcast('pr:autoMerged', { cwd, req })
-    }
+    if (req) d.broadcast('pr:autoMerged', { cwd, req })
   }
 
   const poll = (): Promise<void> => {

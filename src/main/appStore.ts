@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { isAbsolute } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import type { LinearLink } from '../shared/linear'
 import type { AutoMergeEntry } from '../shared/pr'
 
