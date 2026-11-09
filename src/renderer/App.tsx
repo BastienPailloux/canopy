@@ -18,6 +18,8 @@ import { connectLastEntry, openFromTerminal, openRepoFlow, selectRepoFlow } from
 import { connectMockups } from './mockups/mockupStore'
 import { MockupEditor } from './mockups/MockupEditor'
 import { MockupsScreen } from './mockups/MockupsScreen'
+import { connectPr } from './pr/prStore'
+import { PrScreen } from './pr/PrScreen'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectTickets } from './tickets/ticketStore'
 import { connectLinear } from './tickets/linearStore'
@@ -104,9 +106,11 @@ function Main(): React.JSX.Element {
             {worktree && <SidePanel cwd={worktree.path} branch={worktreeLabel(worktree)} />}
           </div>
         )
-        : worktree
-          ? <CodeScreen key={worktree.path} cwd={worktree.path} branch={worktreeLabel(worktree)} />
-          : <div className="placeholder">Ce worktree n'existe plus sur le disque : il n'y a plus de code à montrer.</div>}
+        : view === 'pr' && worktree
+          ? <PrScreen key={worktree.path} />
+          : worktree
+            ? <CodeScreen key={worktree.path} cwd={worktree.path} branch={worktreeLabel(worktree)} />
+            : <div className="placeholder">Ce worktree n'existe plus sur le disque : il n'y a plus de code à montrer.</div>}
     </>
   )
 }
@@ -135,6 +139,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectTickets(), [])
   useEffect(() => connectLinear(), [])
   useEffect(() => connectMockups(), [])
+  useEffect(() => connectPr(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.

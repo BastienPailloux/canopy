@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { tabCounts } from '../pr/mergeModel'
+import { usePr } from '../pr/prStore'
 import { useApp, type View } from '../store'
 import { useLinear } from '../tickets/linearStore'
 import { openLinearCount } from '../tickets/listModel'
@@ -9,6 +11,7 @@ import { Settings } from './Settings'
 const VIEWS: { id: View; label: string }[] = [
   { id: 'sessions', label: 'Sessions' },
   { id: 'code', label: 'Code' },
+  { id: 'pr', label: 'PR' },
   { id: 'tickets', label: 'Tickets' },
   { id: 'mockups', label: 'Maquettes' }
 ]
@@ -32,6 +35,8 @@ export function Header(): React.JSX.Element {
   const local = useTickets((s) => openCount(s.entries))
   const linear = useLinear((s) => openLinearCount(s.list.issues))
   const open = local + linear
+  const hasPr = usePr((s) => s.summary !== null)
+  const threads = usePr((s) => (s.detail ? tabCounts(s.detail).openThreads : 0))
   const [settings, setSettings] = useState(false)
   return (
     <header className="header">
@@ -41,10 +46,11 @@ export function Header(): React.JSX.Element {
       </span>
       <RepoPicker />
       <nav className="nav" aria-label="Vues">
-        {VIEWS.map((v) => (
+        {VIEWS.filter((v) => v.id !== 'pr' || hasPr).map((v) => (
           <button key={v.id} aria-current={view === v.id ? 'page' : undefined} onClick={() => setView(v.id)}>
             {v.label}
             {v.id === 'tickets' && open > 0 && <span className="count">{open}</span>}
+            {v.id === 'pr' && threads > 0 && <span className="count" data-alert="true">{threads}</span>}
           </button>
         ))}
       </nav>
