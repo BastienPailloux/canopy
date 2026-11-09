@@ -2,9 +2,9 @@ import type { BaseRef } from '../../shared/types'
 import { git, GitError } from './exec'
 import { listWorktrees } from './worktrees'
 
-async function exists(repo: string, ref: string): Promise<boolean> {
+async function exists(repo: string, ref: string, env?: NodeJS.ProcessEnv): Promise<boolean> {
   try {
-    await git(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+    await git(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { env })
     return true
   } catch {
     return false
@@ -16,23 +16,25 @@ const BASE_NAMES = ['main', 'master', 'develop']
 /**
  * origin/HEAD, then the usual names on origin, then locally, then origin's only branch.
  * A remote branch goes first: a clone's local main is often stale, and would show others' commits as this branch's.
+ * `env` reaches every git call (e.g. to forbid a lazy fetch while checking a commit exists).
  */
-export async function resolveBaseRef(repo: string): Promise<BaseRef> {
+export async function resolveBaseRef(repo: string, opts: { env?: NodeJS.ProcessEnv } = {}): Promise<BaseRef> {
+  const { env } = opts
   try {
-    const out = (await git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])).trim()
-    if (out.startsWith('origin/') && (await exists(repo, `refs/remotes/${out}`))) {
+    const out = (await git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { env })).trim()
+    if (out.startsWith('origin/') && (await exists(repo, `refs/remotes/${out}`, env))) {
       return { name: out.slice('origin/'.length), ref: out }
     }
   } catch {
     // no origin/HEAD
   }
   for (const name of BASE_NAMES) {
-    if (await exists(repo, `refs/remotes/origin/${name}`)) return { name, ref: `origin/${name}` }
+    if (await exists(repo, `refs/remotes/origin/${name}`, env)) return { name, ref: `origin/${name}` }
   }
   for (const name of BASE_NAMES) {
-    if (await exists(repo, `refs/heads/${name}`)) return { name, ref: name }
+    if (await exists(repo, `refs/heads/${name}`, env)) return { name, ref: name }
   }
-  const remote = (await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin']))
+  const remote = (await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'], { env }))
     .split('\n')
     .filter((b) => b.startsWith('origin/') && b !== 'origin/HEAD')
   if (remote.length === 1) return { name: remote[0].slice('origin/'.length), ref: remote[0] }

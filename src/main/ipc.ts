@@ -145,7 +145,8 @@ export function registerUpdateIpc(updater: Updater | null, stashFile: string): v
 
 export function registerIpc(
   store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void,
-  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore, mockups: MockupStore
+  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore, mockups: MockupStore,
+  onRecentRepo: () => void = () => undefined
 ): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
@@ -233,6 +234,7 @@ export function registerIpc(
     if (res.canceled || res.filePaths.length === 0) return null
     const folder = await resolveOpenedFolder(res.filePaths[0])
     store.addRecentRepo(folder)
+    onRecentRepo()
     return folder
   })
 
@@ -246,6 +248,7 @@ export function registerIpc(
       throw err
     }
     store.addRecentRepo(folder)
+    onRecentRepo()
     return folder
   })
 

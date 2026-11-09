@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react'
 import type { Workspace } from '../shared/types'
 import type { Stash } from '../shared/update'
 import { CodeScreen } from './code/CodeScreen'
+import { DepsBanner } from './deps/DepsBanner'
+import { DepsScreen } from './deps/DepsScreen'
+import { connectDeps } from './deps/depsStore'
 import { SessionsView } from './sessions/SessionsView'
 import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
 import { SidePanel } from './sessions/SidePanel'
@@ -135,6 +138,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectTickets(), [])
   useEffect(() => connectLinear(), [])
   useEffect(() => connectMockups(), [])
+  useEffect(() => connectDeps(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
@@ -178,11 +182,14 @@ export function App(): React.JSX.Element {
       <RestoredChip />
       <WhatsNew />
       <Header />
+      <DepsBanner />
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
           <main className="main tickets-view">{openTicket ? <OpenTicket k={openTicket} /> : <TicketsScreen />}</main>
         ) : repo && workspace && view === 'mockups' ? (
           <main className="main mockups-view">{openMockup ? <MockupEditor id={openMockup} /> : <MockupsScreen />}</main>
+        ) : repo && workspace && view === 'deps' ? (
+          <main className="main deps-view"><DepsScreen /></main>
         ) : repo && workspace ? (
           <>
             <Sidebar repo={repo} workspace={workspace} />

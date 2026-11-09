@@ -1,0 +1,1 @@
+{ "dist-tags": { "latest": "2.88.2" }, "modified": "2020-02-11T00:00:00.000Z", "versions": { "2.88.2": { "deprecated": "request has been deprecated, see https://github.com/request/request/issues/3142" } } }
