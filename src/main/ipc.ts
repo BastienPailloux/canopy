@@ -1,4 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { startDictation } from './dictation'
+import { applyShortcutContext, parseShortcutContext } from './shortcutMenu'
 import { access } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { NewWorktree } from '../shared/api'
@@ -145,7 +147,8 @@ export function registerUpdateIpc(updater: Updater | null, stashFile: string): v
 
 export function registerIpc(
   store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void,
-  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore, mockups: MockupStore
+  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore, mockups: MockupStore,
+  onRecentRepo: () => void = () => undefined
 ): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
@@ -163,6 +166,11 @@ export function registerIpc(
   })
   ipcMain.handle('update:whatsNewSeen', () => { store.setPrefs({ ...store.prefs, lastSeenVersion: app.getVersion() }) })
   ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
+  ipcMain.handle('shortcuts:context', (_e, ctx: unknown) => {
+    const parsed = parseShortcutContext(ctx)
+    if (parsed) applyShortcutContext(Menu.getApplicationMenu(), parsed)
+  })
+  ipcMain.handle('dictation:start', () => { if (process.platform === 'darwin') startDictation((a) => Menu.sendActionToFirstResponder(a)) })
 
   const prs = new PrCache()
   const orphans = new OrphanTracker()
@@ -233,6 +241,7 @@ export function registerIpc(
     if (res.canceled || res.filePaths.length === 0) return null
     const folder = await resolveOpenedFolder(res.filePaths[0])
     store.addRecentRepo(folder)
+    onRecentRepo()
     return folder
   })
 
@@ -246,6 +255,7 @@ export function registerIpc(
       throw err
     }
     store.addRecentRepo(folder)
+    onRecentRepo()
     return folder
   })
 

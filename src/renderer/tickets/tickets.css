@@ -989,3 +989,37 @@
 .dialog .subtask-input { height: 26px; font-family: inherit; font-size: inherit; border-radius: 4px; }
 .dialog .subtask input[type='checkbox'] { height: auto; padding: 0; }
 .templates-editor .subtasks { margin-top: 4px; }
+
+.dialog textarea.quick-ticket-description {
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.quick-ticket-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.quick-ticket-notice button {
+  background: none;
+  border: 1px solid #A78BFA;
+  border-radius: 999px;
+  color: #A78BFA;
+  padding: 2px 10px;
+  cursor: pointer;
+}

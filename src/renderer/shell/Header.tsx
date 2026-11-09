@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDeps } from '../deps/depsStore'
 import { useApp, type View } from '../store'
 import { useLinear } from '../tickets/linearStore'
 import { openLinearCount } from '../tickets/listModel'
@@ -10,7 +11,8 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'sessions', label: 'Sessions' },
   { id: 'code', label: 'Code' },
   { id: 'tickets', label: 'Tickets' },
-  { id: 'mockups', label: 'Maquettes' }
+  { id: 'mockups', label: 'Maquettes' },
+  { id: 'deps', label: 'Dépendances' }
 ]
 
 function Logo(): React.JSX.Element {
@@ -32,6 +34,7 @@ export function Header(): React.JSX.Element {
   const local = useTickets((s) => openCount(s.entries))
   const linear = useLinear((s) => openLinearCount(s.list.issues))
   const open = local + linear
+  const critical = useDeps((s) => s.report?.entries.filter((e) => e.level === 'critical').length ?? 0)
   const [settings, setSettings] = useState(false)
   return (
     <header className="header">
@@ -45,6 +48,7 @@ export function Header(): React.JSX.Element {
           <button key={v.id} aria-current={view === v.id ? 'page' : undefined} onClick={() => setView(v.id)}>
             {v.label}
             {v.id === 'tickets' && open > 0 && <span className="count">{open}</span>}
+            {v.id === 'deps' && critical > 0 && <span className="count critical" data-testid="deps-count">{critical}</span>}
           </button>
         ))}
       </nav>

@@ -11,6 +11,12 @@ import { TicketStore } from './tickets/store'
 import { localBranches } from './tickets/ticketIpc'
 import { openExternalUrl } from './externalLinks'
 import { isConfigTrusted } from './repoTrust'
+import { listDepsRepos, registerDepsIpc } from './deps/depsIpc'
+import { checkRepo } from './deps/check'
+import { depsFirstPassDelay, selectDepsHttp } from './deps/replay'
+import { createDepsService } from './deps/service'
+import { createRegistry } from './deps/registries'
+import { forgetRepo } from './deps/source'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
@@ -156,6 +162,15 @@ void app.whenReady().then(async () => {
   const linearLinked = new LinkedIssues(store, localBranches)
   const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
     () => linearEdits.pending().map((p) => p.id))
+  const depsRegistry = createRegistry({ file: join(userData, 'deps-registry-cache.json') })
+  const depsService = createDepsService({
+    check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now, packageInfo: depsRegistry.packageInfo }, repo, prev),
+    repos: () => listDepsRepos(store.recentRepos),
+    file: join(userData, 'deps-reports.json'),
+    now: Date.now, setInterval, clearInterval, setTimeout, clearTimeout, broadcast, forget: forgetRepo,
+    firstPassDelayMs: depsFirstPassDelay({ isPackaged: app.isPackaged, env: process.env })
+  })
+  let depsHooks: ReturnType<typeof registerDepsIpc> | null = null
   let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }
   const running = (): RunningCounts => ({
     sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
@@ -172,7 +187,7 @@ void app.whenReady().then(async () => {
       const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
       return response === 0
     },
-    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers() },
+    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
     // Deferred: quitting from inside the `before-quit` that was just cancelled is ignored.
     quit: () => { setImmediate(() => app.quit()) }
   })
@@ -185,20 +200,29 @@ void app.whenReady().then(async () => {
   const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets, new MockupStore())
+    tickets, new MockupStore(),
+    () => { void depsHooks?.onRecentReposChanged().catch((e: unknown) => { console.error('deps check of a new repo failed', e) }) })
+  const launchDeps = {
+    tickets, store,
+    activity: (cwd: string) => sessions.activity(cwd),
+    sessions: (cwd: string) => sessions.liveCount(cwd),
+    trusted: (cwd: string) => isConfigTrusted(store, cwd)
+  }
+  depsHooks = registerDepsIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    service: depsService, store, launch: launchDeps
+  })
   const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
-    launch: {
-      tickets, store,
-      activity: (cwd) => sessions.activity(cwd),
-      sessions: (cwd) => sessions.liveCount(cwd),
-      trusted: (cwd) => isConfigTrusted(store, cwd)
-    },
+    launch: launchDeps,
     broadcast
   })
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
   void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
+  depsService.start()
+  // Only what fell due during sleep: a wake every few minutes must not recheck everything.
+  powerMonitor.on('resume', () => { void depsService.checkOverdue() })
   // Back from sleep: the network is likely back too; the refresh resends what failed.
   powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
@@ -233,7 +257,8 @@ void app.whenReady().then(async () => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     isPackaged: app.isPackaged,
     onCloseTab: () => broadcast('menu:closeTab'),
-    onInstallCli: () => void installCommand()
+    onInstallCli: () => void installCommand(),
+    onShortcut: (id) => broadcast('menu:shortcut', id)
   })))
   // What the page held died with it.
   const open = (): void => {

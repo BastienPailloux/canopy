@@ -1,6 +1,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { TerminalEvents } from '../../shared/api'
+import { leftToMenu } from '../../shared/shortcuts'
 
 /** One xterm per terminal, kept while the panel is hidden or another worktree is shown. */
 export interface TerminalView {
@@ -34,6 +35,7 @@ export function viewOf(id: string): TerminalView {
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
+  term.attachCustomKeyEventHandler((e) => !leftToMenu(e))
   const el = document.createElement('div')
   el.className = 'term-host'
   const view: TerminalView = { term, fit, el, opened: false, queue: [] }

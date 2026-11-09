@@ -97,6 +97,15 @@ describe('workspace', () => {
     expect(useApp.getState()).toMatchObject({ repo: '/ws/b', openTicket: null, selectedTicket: null })
   })
 
+  it('another repo drops the quick ticket notice; the same repo keeps it', () => {
+    useApp.getState().setWorkspace(ws(a, aFeat, b))
+    useApp.setState({ createdTicket: 'A-3' })
+    useApp.getState().selectEntry(aFeat)
+    expect(useApp.getState().createdTicket).toBe('A-3')
+    useApp.getState().selectEntry(b)
+    expect(useApp.getState().createdTicket).toBeNull()
+  })
+
   it('another repo closes the open mockup and clears the selected and pending ones; the same repo keeps them', () => {
     useApp.getState().setWorkspace(ws(a, aFeat, b))
     useApp.setState({ openMockup: 'new', selectedMockup: 'M1', pendingMockupTicket: 'A-1' })
