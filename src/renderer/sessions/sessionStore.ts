@@ -2,7 +2,6 @@ import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/clau
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
 import { isRepoNotTrusted } from '../../shared/errors'
-import { hasLinearServer, LINEAR_NOTICE } from '../../shared/linear'
 import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
 import { preferredMode, rememberMode } from './modePreference'
@@ -22,12 +21,6 @@ export interface SessionTab {
   title: string
   state: TabState
   error?: string
-  /** A non-blocking remark from main, e.g. no Linear MCP in a session launched from a Linear issue. */
-  notice?: string
-  /** The next process started for this tab was launched from a Linear issue. */
-  expectLinear?: boolean
-  /** The MCP servers its live process reported at init. */
-  mcpServers?: { name: string; status: string }[]
   transcript: Transcript
   /** What the composer holds. */
   draft: Draft
@@ -202,14 +195,10 @@ function isResumable(tab: SessionTab): boolean {
   return tab.sessionId !== undefined && (tab.resumable || tab.transcript.items.some((i) => i.kind === 'assistant' || i.kind === 'tool'))
 }
 
-/** Notices that came before their tab knew its process. */
-const noticeWaiting = new Map<string, string>()
-
 async function launch(tab: SessionTab, content: UserContent): Promise<void> {
   const localId = await window.canopy.startSession(tab.cwd, {
     content,
     mode: tab.mode,
-    ...(tab.expectLinear ? { expectLinear: true } : {}),
     ...(tab.model ? { model: tab.model } : {}),
     ...(isResumable(tab) ? { resumeId: tab.sessionId } : {})
   })
@@ -218,8 +207,7 @@ async function launch(tab: SessionTab, content: UserContent): Promise<void> {
     await window.canopy.stopSession(localId).catch(() => undefined)
     return
   }
-  patchTab(tab.id, { localId, expectLinear: undefined, mcpServers: undefined, notice: noticeWaiting.get(localId) })
-  noticeWaiting.delete(localId)
+  patchTab(tab.id, { localId })
   refreshCommands({ id: tab.id, localId })
   refreshModels({ id: tab.id, localId })
 }
@@ -343,22 +331,9 @@ async function deliver(tab: SessionTab, content: UserContent): Promise<boolean> 
  * Sends `text` to the worktree's selected session, or to a new one when that tab holds an unsent draft.
  * Trust is asked as for any message. Resolves the tab used.
  */
-/**
- * A live process was not started for this launch, so main will not check it: judge from the init it already reported,
- * or wait for the first one. A tab without a process gets the flag `launch` hands to main.
- */
-function expectLinearOn(id: string): void {
-  const tab = tabOf(id)
-  if (!tab) return
-  if (!tab.localId) { patchTab(id, { expectLinear: true }); return }
-  if (!tab.mcpServers) { patchTab(id, { expectLinear: true }); return }
-  patchTab(id, { notice: hasLinearServer(tab.mcpServers) ? undefined : LINEAR_NOTICE })
-}
-
-export function askClaude(cwd: string, text: string, o: { expectLinear?: boolean } = {}): string {
+export function askClaude(cwd: string, text: string): string {
   const current = tabOf(useSessions.getState().active[cwd])
   const id = current && isDraftEmpty(current.draft) ? current.id : newTab(cwd)
-  if (o.expectLinear) expectLinearOn(id)
   setDraftText(id, text)
   void submit(id)
   return id
@@ -527,11 +502,9 @@ function onMessage({ localId, msg }: SessionEvents['message']): void {
   const tab = tabOfProcess(localId)
   if (!tab) return
   const mode = modeFrom(msg)
-  const servers = msg.type === 'system' && msg.subtype === 'init' ? msg.mcp_servers ?? [] : undefined
   patchTab(tab.id, (t) => ({
     transcript: reduceTranscript(t.transcript, msg),
-    ...(mode ? { mode } : {}),
-    ...(servers ? { mcpServers: servers, ...(t.expectLinear ? { expectLinear: undefined, notice: hasLinearServer(servers) ? t.notice : LINEAR_NOTICE } : {}) } : {})
+    ...(mode ? { mode } : {})
   }))
 }
 
@@ -561,11 +534,6 @@ export function connectSessions(): () => void {
   const off = [
     on('message', onMessage),
     on('state', onState),
-    on('notice', ({ localId, text }) => {
-      const tab = tabOfProcess(localId)
-      if (tab) patchTab(tab.id, { notice: text })
-      else noticeWaiting.set(localId, text)
-    }),
     on('permission', addPermission),
     on('permissionCancelled', ({ requestId }) => removePermission(requestId)),
     on('commandsChanged', ({ localId }) => {

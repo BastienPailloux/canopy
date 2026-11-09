@@ -211,6 +211,8 @@ test('launch a Linear ticket in a new worktree', async () => {
   await expect(nav('Sessions')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('worktree').filter({ hasText: 'feat/can-1-get-familiar-with-linear' })).toBeVisible()
   await expect(page.getByTestId('user-message').first()).toContainText(MCP_NOTE)
+  // Every session has Canopy's own Linear tools: the old « no Linear MCP » warning is gone.
+  await expect(page.getByText('Claude n’a pas accès à Linear')).toHaveCount(0)
   expect(git(repo.path, 'branch', '--list', 'feat/can-1-get-familiar-with-linear')).toContain('feat/can-1-get-familiar-with-linear')
 })
 

@@ -6,7 +6,7 @@ import type { Worktree } from '../../src/shared/types'
 
 const calls: string[] = []
 vi.mock('../../src/renderer/sessions/sessionStore', () => ({
-  askClaude: vi.fn((cwd: string, text: string, o?: { expectLinear?: boolean }) => { calls.push(`askClaude ${cwd} ${text}${o?.expectLinear ? ' expectLinear' : ''}`); return 'tab' })
+  askClaude: vi.fn((cwd: string, text: string) => { calls.push(`askClaude ${cwd} ${text}`); return 'tab' })
 }))
 
 const reloadLinearLinks = vi.fn(async () => {})
@@ -168,10 +168,10 @@ describe('runLinearLaunch', () => {
   })
   afterEach(() => { vi.unstubAllGlobals() })
 
-  it('sends linearLaunchPrompt with expectLinear and never calls patchTicket', async () => {
+  it('sends linearLaunchPrompt and never calls patchTicket', async () => {
     await runLinearLaunch('/r', LREQ, { startClaude: true })
     expect(linearLaunch).toHaveBeenCalledWith('/r', LREQ)
-    expect(calls.filter((c) => c.startsWith('askClaude'))).toEqual([`askClaude ${NEW.path} ${linearLaunchPrompt(issue)} expectLinear`])
+    expect(calls.filter((c) => c.startsWith('askClaude'))).toEqual([`askClaude ${NEW.path} ${linearLaunchPrompt(issue)}`])
     expect(patchTicket).not.toHaveBeenCalled()
     expect(useApp.getState().view).toBe('sessions')
     expect(useApp.getState().worktree).toBe(NEW.path)

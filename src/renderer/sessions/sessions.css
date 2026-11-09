@@ -442,11 +442,6 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.session-notice {
-  margin: 0 0 8px;
-  color: var(--fg-3);
-  line-height: 1.5;
-}
 .composer {
   position: relative;
   display: flex;

@@ -52,14 +52,14 @@ export async function runLaunch(
   if (o.startClaude) askClaude(result.worktree, launchText(result.ticket, o.mockups, parentOf(result.ticket)))
 }
 
-/** Like `runLaunch` for a Linear issue: nothing is written in Linear, and the session is told to expect its MCP. */
+/** Like `runLaunch` for a Linear issue: nothing is written in Linear. */
 export async function runLinearLaunch(repo: string, req: LinearLaunchRequest, o: { startClaude: boolean }): Promise<void> {
   const before = useApp.getState().repo
   const result = await window.canopy.linearLaunch(repo, req)
   // Main's change event names the issue only when its row changed: the new link is read here.
   void reloadLinearLinks()
   await showLaunched(repo, before, result.worktree)
-  if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue), { expectLinear: true })
+  if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue))
 }
 
 async function showLaunched(repo: string, before: string | null, worktree: string): Promise<void> {
