@@ -21,6 +21,10 @@ type Obj = Record<string, any>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const join = (...parts: string[]) => posix.join(...parts.filter(Boolean))
 const hasPrivatePrefix = (v: string) => PRIVATE_PREFIXES.some((p) => v.startsWith(p))
+/** `npm:<name>@<range>` installs another package under this name: that name may be private. `npm:^1` is not an alias. */
+const isAlias = (spec: unknown) => typeof spec === 'string' && /^npm:[^\d^~<>=*xX\s]/.test(spec)
+/** The package name a node_modules key installs: 'a/node_modules/@s/b' -> '@s/b'. */
+const keyName = (key: string) => key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length)
 const fail = (dir: string, file: string): Unit => ({ dir, ecosystem: 'npm', deps: [], transitive: [], error: `Fichier illisible : ${join(dir, file)}` })
 const dep = (name: string, version: string | null, manifest: string, priv: boolean, via?: string[]): Dep =>
   ({ ecosystem: 'npm', name, version, manifest, private: priv, ...(via ? { via } : {}) })
@@ -28,6 +32,8 @@ const dep = (name: string, version: string | null, manifest: string, priv: boole
 /** Without `resolved`, a scoped name may come from a private registry: fail closed. Unscoped names stay public. */
 function npmEntryPrivate(e: Obj, name: string): boolean {
   if (e.link === true) return true
+  // An alias records the real package in `name` (v2/v3) or `npm:<name>@<version>` (v1).
+  if ((typeof e.name === 'string' && e.name !== name) || isAlias(e.version)) return true
   if (typeof e.resolved === 'string' ? !e.resolved.startsWith(REGISTRIES[0]) : name.startsWith('@')) return true
   return typeof e.version === 'string' && hasPrivatePrefix(e.version)
 }
@@ -77,8 +83,10 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
     for (const name of declared) {
       const key = resolveNpm(packages, owner, name)
       const entry = key ? packages[key] : null
-      deps.push(dep(name, typeof entry?.version === 'string' ? entry.version : null, manifest, entry ? npmEntryPrivate(entry, name) : name.startsWith('@')))
-      if (!key || npmEntryPrivate(entry, name)) continue
+      const spec = DEP_FIELDS.map((f) => packages[owner]?.[f]?.[name]).find((v) => v !== undefined)
+      const priv = isAlias(spec) || (entry ? npmEntryPrivate(entry, name) : name.startsWith('@'))
+      deps.push(dep(name, typeof entry?.version === 'string' ? entry.version : null, manifest, priv))
+      if (!key || priv) continue
       const seen = new Set([key])
       const queue = [key]
       while (queue.length) {
@@ -90,7 +98,7 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
             if (!ck || seen.has(ck)) continue
             seen.add(ck)
             const ce = packages[ck]
-            if (npmEntryPrivate(ce, child)) continue
+            if (npmEntryPrivate(ce, keyName(ck))) continue
             queue.push(ck)
             if (declared.has(child)) continue
             const version = typeof ce.version === 'string' ? ce.version : null
@@ -114,9 +122,11 @@ function npmFromV1(dir: string, lock: Obj, pkg: Obj): Unit {
   for (const field of DEP_FIELDS) for (const n of Object.keys(pkg[field] ?? {})) declared.add(n)
   for (const name of declared) {
     const e = root[name]
-    if (!isObj(e)) { deps.push(dep(name, null, manifest, name.startsWith('@'))); continue }
-    deps.push(dep(name, typeof e.version === 'string' ? e.version : null, manifest, npmEntryPrivate(e, name)))
-    if (npmEntryPrivate(e, name)) continue
+    const alias = DEP_FIELDS.some((f) => isAlias(pkg[f]?.[name]))
+    if (!isObj(e)) { deps.push(dep(name, null, manifest, alias || name.startsWith('@'))); continue }
+    const priv = alias || npmEntryPrivate(e, name)
+    deps.push(dep(name, typeof e.version === 'string' ? e.version : null, manifest, priv))
+    if (priv) continue
     // `scopes[0]` holds the entry's own nested deps, then the maps that contain it, up to the top level.
     const seen = new Set<Obj>([e])
     const queue: { e: Obj; scopes: Obj[] }[] = [{ e, scopes: [isObj(e.dependencies) ? e.dependencies : {}, root] }]
@@ -151,8 +161,10 @@ export function parsePnpmLock(dir: string, _pkgJson: string, lockText: string): 
       for (const field of DEP_FIELDS) {
         for (const [name, v] of Object.entries<any>(imp[field] ?? {})) {
           const raw = isObj(v) ? v.version : v
-          if (typeof raw !== 'string') { deps.push(dep(name, null, manifest, false)); continue }
-          deps.push(dep(name, raw.replace(/\(.*$/, ''), manifest, hasPrivatePrefix(raw)))
+          const alias = isObj(v) && isAlias(v.specifier)
+          if (typeof raw !== 'string') { deps.push(dep(name, null, manifest, alias || name.startsWith('@'))); continue }
+          // A plain version starts with a digit; anything else ('@s/y@1.0.0', '/@s/y/1.0.0', link:, file:...) is another source or an alias.
+          deps.push(dep(name, raw.replace(/\(.*$/, ''), manifest, alias || !/^\d/.test(raw)))
         }
       }
     }
@@ -163,6 +175,9 @@ export function parsePnpmLock(dir: string, _pkgJson: string, lockText: string): 
 }
 
 interface YarnEntry { version: string; private: boolean }
+
+/** 'x@npm:1.0.0' -> 'x', '@s/y@npm:1.0.0' -> '@s/y'. */
+const descriptorName = (d: string) => d.slice(0, d.indexOf('@', 1))
 
 /** Hand-written yarn v1 reader: unindented `descriptor, descriptor:` headers followed by indented fields. */
 function parseYarnV1(text: string): Map<string, YarnEntry> {
@@ -200,7 +215,11 @@ function parseYarnBerry(text: string): Map<string, YarnEntry> {
   for (const [header, e] of Object.entries<any>(doc)) {
     if (header === '__metadata' || !isObj(e) || typeof e.version !== 'string') continue
     const priv = typeof e.resolution !== 'string' || !/^(@?[^@]+)@npm:/.test(e.resolution)
-    for (const k of header.split(',')) out.set(k.trim(), { version: e.version, private: priv })
+    for (const k of header.split(',')) {
+      const key = k.trim()
+      // Resolved under another name: an alias.
+      out.set(key, { version: e.version, private: priv || descriptorName(key) !== descriptorName(e.resolution) })
+    }
   }
   return out
 }
@@ -222,7 +241,7 @@ export function parseYarnLock(dir: string, pkgJson: string, lockText: string): U
       for (const [name, spec] of Object.entries<any>(pkg[field] ?? {})) {
         if (typeof spec !== 'string') continue
         const found = (berry ? entries.get(`${name}@npm:${spec}`) : undefined) ?? entries.get(`${name}@${spec}`)
-        deps.push(dep(name, found?.version ?? null, manifest, hasPrivatePrefix(spec) || (found?.private ?? false)))
+        deps.push(dep(name, found?.version ?? null, manifest, hasPrivatePrefix(spec) || isAlias(spec) || (found?.private ?? false)))
       }
     }
     return { dir, ecosystem: 'npm', deps, transitive: [] }

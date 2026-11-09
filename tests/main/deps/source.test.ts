@@ -14,6 +14,10 @@ vi.mock('../../../src/main/git/exec', async (original) => {
 })
 
 let repo: TestRepo | undefined
+// The user's own ~/.npmrc must not change what these tests see.
+const realHome = process.env.HOME
+beforeAll(async () => { process.env.HOME = await mkdtemp(join(tmpdir(), 'deps-no-home-')) })
+afterAll(async () => { await rm(process.env.HOME!, { recursive: true, force: true }); process.env.HOME = realHome })
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
@@ -499,3 +503,42 @@ describe('parsed lockfile cache', { timeout: 60_000 }, () => {
     expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: true, b: true, bar: true, foo: true })
   })
 })
+
+describe('registry config sources', { timeout: 60_000 }, () => {
+  const priv = (inv: { units: { deps: { name: string; private: boolean }[] }[] }) =>
+    Object.fromEntries(inv.units.flatMap((u) => u.deps.map((d) => [d.name, d.private])))
+  const PNPM = (...names: string[]) => `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n${names.map((n) => `      '${n}':\n        specifier: ^1.0.0\n        version: 1.0.0\n`).join('')}`
+  let home: string
+  beforeAll(async () => { home = await mkdtemp(join(tmpdir(), 'deps-home-')) })
+  afterAll(async () => { await rm(home, { recursive: true, force: true }) })
+  afterEach(async () => { await rm(join(home, '.npmrc'), { recursive: true, force: true }) })
+
+  test('pnpm: scoped names are private unless a config maps them to the public registry', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'package.json': PKG('@pub/x', 'left-pad'), 'pnpm-lock.yaml': PNPM('@pub/x', 'left-pad') })
+    expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@pub/x': true, 'left-pad': false })
+    await commitAll(repo, { '.npmrc': '@pub:registry=https://registry.npmjs.org/\n' })
+    expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@pub/x': false, 'left-pad': false })
+  })
+
+  test('reads the rc files of every directory between the unit and the root', async () => {
+    repo = await createRepo()
+    await commitAll(repo, {
+      '.npmrc': 'registry=https://registry.npmjs.org/\n', 'apps/.npmrc': '@corp:registry=https://npm.corp.example/\n',
+      'apps/web/package.json': PKG('@corp/ui', '@pub/x', 'left-pad'), 'apps/web/pnpm-lock.yaml': PNPM('@corp/ui', '@pub/x', 'left-pad')
+    })
+    expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@corp/ui': true, '@pub/x': false, 'left-pad': false })
+  })
+
+  test("reads the user's own ~/.npmrc, and fails closed when it is unreadable", async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'package-lock.json': npmLock('@corp/ui', 'left-pad'), 'package.json': PKG('@corp/ui', 'left-pad') })
+    expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@corp/ui': false, 'left-pad': false })
+    await writeFile(join(home, '.npmrc'), '@corp:registry=https://npm.corp.example/\n//npm.corp.example/:_authToken=SECRET\n')
+    expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@corp/ui': true, 'left-pad': false })
+    await rm(join(home, '.npmrc'))
+    await mkdir(join(home, '.npmrc'))
+    expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@corp/ui': true, 'left-pad': true })
+  })
+})
+

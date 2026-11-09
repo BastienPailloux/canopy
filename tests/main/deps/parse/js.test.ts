@@ -200,3 +200,47 @@ describe('parseYarnLock', () => {
     expect(parseYarnLock('web', pkg, '__metadata: [').error).toBe('Fichier illisible : web/yarn.lock')
   })
 })
+
+describe('npm aliases are private', () => {
+  it('package-lock v3: alias spec or an entry name that differs from its key', () => {
+    const u = parsePackageLock('', lock({
+      '': { dependencies: { x: 'npm:@corp/y@^1', z: '^1', plain: '^1' } },
+      'node_modules/x': { name: '@corp/y', version: '1.0.0', resolved: `${REG}@corp/y/-/y-1.0.0.tgz` },
+      'node_modules/z': { name: 'other', version: '1.0.0', resolved: `${REG}other/-/other-1.0.0.tgz` },
+      'node_modules/plain': e('1.0.0', { dependencies: { inner: '1' } }),
+      'node_modules/inner': { name: 'evil-alias', version: '1.0.0', resolved: `${REG}evil-alias/-/evil-alias-1.0.0.tgz` }
+    }))
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['x', true], ['z', true], ['plain', false]])
+    expect(u.transitive).toEqual([])
+  })
+  it('package-lock v1: alias version', () => {
+    const u = parsePackageLock('', JSON.stringify({ lockfileVersion: 1, dependencies: { x: { version: 'npm:@corp/y@1.0.0', resolved: `${REG}@corp/y/-/y-1.0.0.tgz` } } }),
+      JSON.stringify({ dependencies: { x: 'npm:@corp/y@^1' } }))
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['x', true]])
+  })
+  it('pnpm: alias specifier or a version that is not a plain version', () => {
+    const u = parsePnpmLock('', '{}', [
+      "lockfileVersion: '9.0'", 'importers:', '  .:', '    dependencies:',
+      '      x: { specifier: npm:@corp/y@^1, version: 1.0.0 }',
+      "      v: { specifier: ^1, version: '@corp/y@1.0.0' }",
+      '      o: { specifier: ^1, version: /@corp/y/1.0.0 }',
+      '      a: { specifier: ^1, version: 1.2.3(react@18.0.0) }'
+    ].join('\n'))
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['x', true], ['v', true], ['o', true], ['a', false]])
+  })
+  it('yarn v1 and berry: alias spec or a resolution under another name', () => {
+    const v1 = parseYarnLock('', JSON.stringify({ dependencies: { x: 'npm:@corp/y@^1', a: '^1.0.0' } }), [
+      '# yarn lockfile v1', '',
+      '"x@npm:@corp/y@^1":', '  version "1.0.0"', `  resolved "${REG}@corp/y/-/y-1.0.0.tgz"`, '',
+      'a@^1.0.0:', '  version "1.0.5"', `  resolved "${REG}a/-/a-1.0.5.tgz"`, ''
+    ].join('\n'))
+    expect(v1.deps.map((d) => [d.name, d.private])).toEqual([['x', true], ['a', false]])
+    const berry = parseYarnLock('', JSON.stringify({ dependencies: { x: '^1', a: 'npm:^1.0.0' } }), [
+      '__metadata:', '  version: 8', '',
+      '"x@npm:^1":', '  version: 1.0.0', '  resolution: "@corp/y@npm:1.0.0"', '',
+      '"a@npm:^1.0.0":', '  version: 1.0.5', '  resolution: "a@npm:1.0.5"'
+    ].join('\n'))
+    expect(berry.deps.map((d) => [d.name, d.private])).toEqual([['x', true], ['a', false]])
+  })
+})
+

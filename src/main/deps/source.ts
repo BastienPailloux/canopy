@@ -1,4 +1,6 @@
-import { posix } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join, posix } from 'node:path'
 import { git as run } from '../git/exec'
 import { resolveBaseRef } from '../git/refs'
 import { mainWorktreeRoot } from '../git/worktrees'
@@ -130,24 +132,24 @@ type Tracker = ReturnType<typeof tracker>
 
 /** Parsed units by root and lockfile path, LRU: parsing a big lockfile blocks the main process, unchanged ones are never parsed again. */
 const CACHE_MAX = 200
-const parsed = new Map<string, { files: [string, string | null][]; units: Unit[] }>()
+const parsed = new Map<string, { files: [string, string | null][]; value: unknown }>()
 
-async function cachedUnits(root: string, tree: Tree, path: string, produce: (t: Tracker) => Promise<Unit[]>): Promise<Unit[]> {
+async function cached<T>(root: string, tree: Tree, path: string, produce: (t: Tracker) => Promise<T>): Promise<T> {
   const key = `${root}\0${path}`
   const hit = parsed.get(key)
   if (hit && hit.files.every(([p, oid]) => (tree.get(p) ?? null) === oid)) {
     parsed.delete(key)
     parsed.set(key, hit)
-    return hit.units
+    return hit.value as T
   }
   const t = tracker(root, tree)
-  const units = await produce(t)
+  const value = await produce(t)
   parsed.delete(key)
   if (!t.failed()) {
-    parsed.set(key, { files: [...t.files], units })
+    parsed.set(key, { files: [...t.files], value })
     if (parsed.size > CACHE_MAX) parsed.delete(parsed.keys().next().value!)
   }
-  return units
+  return value
 }
 
 /** Repo-relative requirements files that `unit` pulls in, followed transitively, are all readable and public. */
@@ -167,11 +169,15 @@ async function includesTainted(t: Tracker, unit: Unit): Promise<boolean> {
   return false
 }
 
-/** The registry settings of the unit's directory and of the repo root (unreadable or invalid files fail closed). */
+const RC_FILES = [['.npmrc', parseNpmrc], ['.yarnrc.yml', parseYarnrc]] as const
+
+/** The registry settings of every directory from the unit's up to the repo root (unreadable or invalid files fail closed). */
 async function registryConfigs(t: Tracker, tree: Tree, dir: string): Promise<RegistryConfig[]> {
+  const dirs: string[] = []
+  for (let d = dir; ; d = posix.dirname(d) === '.' ? '' : posix.dirname(d)) { dirs.push(d); if (!d) break }
   const configs: RegistryConfig[] = []
-  for (const [file, parse] of [['.npmrc', parseNpmrc], ['.yarnrc.yml', parseYarnrc]] as const) {
-    for (const path of new Set([posix.join(dir, file), file])) {
+  for (const [file, parse] of RC_FILES) {
+    for (const path of dirs.map((d) => posix.join(d, file))) {
       // Recorded even when absent: adding one must invalidate the cached unit.
       const text = await t.read(path)
       if (tree.has(path)) configs.push(parse(text))
@@ -180,30 +186,56 @@ async function registryConfigs(t: Tracker, tree: Tree, dir: string): Promise<Reg
   return configs
 }
 
-async function readDir(root: string, tree: Tree, dir: string, files: string[]): Promise<Unit[]> {
+/**
+ * The user's own `~/.npmrc` and `~/.yarnrc.yml`, read from disk: npm, pnpm and yarn use them too.
+ * Only registry keys are kept; a file that exists but cannot be read fails closed.
+ */
+async function homeConfigs(home: string): Promise<RegistryConfig[]> {
+  const configs: RegistryConfig[] = []
+  for (const [file, parse] of RC_FILES) {
+    let text: string | null
+    try {
+      text = await readFile(join(home, file), 'utf8')
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+      text = null
+    }
+    configs.push(parse(text))
+  }
+  return configs
+}
+
+async function readDir(root: string, tree: Tree, dir: string, files: string[], home: RegistryConfig[]): Promise<Unit[]> {
   const path = (f: string) => posix.join(dir, f)
   const units: Unit[] = []
+  const parseOrUnreadable = async (file: string, ecosystem: Unit['ecosystem'], t: Tracker, parse: (text: string, t: Tracker) => Unit | Promise<Unit>): Promise<Unit> => {
+    const text = await t.read(path(file))
+    try {
+      return text === null ? unreadable(path(file), ecosystem) : await parse(text, t)
+    } catch {
+      return unreadable(path(file), ecosystem)
+    }
+  }
   const read = async (file: string, ecosystem: Unit['ecosystem'], parse: (text: string, t: Tracker) => Unit | Promise<Unit>) => {
-    units.push(...await cachedUnits(root, tree, path(file), async (t) => {
-      const text = await t.read(path(file))
-      try {
-        return [text === null ? unreadable(path(file), ecosystem) : await parse(text, t)]
-      } catch {
-        return [unreadable(path(file), ecosystem)]
-      }
-    }))
+    units.push(await cached(root, tree, path(file), (t) => parseOrUnreadable(file, ecosystem, t, parse)))
   }
 
   const js = JS_LOCKS.find((f) => files.includes(f))
   if (js) {
-    await read(js, 'npm', async (lock, t) => {
-      const pkg = await t.read(path('package.json'))
-      const configs = await registryConfigs(t, tree, dir)
-      return applyRegistryConfig(
-        js === 'package-lock.json' ? parsePackageLock(dir, lock, pkg ?? undefined)
+    // The registry configs apply after the cache: the user's own files are not part of its key.
+    const { unit, configs, strict } = await cached(root, tree, path(js), async (t) => {
+      let berry = false
+      const unit = await parseOrUnreadable(js, 'npm', t, async (lock) => {
+        const pkg = await t.read(path('package.json'))
+        berry = /^__metadata:/m.test(lock)
+        return js === 'package-lock.json' ? parsePackageLock(dir, lock, pkg ?? undefined)
           : js === 'pnpm-lock.yaml' ? parsePnpmLock(dir, pkg ?? '{}', lock)
-            : parseYarnLock(dir, pkg ?? '{}', lock), configs)
+            : parseYarnLock(dir, pkg ?? '{}', lock)
+      })
+      // pnpm and yarn berry do not record where a package came from.
+      return { unit, configs: await registryConfigs(t, tree, dir), strict: js === 'pnpm-lock.yaml' || berry }
     })
+    units.push(applyRegistryConfig(unit, [...configs, ...home], { strictScopes: strict }))
   }
   if (files.includes('Gemfile.lock')) await read('Gemfile.lock', 'RubyGems', (lock) => parseGemfileLock(dir, lock))
 
@@ -225,7 +257,7 @@ async function readDir(root: string, tree: Tree, dir: string, files: string[]): 
 }
 
 /** Fetches the base branch non-interactively, then reads every recognized lockfile at it. */
-export async function readInventory(repo: string, o: { fetch?: boolean; fetchTimeoutMs?: number } = {}): Promise<Inventory> {
+export async function readInventory(repo: string, o: { fetch?: boolean; fetchTimeoutMs?: number; home?: string } = {}): Promise<Inventory> {
   const root = await mainWorktreeRoot(repo)
   const config = await localConfig(root)
   if (isPartialClone(config)) return { repo: root, baseRef: null, units: [], notes: ['Dépôt partiel : dépendances non vérifiées'] }
@@ -239,12 +271,13 @@ export async function readInventory(repo: string, o: { fetch?: boolean; fetchTim
   }
   if (!base) return { repo: root, baseRef: null, units: [], notes: [...notes, 'Branche de base introuvable'] }
 
-  const read = await readAtRef(root, base.ref)
+  const read = await readAtRef(root, base.ref, { home: o.home })
   return { ...read, repo: root, notes: [...notes, ...read.notes] }
 }
 
 /** Lists and reads the lockfiles at `ref`. A listing failure (ref gone since it was resolved) is a note, not a throw. */
-export async function readAtRef(root: string, ref: string): Promise<Inventory> {
+/** `home`: where the user's own rc files are (the user's home directory by default). */
+export async function readAtRef(root: string, ref: string, o: { home?: string } = {}): Promise<Inventory> {
   let listing: string
   try {
     listing = await git(root, ['ls-tree', '-r', '-z', ref])
@@ -267,6 +300,7 @@ export async function readAtRef(root: string, ref: string): Promise<Inventory> {
     byDir.set(dir, [...byDir.get(dir) ?? [], segments[segments.length - 1]])
   }
   const units: Unit[] = []
-  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!))
+  const home = await homeConfigs(o.home ?? homedir())
+  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!, home))
   return { repo: root, baseRef: ref, units, notes: [] }
 }
