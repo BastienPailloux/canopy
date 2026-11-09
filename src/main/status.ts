@@ -55,4 +55,9 @@ export class PrCache {
     this.inFlight.set(repo, p)
     return p
   }
+
+  /** A PR just merged, closed or reopened: every repo reads again on its next ask (the caller knows a worktree, not which repo key). */
+  expire(): void {
+    this.entries.clear()
+  }
 }

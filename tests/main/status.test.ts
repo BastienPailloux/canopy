@@ -73,3 +73,14 @@ test('PrCache keeps gh being unavailable for as long as an answer: a missing gh 
   expect(await cache.get('/repo')).toBeNull()
   expect(calls).toBe(1)
 })
+
+test('PrCache expire makes the next read go to gh whatever its age', async () => {
+  let calls = 0
+  const cache = new PrCache(async () => { calls++; return [] }, () => 0)
+  await cache.get('/a')
+  await cache.get('/a', true)
+  expect(calls).toBe(1)
+  cache.expire()
+  await cache.get('/a', true)
+  expect(calls).toBe(2)
+})

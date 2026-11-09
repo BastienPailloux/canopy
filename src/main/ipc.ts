@@ -22,6 +22,8 @@ import { currentBranch, dirtyCount, hasSetAsideChanges, switchableBranches, swit
 import { parseUnsaved, type UnsavedCounts } from './quit'
 import { parseStash, takeStash } from './update/stash'
 import type { Updater } from './update/updater'
+import type { PrGateway } from './github/gateway'
+import { registerPrIpc } from './github/prIpc'
 import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
 import { approveConfig, isConfigTrusted, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
@@ -145,7 +147,8 @@ export function registerUpdateIpc(updater: Updater | null, stashFile: string): v
 
 export function registerIpc(
   store: AppStore, sessions: SessionManager, lsp: LspPool, terminals: TerminalManager, onUnsaved: (counts: UnsavedCounts) => void,
-  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore, mockups: MockupStore
+  takeOpenFolder: () => string | null, runAccount: AccountRunner, tickets: TicketStore, mockups: MockupStore,
+  prGateway: PrGateway
 ): void {
   registerSessionIpc(store, sessions)
   registerTerminalIpc(store, terminals, broadcast)
@@ -165,6 +168,10 @@ export function registerIpc(
   ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
 
   const prs = new PrCache()
+  registerPrIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    gateway: prGateway, currentBranch, onPrStateChanged: () => { prs.expire() }
+  })
   const orphans = new OrphanTracker()
   const live: LiveProcesses = {
     sessions: (cwd) => sessions.liveCount(cwd),

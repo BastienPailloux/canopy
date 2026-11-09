@@ -1,0 +1,66 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { fakeGateway, selectPrGateway } from '../../../src/main/github/fakeGateway'
+
+const file = join(__dirname, '../../fixtures/gh/pr.json')
+let dir = ''
+afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = '' })
+const tmp = (): string => (dir = mkdtempSync(join(tmpdir(), 'fakegh-')))
+
+describe('fakeGateway', () => {
+  it('finds the PR only for its head branch', async () => {
+    const g = fakeGateway({ file })
+    expect((await g.find('/r', 'feat/gtin-lookup'))?.number).toBe(87)
+    expect(await g.find('/r', 'other')).toBeNull()
+    expect((await g.branchStates('/r'))?.get('feat/gtin-lookup')).toBe('open')
+  })
+
+  it('applies a comment and logs it', async () => {
+    const logFile = join(tmp(), 'log')
+    const g = fakeGateway({ file, logFile })
+    await g.act('/r', 87, { type: 'comment', body: 'hello' })
+    await g.act('/r', 87, { type: 'labels', add: ['new'], remove: ['api'] })
+    const d = await g.view('/r', 87)
+    expect(d.timeline.some((t) => t.kind === 'comment' && t.comment.body === 'hello')).toBe(true)
+    expect(d.labels).toContain('new')
+    expect(d.labels).not.toContain('api')
+    const lines = readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    expect(lines[0]).toEqual({ number: 87, action: { type: 'comment', body: 'hello' } })
+  })
+
+  it('merge marks the PR merged, revert gives a url', async () => {
+    const g = fakeGateway({ file })
+    await g.act('/r', 87, { type: 'merge', method: 'squash', subject: 's', body: '' })
+    expect((await g.view('/r', 87)).state).toBe('merged')
+    expect((await g.find('/r', 'feat/gtin-lookup'))?.state).toBe('merged')
+    expect(await g.act('/r', 87, { type: 'revert' })).toEqual({ ok: true, url: 'https://github.com/acme/passports/pull/999' })
+  })
+
+  it('fails while the fail file exists', async () => {
+    const failFile = join(tmp(), 'fail')
+    const g = fakeGateway({ file, failFile })
+    writeFileSync(failFile, '')
+    await expect(g.view('/r', 87)).rejects.toThrow()
+    await expect(g.find('/r', 'feat/gtin-lookup')).rejects.toThrow()
+    rmSync(failFile)
+    await expect(g.view('/r', 87)).resolves.toBeTruthy()
+  })
+
+  it('returns a failed log excerpt', async () => {
+    expect(await fakeGateway({ file }).failedLog('/r', 1, 2)).toContain('Expected status 404, received 422')
+  })
+})
+
+describe('selectPrGateway', () => {
+  it('ignores CANOPY_FAKE_GH when packaged', async () => {
+    const env = { CANOPY_FAKE_GH: file }
+    const fake = selectPrGateway({ isPackaged: false, env })
+    expect((await fake.find('/r', 'feat/gtin-lookup'))?.number).toBe(87)
+    const real = selectPrGateway({ isPackaged: true, env })
+    expect(real).not.toBe(fake)
+    // the real gateway would shell out to gh in /nonexistent: it must not answer from the fixture
+    await expect(real.find('/nonexistent-dir', 'feat/gtin-lookup')).rejects.toThrow()
+  })
+})

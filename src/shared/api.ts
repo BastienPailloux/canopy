@@ -8,6 +8,7 @@ import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
   LinearListState, LinearStatus, LinearUser, PendingEdit, SaveResult
 } from './linear'
+import type { PrActResult, PrAction, PrDetail, PrOptions, PrSummary } from './pr'
 import type { Mockup, MockupChanges, MockupFields, MockupList, MockupViewBounds } from './mockups'
 
 export interface RemovalRisks {
@@ -262,6 +263,13 @@ export interface CanopyApi {
   linearList(repo: string, links?: boolean): Promise<LinearListState>
   /** Asks Linear again; an error keeps the last list and is reported in `error`. */
   linearRefresh(repo: string): Promise<LinearListState>
+  /** The PR of `cwd`'s current branch; null when detached, none, or gh is unavailable. */
+  prFind(cwd: string): Promise<PrSummary | null>
+  prView(cwd: string, number: number): Promise<PrDetail>
+  prOptions(cwd: string, number: number): Promise<PrOptions>
+  /** The last lines of a failed job's log. */
+  prFailedLog(cwd: string, runId: number, jobId: number): Promise<string>
+  prAct(cwd: string, number: number, action: PrAction): Promise<PrActResult>
   linearAckDepartures(ids: string[]): Promise<void>
   /** The issue with its sub-issues and comments, read from Linear. */
   linearIssue(id: string): Promise<LinearIssueDetail>

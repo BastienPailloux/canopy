@@ -11,6 +11,7 @@ import { TicketStore } from './tickets/store'
 import { localBranches } from './tickets/ticketIpc'
 import { openExternalUrl } from './externalLinks'
 import { isConfigTrusted } from './repoTrust'
+import { selectPrGateway } from './github/fakeGateway'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
@@ -185,7 +186,7 @@ void app.whenReady().then(async () => {
   const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets, new MockupStore())
+    tickets, new MockupStore(), selectPrGateway({ isPackaged: app.isPackaged, env: process.env }))
   const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
