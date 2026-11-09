@@ -38,6 +38,14 @@ describe('fakeGateway', () => {
     expect(await g.act('/r', 87, { type: 'revert' })).toEqual({ ok: true, url: 'https://github.com/acme/passports/pull/999' })
   })
 
+  it('gives each comment its own id', async () => {
+    const g = fakeGateway({ file })
+    await g.act('/r', 87, { type: 'comment', body: 'a' })
+    await g.act('/r', 87, { type: 'comment', body: 'b' })
+    const ids = (await g.view('/r', 87)).timeline.flatMap((t) => (t.kind === 'comment' ? [t.comment.id] : []))
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   it('fails while the fail file exists', async () => {
     const failFile = join(tmp(), 'fail')
     const g = fakeGateway({ file, failFile })
@@ -59,8 +67,8 @@ describe('selectPrGateway', () => {
     const fake = selectPrGateway({ isPackaged: false, env })
     expect((await fake.find('/r', 'feat/gtin-lookup'))?.number).toBe(87)
     const real = selectPrGateway({ isPackaged: true, env })
+    // not called: the real gateway would shell out to gh
     expect(real).not.toBe(fake)
-    // the real gateway would shell out to gh in /nonexistent: it must not answer from the fixture
-    await expect(real.find('/nonexistent-dir', 'feat/gtin-lookup')).rejects.toThrow()
+    expect(real.find).not.toBe(fake.find)
   })
 })

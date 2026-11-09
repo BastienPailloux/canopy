@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { registerPrIpc, parsePrAction } from '../../../src/main/github/prIpc'
 import type { PrAction } from '../../../src/shared/pr'
@@ -52,6 +54,7 @@ describe('parsePrAction', () => {
       { type: 'merge', method: 'octopus', subject: 's', body: '' },
       { type: 'merge', method: 'squash', subject: '', body: '' },
       { type: 'autoMerge', enable: true, method: 'merge', subject: '', body: '' },
+      { type: 'review', event: 'REQUEST_CHANGES', body: '' },
       { type: 'deleteRemoteBranch', branch: '-x' },
       { type: 'deleteRemoteBranch', branch: '' },
       { type: 'nope' },
@@ -60,6 +63,15 @@ describe('parsePrAction', () => {
       null,
     ]
     for (const b of bad) expect(() => parsePrAction(b), JSON.stringify(b)).toThrow('Action invalide')
+  })
+})
+
+describe('fixture', () => {
+  it('only holds logins the IPC accepts', () => {
+    const f = JSON.parse(readFileSync(join(__dirname, '../../fixtures/gh/pr.json'), 'utf8'))
+    const logins: string[] = [...f.detail.reviewers.map((r: { login: string }) => r.login), ...f.detail.assignees, ...f.options.assignable, ...f.options.suggested.map((r: { login: string }) => r.login)]
+    expect(logins.length).toBeGreaterThan(0)
+    for (const l of logins) expect(() => parsePrAction({ type: 'reviewers', add: [l], remove: [] }), l).not.toThrow()
   })
 })
 

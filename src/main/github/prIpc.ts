@@ -78,7 +78,8 @@ export function parsePrAction(raw: unknown): PrAction {
     case 'review':
       only('event', 'body')
       if (raw.event !== 'APPROVE' && raw.event !== 'REQUEST_CHANGES') throw bad()
-      return { type: 'review', event: raw.event, body: body(raw.body) }
+      // GitHub refuses a change request without a body
+      return { type: 'review', event: raw.event, body: raw.event === 'REQUEST_CHANGES' ? text(raw.body) : body(raw.body) }
     case 'editBody': only('body'); return { type: 'editBody', body: body(raw.body) }
     case 'draft': only('draft'); return { type: 'draft', draft: bool(raw.draft) }
     case 'close': only(); return { type: 'close' }
@@ -125,7 +126,7 @@ export interface PrIpcDeps {
   gateway: PrGateway
   currentBranch: (cwd: string) => Promise<string | null>
   /** After a merge, close or reopen: the open-PR cache of `cwd`'s repo is stale. */
-  onPrStateChanged: (cwd: string) => void
+  onPrStateChanged: (cwd: string) => void | Promise<void>
 }
 
 const STATE_CHANGING = new Set<PrAction['type']>(['merge', 'close', 'reopen'])
@@ -158,7 +159,7 @@ export function registerPrIpc(d: PrIpcDeps): void {
     assertNumber(number)
     const a = parsePrAction(action)
     const result = await d.gateway.act(cwd, number, a)
-    if (STATE_CHANGING.has(a.type)) d.onPrStateChanged(cwd)
+    if (STATE_CHANGING.has(a.type)) await d.onPrStateChanged(cwd)
     return result
   })
 }

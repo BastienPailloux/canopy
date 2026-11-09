@@ -170,7 +170,7 @@ export function registerIpc(
   const prs = new PrCache()
   registerPrIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
-    gateway: prGateway, currentBranch, onPrStateChanged: () => { prs.expire() }
+    gateway: prGateway, currentBranch, onPrStateChanged: async (cwd) => { prs.expire(await mainWorktreeRoot(cwd).catch(() => cwd)) }
   })
   const orphans = new OrphanTracker()
   const live: LiveProcesses = {

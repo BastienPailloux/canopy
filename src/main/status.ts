@@ -48,16 +48,18 @@ export class PrCache {
     if (entry && age < (soon ? PR_SOON_MIN_MS : PR_TTL_MS)) return entry.branches
     const running = this.inFlight.get(repo)
     if (running) return running
-    const p = this.read(repo).catch((): OpenPrs => null).then((branches) => {
-      this.entries.set(repo, { branches, at: this.now() })
+    const p: Promise<OpenPrs> = this.read(repo).catch((): OpenPrs => null).then((branches) => {
+      // expire() dropped this read: its answer predates the change
+      if (this.inFlight.get(repo) === p) this.entries.set(repo, { branches, at: this.now() })
       return branches
-    }).finally(() => { this.inFlight.delete(repo) })
+    }).finally(() => { if (this.inFlight.get(repo) === p) this.inFlight.delete(repo) })
     this.inFlight.set(repo, p)
     return p
   }
 
-  /** A PR just merged, closed or reopened: every repo reads again on its next ask (the caller knows a worktree, not which repo key). */
-  expire(): void {
-    this.entries.clear()
+  /** A PR of `repo` just merged, closed or reopened: its next read goes to gh, and a read already running is not kept. */
+  expire(repo: string): void {
+    this.entries.delete(repo)
+    this.inFlight.delete(repo)
   }
 }

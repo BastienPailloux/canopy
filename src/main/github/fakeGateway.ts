@@ -32,6 +32,7 @@ export function fakeGateway(o: FakeGatewayOptions): PrGateway {
     if (o.failFile && existsSync(o.failFile)) throw new Error('GitHub (gh) : hors ligne')
   }
   const at = (): string => new Date().toISOString()
+  let seq = 0
   const me = (): { login: string; bot: boolean } => ({ login: pr.viewerLogin, bot: false })
 
   return {
@@ -66,12 +67,12 @@ export function fakeGateway(o: FakeGatewayOptions): PrGateway {
       if (o.logFile) appendFileSync(o.logFile, JSON.stringify({ number, action: a }) + '\n')
       switch (a.type) {
         case 'comment':
-          pr.timeline.push({ kind: 'comment', at: at(), comment: { id: `IC_${pr.timeline.length}`, databaseId: 9000 + pr.timeline.length, author: me(), body: a.body, createdAt: at() } })
+          pr.timeline.push({ kind: 'comment', at: at(), comment: { id: `IC_new${++seq}`, databaseId: 9000 + seq, author: me(), body: a.body, createdAt: at() } })
           break
         case 'reply': {
           const t = pr.timeline.flatMap((i) => (i.kind === 'thread' ? [i.thread] : [])).find((th) => th.comments[0]?.databaseId === a.commentId)
           if (!t) throw new Error('GitHub (gh) : fil introuvable')
-          t.comments.push({ id: `RC_${a.commentId}_${t.comments.length}`, databaseId: a.commentId * 100 + t.comments.length, author: me(), body: a.body, createdAt: at() })
+          t.comments.push({ id: `RC_new${++seq}`, databaseId: 90000 + seq, author: me(), body: a.body, createdAt: at() })
           break
         }
         case 'resolve': {

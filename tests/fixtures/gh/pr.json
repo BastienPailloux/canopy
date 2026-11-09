@@ -31,7 +31,7 @@
         "kind": "review",
         "at": "2026-11-08T08:40:00Z",
         "author": {
-          "login": "camille.r",
+          "login": "camille-r",
           "bot": false
         },
         "state": "APPROVED",
@@ -53,7 +53,7 @@
               "id": "RC_1",
               "databaseId": 501,
               "author": {
-                "login": "theo.m",
+                "login": "theo-m",
                 "bot": false
               },
               "body": "Should an unknown GTIN return 404 rather than 422? The route validates the checksum before the lookup.",
@@ -79,7 +79,7 @@
           "id": "IC_1",
           "databaseId": 601,
           "author": {
-            "login": "theo.m",
+            "login": "theo-m",
             "bot": false
           },
           "body": "Thanks, can you also document the new route in the README?",
@@ -176,12 +176,12 @@
     ],
     "reviewers": [
       {
-        "login": "camille.r",
+        "login": "camille-r",
         "kind": "user",
         "status": "approved"
       },
       {
-        "login": "theo.m",
+        "login": "theo-m",
         "kind": "user",
         "status": "commented"
       }
@@ -222,17 +222,17 @@
     ],
     "assignable": [
       "basti",
-      "camille.r",
-      "theo.m"
+      "camille-r",
+      "theo-m"
     ],
     "suggested": [
       {
-        "login": "camille.r",
+        "login": "camille-r",
         "kind": "user",
         "hint": "A modifié ces fichiers"
       },
       {
-        "login": "theo.m",
+        "login": "theo-m",
         "kind": "user",
         "hint": "A commenté"
       },
