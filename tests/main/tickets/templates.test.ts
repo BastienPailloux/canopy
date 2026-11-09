@@ -23,6 +23,11 @@ describe('template format', () => {
     expect('order' in t).toBe(false)
   })
 
+  it('ignores an order that is not an integer, which saving would refuse', () => {
+    expect('order' in parseTemplate('---\nname: X\norder: 1.5\n---\nbody\n', 'x')).toBe(false)
+    expect(parseTemplate('---\nname: X\norder: 3\n---\nbody\n', 'x').order).toBe(3)
+  })
+
   it('refuses a template without name', () => {
     expect(() => parseTemplate('---\n---\nbody', 'x')).toThrow(/name/)
   })

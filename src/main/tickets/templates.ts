@@ -22,7 +22,8 @@ export function parseTemplate(text: string, slug: string): TicketTemplate {
   if (subtasks.length > MAX_SUBTASKS) throw new Error('Trop de sous-tâches')
   if (subtasks.some((s) => s.title.length > MAX_TITLE)) throw new Error('Sous-tâche trop longue')
   const t: TicketTemplate = { slug, name: data.name, description, priority: priority as TicketPriority, labels: labels.map(String), subtasks }
-  if (typeof data.order === 'number' && Number.isFinite(data.order)) t.order = data.order
+  // Integers only, as `parseTemplateFields` wants: any other order would make every save of the template fail.
+  if (Number.isInteger(data.order)) t.order = data.order as number
   return t
 }
 
