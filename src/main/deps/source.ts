@@ -1,4 +1,4 @@
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, posix } from 'node:path'
 import { currentEnv } from '../env'
@@ -198,9 +198,16 @@ async function registryConfigs(t: Tracker, tree: Tree, dir: string): Promise<Reg
   return configs
 }
 
-/** A missing file is skipped; one that exists but cannot be read fails closed. Symlinks are followed: these are the user's own files. */
+const RC_MAX_BYTES = 1024 * 1024
+
+/**
+ * A missing file is skipped; one that cannot be read fails closed. Symlinks are followed (dotfiles managers link
+ * ~/.npmrc), but a target that is not a regular file (a device, a FIFO that would block) or is over 1 MB fails closed.
+ */
 async function userFile(path: string, parse: (text: string | null) => RegistryConfig): Promise<RegistryConfig | null> {
   try {
+    const st = await stat(path)
+    if (!st.isFile() || st.size > RC_MAX_BYTES) return parse(null)
     return parse(await readFile(path, 'utf8'))
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : parse(null)
@@ -249,8 +256,6 @@ async function userConfigs(home: string, env: NodeJS.ProcessEnv): Promise<Regist
   if (fromEnv) configs.push(fromEnv)
   return configs
 }
-
-const RC_MAX_BYTES = 1024 * 1024
 
 /**
  * The rc files of the main checkout's working tree, from the unit's directory up to the root: an untracked

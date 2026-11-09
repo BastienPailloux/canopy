@@ -570,6 +570,23 @@ describe('registry config sources', { timeout: 60_000 }, () => {
     expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@corp/ui': true, 'left-pad': true })
   })
 
+  test("follows a symlinked ~/.npmrc, but fails closed on a non-regular or oversized target", async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'package-lock.json': npmLock('@corp/ui', 'left-pad'), 'package.json': PKG('@corp/ui', 'left-pad') })
+    const target = join(home, 'dotfiles-npmrc')
+    await writeFile(target, '@corp:registry=https://npm.corp.example/\n')
+    await symlink(target, join(home, '.npmrc'))
+    expect(priv(await readInventory(repo.path, { home, env: {} }))).toEqual({ '@corp/ui': true, 'left-pad': false })
+    await rm(join(home, '.npmrc'))
+    await symlink('/dev/null', join(home, '.npmrc'))
+    expect(priv(await readInventory(repo.path, { home, env: {} }))).toEqual({ '@corp/ui': true, 'left-pad': true })
+    await rm(join(home, '.npmrc'))
+    await writeFile(target, `# ${'x'.repeat(1024 * 1024)}\n`)
+    await symlink(target, join(home, '.npmrc'))
+    expect(priv(await readInventory(repo.path, { home, env: {} }))).toEqual({ '@corp/ui': true, 'left-pad': true })
+    await rm(target)
+  })
+
   describe('untracked and environment configs only add privacy', () => {
     const CORP = 'registry=https://npm.corp.example/\n'
     const setup = async () => {
