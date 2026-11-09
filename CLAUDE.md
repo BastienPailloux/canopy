@@ -21,7 +21,7 @@ npm run build        # build electron-vite vers out/
 
 Un seul test : `npx vitest run tests/main/quit.test.ts` ou `npx playwright test tests/e2e/sessions.spec.ts`.
 
-Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E.
+Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E. `CANOPY_FAKE_DEPS=tests/fixtures/deps` rejoue de même les réponses OSV/registres (`src/main/deps/replay.ts`, ignoré en build packagé, aucune requête réseau).
 
 `.npmrc` impose `legacy-peer-deps=true` : ne pas le retirer.
 
@@ -30,9 +30,9 @@ Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, 
 ```
 src/
   main/       process principal Electron (Node) : git, sessions Claude, terminaux (node-pty),
-              LSP TypeScript, recherche (ripgrep), tickets, mises à jour, menu, CLI
+              LSP TypeScript, recherche (ripgrep), tickets, dépendances, mises à jour, menu, CLI
   preload/    pont contextBridge : expose `window.canopy` (type CanopyApi)
-  renderer/   UI React 19 + Zustand, organisée par écran (sessions, code, terminal, tickets, shell, update)
+  renderer/   UI React 19 + Zustand, organisée par écran (sessions, code, terminal, tickets, deps, shell, update)
   shared/     types et contrats partagés main/renderer (aucune dépendance Electron ni DOM)
 tests/        miroir de src : main/, renderer/, scripts/, e2e/, helpers/
 scripts/release/  calcul de version et notes de release (exécuté en CI)
@@ -43,6 +43,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 - **Renderer** : jamais d'accès Node direct, tout passe par `window.canopy`. L'état vit dans des stores Zustand par domaine (`sessionStore`, `terminalStore`, `ticketStore`…).
 - **Binaires natifs** (SDK Claude, node-pty, ripgrep, serveur LSP) sont en `asarUnpack` dans `electron-builder.yml`. Toute nouvelle dépendance qui spawn un binaire doit y être ajoutée, sinon elle casse uniquement en build packagé.
 - **Worktrees** : créés par défaut sous `<repo>/.worktrees/` (ignoré par git). `.canopy/config.json` décrit le setup et les services lancés par « Tester la PR » ; le port est fourni via `PORT`.
+- **Dépendances** : `src/main/deps/` lit les lockfiles (npm, pnpm, yarn, Python, Gemfile) sur la branche de base après un `fetch` durci (config git locale en liste blanche, clones partiels ignorés), interroge OSV (`api.osv.dev`) et les registres (`registry.npmjs.org`, `rubygems.org`, `pypi.org`), et tourne en service d'arrière-plan (au lancement puis toutes les 6 h). Confidentialité : les dépendances privées ne sont jamais envoyées. Écran `src/renderer/deps/` (onglet « Dépendances », bandeau, pastille du sélecteur de dépôt). Spec : `docs/superpowers/specs/2026-11-09-dependency-check-design.md`.
 - **Tickets** : fichiers Markdown dans `.tickets/` du checkout principal, hors git.
 - **Linear** : connecteur dans `src/main/linear/`, uniquement via le serveur MCP officiel (`https://mcp.linear.app/mcp`, OAuth avec enregistrement dynamique, jeton chiffré par `safeStorage`). Les modifications passent par une file sur disque (`linear-pending.json`) et la description part en `patch` : ne jamais envoyer une description complète. Comportement réel du serveur : `tests/fixtures/linear/README.md`.
 

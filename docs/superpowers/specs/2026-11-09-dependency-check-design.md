@@ -1,6 +1,6 @@
 # Vérification des dépendances — conception
 
-Date : 2026-11-09. Statut : relu, en attente de validation par Bastien.
+Date : 2026-11-09. Statut : validé, implémenté.
 
 ## Intention
 
