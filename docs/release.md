@@ -41,7 +41,7 @@ Une release part d'un push sur `master` (workflow `.github/workflows/release.yml
 
 4. Required reviewers : le mainteneur, « Allow administrators to bypass » décoché. Chaque release attend son approbation dans l'onglet Actions : un push sur `master` (jeton volé, agent, poste compromis) ne publie rien seul.
 
-Les secrets ne sont exposés qu'à l'étape de signature et de notarisation, jamais pendant `npm ci`. Les actions du workflow sont épinglées par SHA (`@<sha> # vX.Y.Z`) : un tag d'action déplacé ne doit pas tourner à côté des secrets. Pour les mettre à jour, remplacer le SHA par celui du nouveau tag.
+Les secrets ne sont exposés qu'à l'étape de signature et de notarisation, jamais pendant `npm ci`. Le workflow n'utilise que des actions officielles `actions/*`, référencées par leur tag majeur (`@v4`). N'y ajouter aucune action tierce : elle tournerait dans le job qui détient les secrets.
 
 ## 4 bis. Rulesets du dépôt
 
