@@ -21,7 +21,8 @@ const unreadable = (path: string, ecosystem: Unit['ecosystem']): Unit =>
  * Every git call here: a missing object in a partial clone would otherwise be fetched from the promisor
  * remote, with the repo's own config (and its commands) in charge. A read that needs it fails instead.
  */
-const git: typeof run = (cwd, args, opts = {}) => run(cwd, args, { ...opts, env: { GIT_NO_LAZY_FETCH: '1', ...opts.env } })
+const NO_LAZY_FETCH = { GIT_NO_LAZY_FETCH: '1' }
+const git: typeof run = (cwd, args, opts = {}) => run(cwd, args, { ...opts, env: { ...NO_LAZY_FETCH, ...opts.env } })
 
 /** Never prompts (credentials, host keys): an unattended fetch must fail rather than hang. */
 const FETCH_ENV = {
@@ -151,12 +152,12 @@ async function readDir(root: string, ref: string, dir: string, files: string[]):
 export async function readInventory(repo: string, o: { fetch?: boolean; fetchTimeoutMs?: number } = {}): Promise<Inventory> {
   const root = await mainWorktreeRoot(repo)
   const notes: string[] = []
-  let base = await resolveBaseRef(root).catch(() => null)
+  let base = await resolveBaseRef(root, { env: NO_LAZY_FETCH }).catch(() => null)
   if (base && o.fetch !== false && base.ref.startsWith('origin/')) {
     const note = await refresh(root, base.name, o.fetchTimeoutMs ?? 30_000)
     if (note) notes.push(note)
     // Fresh read: the shared cache could still hold the ref as it was before the fetch.
-    base = await resolveBaseRef(root).catch(() => base)
+    base = await resolveBaseRef(root, { env: NO_LAZY_FETCH }).catch(() => base)
   }
   if (!base) return { repo: root, baseRef: null, units: [], notes: [] }
 

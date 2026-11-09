@@ -200,6 +200,23 @@ describe('readInventory', () => {
       expect(inv.notes.length).toBeGreaterThan(0)
     })
 
+    test('resolving the base branch never lazy-fetches a missing commit', async () => {
+      repo = await createRepo({ remote: true })
+      const marker = join(repo.path, '..', 'ran')
+      await repo.commit('d/f', 'x')
+      sh(repo.path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+      const commit = sh(repo.path, 'rev-parse', 'HEAD').trim()
+      sh(repo.path, 'reset', '-q', '--hard', 'HEAD~1')
+      await rm(join(repo.path, '.git', 'objects', commit.slice(0, 2), commit.slice(2)))
+      sh(repo.path, 'config', 'core.repositoryformatversion', '1')
+      sh(repo.path, 'config', 'extensions.partialclone', 'evil')
+      sh(repo.path, 'config', 'remote.evil.promisor', 'true')
+      sh(repo.path, 'config', 'remote.evil.url', join(repo.path, '..', 'remote.git'))
+      sh(repo.path, 'config', 'remote.evil.uploadpack', `touch '${marker}'; git-upload-pack`)
+      await readInventory(repo.path)
+      expect(await exists(marker)).toBe(false)
+    })
+
     test('a remote.origin.fetch refspec cannot move a local branch', async () => {
       repo = await createRepo({ remote: true })
       await pushOther()
