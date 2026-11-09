@@ -10,7 +10,7 @@ import type { Dep, Ecosystem } from '../../../shared/deps'
 export interface Unit { dir: string; ecosystem: Ecosystem; deps: Dep[]; transitive: Dep[]; error?: string }
 
 const REGISTRIES = ['https://registry.npmjs.org/', 'https://registry.yarnpkg.com/']
-const PRIVATE_PREFIXES = ['file:', 'git+', 'git:', 'github:', 'http', 'link:', 'workspace:', 'portal:', 'patch:']
+const PRIVATE_PREFIXES = ['file:', 'git+', 'git:', 'github:', 'http:', 'https:', 'link:', 'workspace:', 'portal:', 'patch:']
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies']
 
 type Obj = Record<string, any>
@@ -42,11 +42,16 @@ function resolveNpm(packages: Obj, from: string, name: string): string | null {
   }
 }
 
-export function parsePackageLock(dir: string, lockText: string): Unit {
+/** `pkgJson` is only needed for lockfile v1, which does not record the direct deps. */
+export function parsePackageLock(dir: string, lockText: string, pkgJson?: string): Unit {
   try {
     const lock = JSON.parse(lockText)
     if (!isObj(lock)) return fail(dir, 'package-lock.json')
-    return isObj(lock.packages) ? npmFromPackages(dir, lock.packages) : npmFromV1(dir, lock)
+    if (isObj(lock.packages)) return npmFromPackages(dir, lock.packages)
+    if (pkgJson === undefined) return { ...fail(dir, 'package-lock.json'), error: `Format de fichier inattendu : ${join(dir, 'package-lock.json')}` }
+    const pkg = JSON.parse(pkgJson)
+    if (!isObj(pkg)) return fail(dir, 'package.json')
+    return npmFromV1(dir, lock, pkg)
   } catch {
     return fail(dir, 'package-lock.json')
   }
@@ -55,8 +60,11 @@ export function parsePackageLock(dir: string, lockText: string): Unit {
 function npmFromPackages(dir: string, packages: Obj): Unit {
   const deps: Dep[] = []
   const transitive = new Map<string, Dep>()
-  // The root and the workspace members (entries outside node_modules) declare direct deps.
-  const owners = Object.keys(packages).filter((k) => !k.includes('node_modules/'))
+  // The root and the workspace members (in-tree targets of links) declare direct deps.
+  const owners = [''].concat(Object.entries<Obj>(packages)
+    .filter(([k, v]) => k.startsWith('node_modules/') && v.link === true && typeof v.resolved === 'string')
+    .map(([, v]) => posix.normalize(v.resolved as string))
+    .filter((r) => r !== '' && r !== '.' && !r.startsWith('..') && !r.startsWith('/') && isObj(packages[r])))
   for (const owner of owners) {
     const manifest = join(dir, owner, 'package.json')
     const declared = new Set<string>()
@@ -90,25 +98,37 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
   return { dir, ecosystem: 'npm', deps, transitive: [...transitive.values()] }
 }
 
-/** v1 lockfiles list no direct deps: top-level entries are taken as direct, nested ones as their transitive deps. */
-function npmFromV1(dir: string, lock: Obj): Unit {
+/** v1 lockfiles do not list direct deps (package.json does) and hoist transitive ones: follow `requires` node-style. */
+function npmFromV1(dir: string, lock: Obj, pkg: Obj): Unit {
   if (!isObj(lock.dependencies)) throw new Error('no dependencies')
   const manifest = join(dir, 'package.json')
   const deps: Dep[] = []
   const transitive = new Map<string, Dep>()
-  const walk = (children: Obj, top: string) => {
-    for (const [name, e] of Object.entries<Obj>(children)) {
-      if (!isObj(e.dependencies)) continue
-      for (const [n, ce] of Object.entries<Obj>(e.dependencies)) {
-        if (!isObj(ce) || npmEntryPrivate(ce)) continue
-        transitive.set(`${top}\0${n}\0${ce.version}`, dep(n, ce.version ?? null, manifest, false, [top]))
-      }
-      walk(e.dependencies, top)
-    }
-  }
-  for (const [name, e] of Object.entries<Obj>(lock.dependencies)) {
+  const root: Obj = lock.dependencies
+  const declared = new Set<string>()
+  for (const field of DEP_FIELDS) for (const n of Object.keys(pkg[field] ?? {})) declared.add(n)
+  for (const name of declared) {
+    const e = root[name]
+    if (!isObj(e)) { deps.push(dep(name, null, manifest, false)); continue }
     deps.push(dep(name, typeof e.version === 'string' ? e.version : null, manifest, npmEntryPrivate(e)))
-    if (isObj(e.dependencies) && !npmEntryPrivate(e)) walk({ [name]: e }, name)
+    if (npmEntryPrivate(e)) continue
+    // `scopes[0]` holds the entry's own nested deps, then the maps that contain it, up to the top level.
+    const seen = new Set<Obj>([e])
+    const queue: { e: Obj; scopes: Obj[] }[] = [{ e, scopes: [isObj(e.dependencies) ? e.dependencies : {}, root] }]
+    while (queue.length) {
+      const cur = queue.shift()!
+      for (const child of Object.keys(cur.e.requires ?? {})) {
+        const i = cur.scopes.findIndex((m) => isObj(m[child]))
+        if (i < 0) continue
+        const ce: Obj = cur.scopes[i][child]
+        if (seen.has(ce) || npmEntryPrivate(ce)) continue
+        seen.add(ce)
+        queue.push({ e: ce, scopes: [isObj(ce.dependencies) ? ce.dependencies : {}, ...cur.scopes.slice(i)] })
+        if (declared.has(child)) continue
+        const version = typeof ce.version === 'string' ? ce.version : null
+        transitive.set(`${name}\0${child}\0${version}`, dep(child, version, manifest, false, [name]))
+      }
+    }
   }
   return { dir, ecosystem: 'npm', deps, transitive: [...transitive.values()] }
 }
@@ -164,6 +184,7 @@ function parseYarnV1(text: string): Map<string, YarnEntry> {
     else if (m) resolved = m[2]
   }
   flush()
+  if (!out.size && !/^# yarn lockfile v1/m.test(text)) throw new Error('no yarn v1 blocks')
   return out
 }
 

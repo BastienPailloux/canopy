@@ -11,6 +11,7 @@ describe('parsePackageLock', () => {
     const u = parsePackageLock('', lock({
       '': { dependencies: { a: '^1.0.0' }, devDependencies: { d: '^2.0.0' }, optionalDependencies: { o: '^3.0.0' }, workspaces: ['packages/*'] },
       'node_modules/a': e('1.2.0'), 'node_modules/d': e('2.1.0'), 'node_modules/o': e('3.0.0'), 'node_modules/w': e('9.0.0'),
+      'node_modules/m': { resolved: 'packages/m', link: true },
       'packages/m': { dependencies: { w: '^9.0.0' } },
       'packages/m/node_modules/w': e('9.5.0')
     }))
@@ -74,16 +75,41 @@ describe('parsePackageLock', () => {
     expect(u.transitive.map((d) => d.name)).toEqual([])
   })
 
-  it('reads lockfile v1', () => {
-    const u = parsePackageLock('', JSON.stringify({
+  it('reads lockfile v1 with direct deps from package.json', () => {
+    const lockV1 = JSON.stringify({
       lockfileVersion: 1,
       dependencies: {
-        a: { version: '1.0.0', resolved: `${REG}a/-/a-1.0.0.tgz`, dependencies: { b: { version: '2.0.0', resolved: `${REG}b/-/b-2.0.0.tgz` } } },
+        a: { version: '1.0.0', resolved: `${REG}a/-/a-1.0.0.tgz`, requires: { b: '^2', c: '^1' }, dependencies: { c: { version: '1.5.0', resolved: `${REG}c/-/c-1.5.0.tgz` } } },
+        b: { version: '2.0.0', resolved: `${REG}b/-/b-2.0.0.tgz`, requires: { c: '^1' } },
+        c: { version: '1.0.0', resolved: `${REG}c/-/c-1.0.0.tgz` },
         l: { version: 'file:../l' }
       }
-    }))
+    })
+    const u = parsePackageLock('', lockV1, JSON.stringify({ dependencies: { a: '^1', l: 'file:../l' } }))
     expect(u.deps.map((d) => [d.name, d.version, d.private])).toEqual([['a', '1.0.0', false], ['l', 'file:../l', true]])
-    expect(u.transitive).toEqual([{ ecosystem: 'npm', name: 'b', version: '2.0.0', manifest: 'package.json', private: false, via: ['a'] }])
+    expect(u.transitive.map((d) => [d.name, d.version, d.via])).toEqual([['b', '2.0.0', ['a']], ['c', '1.5.0', ['a']], ['c', '1.0.0', ['a']]])
+    expect(parsePackageLock('web', lockV1).error).toBe('Format de fichier inattendu : web/package-lock.json')
+  })
+
+  it('ignores out-of-tree link targets as owners', () => {
+    const u = parsePackageLock('', lock({
+      '': { dependencies: { l: 'file:../l' } },
+      'node_modules/l': { link: true, resolved: '../l' },
+      '../l': { dependencies: { x: '1' } },
+      'node_modules/x': e('1.0.0')
+    }))
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['l', true]])
+    expect(u.transitive).toEqual([])
+  })
+
+  it('reads in-tree workspace link targets as owners', () => {
+    const u = parsePackageLock('', lock({
+      '': { workspaces: ['packages/*'] },
+      'node_modules/m': { link: true, resolved: 'packages/m' },
+      'packages/m': { dependencies: { x: '1' } },
+      'node_modules/x': e('1.0.0')
+    }))
+    expect(u.deps.map((d) => [d.name, d.manifest])).toEqual([['x', 'packages/m/package.json']])
   })
 
   it('returns an error unit for a corrupt lockfile', () => {
@@ -148,6 +174,9 @@ describe('parseYarnLock', () => {
     expect(u.deps.map((d) => [d.name, d.version, d.private])).toEqual([
       ['a', '1.0.5', false], ['w', '0.0.0-use.local', true], ['p', '1.0.0', true], ['n', '2.0.0', false]
     ])
+  })
+  it('returns an error unit for a yarn v1 text without blocks', () => {
+    expect(parseYarnLock('', pkg, 'garbage\nmore garbage').error).toBe('Fichier illisible : yarn.lock')
   })
   it('returns an error unit for corrupt input', () => {
     expect(parseYarnLock('web', '{', '').error).toBe('Fichier illisible : web/package.json')
