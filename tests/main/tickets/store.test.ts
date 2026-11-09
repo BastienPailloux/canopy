@@ -196,4 +196,50 @@ describe('TicketStore', () => {
     expect(await readFile(join(dir(), 'CAN-4.md'), 'utf8')).toMatch(/^id: CAN-4$/m)
     expect((await store.get(repo.path, 'CAN-1')).title).toBe('Original')
   })
+
+  describe('parent', () => {
+    it('creates a sub-ticket', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      expect((await store.get(repo.path, b.id)).parent).toBe(a.id)
+      expect((await store.children(repo.path, a.id)).map((t) => t.id)).toEqual([b.id])
+    })
+
+    it('refuses a missing parent', async () => {
+      await expect(store.create(repo.path, fields({ parent: 'CAN-99' }))).rejects.toThrow('Parent introuvable : CAN-99')
+    })
+
+    it('refuses itself as parent', async () => {
+      const a = await store.create(repo.path, fields())
+      await expect(store.patch(repo.path, a.id, { parent: a.id })).rejects.toThrow('Un ticket ne peut pas être son propre parent')
+    })
+
+    it('refuses a cycle', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      await expect(store.patch(repo.path, a.id, { parent: b.id })).rejects.toThrow(`Ce parent créerait une boucle : ${b.id}`)
+    })
+
+    it('refuses an archived parent', async () => {
+      const a = await store.create(repo.path, fields())
+      await store.archive(repo.path, a.id)
+      await expect(store.create(repo.path, fields({ parent: a.id }))).rejects.toThrow(`Parent introuvable : ${a.id}`)
+    })
+
+    it('removes the parent', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      await store.patch(repo.path, b.id, { parent: undefined })
+      expect((await store.get(repo.path, b.id)).parent).toBeUndefined()
+      expect(await store.children(repo.path, a.id)).toEqual([])
+    })
+
+    it('keeps children of a missing parent readable', async () => {
+      await store.create(repo.path, fields())
+      await writeFile(join(dir(), 'CAN-2.md'), '---\nid: CAN-2\ntitle: Orphelin\nstatus: todo\npriority: none\nlabels: []\ncreated: 2026-11-08T10:12:00Z\nupdated: 2026-11-08T10:12:00Z\nparent: CAN-999\n---\n')
+      expect((await store.get(repo.path, 'CAN-2')).parent).toBe('CAN-999')
+      const listed = await store.list(repo.path)
+      expect(listed.some((e) => e.kind === 'ticket' && e.ticket.parent === 'CAN-999')).toBe(true)
+    })
+  })
 })

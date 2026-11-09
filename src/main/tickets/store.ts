@@ -161,9 +161,37 @@ export class TicketStore {
     return parseTicket(text, id)
   }
 
+  /** The parent must be a live ticket and must not lead back to `id` (archived tickets are not in `.tickets/`). */
+  private async checkParent(root: string, id: string | undefined, parent: string): Promise<void> {
+    checkId(parent)
+    if (parent === id) throw new Error('Un ticket ne peut pas être son propre parent')
+    const read = (tid: string) => readFile(join(this.dir(root), `${tid}.md`), 'utf8').catch(() => null)
+    if ((await read(parent)) === null) throw new Error(`Parent introuvable : ${parent}`)
+    let cur: string | undefined = parent
+    for (let i = 0; cur && i < 1000; i++) {
+      if (cur === id) throw new Error(`Ce parent créerait une boucle : ${parent}`)
+      const text = await read(cur)
+      if (text === null) break
+      try {
+        cur = parseTicket(text, cur).parent
+      } catch {
+        break
+      }
+    }
+  }
+
+  /** Non-archived tickets whose parent is `id`, sorted by id. */
+  async children(repo: string, id: string): Promise<Ticket[]> {
+    checkId(id)
+    const out: Ticket[] = []
+    for (const e of await this.list(repo)) if (e.kind === 'ticket' && e.ticket.parent === id) out.push(e.ticket)
+    return out
+  }
+
   create(repo: string, f: TicketFields): Promise<Ticket> {
     return this.withRoot(repo, '#config', async (root) => {
       await this.prepare(root)
+      if (f.parent) await this.checkParent(root, undefined, f.parent)
       const c = await this.resolveConfig(root)
       const now = new Date().toISOString()
       const ticket: Ticket = { ...f, id: `${c.prefix}-${c.next}`, created: now, updated: now, archived: false }
@@ -181,11 +209,12 @@ export class TicketStore {
       const text = await readFile(file, 'utf8').catch(() => null)
       if (text === null) throw notFound(id)
       const current = parseTicket(text, id)
+      if (changes.parent) await this.checkParent(root, id, changes.parent)
       const next: Ticket = { ...current, updated: new Date().toISOString() }
       for (const [k, v] of Object.entries(changes)) {
         const rec = next as unknown as Record<string, unknown>
         if (v !== undefined) rec[k] = v
-        else if (k === 'branch' || k === 'worktree' || k === 'base') delete rec[k]
+        else if (k === 'branch' || k === 'worktree' || k === 'base' || k === 'parent') delete rec[k]
       }
       await writeAtomic(file, serializeTicket(next, unknownFields(text)))
       return next

@@ -13,7 +13,7 @@ import type { TicketStore } from './store'
 import { watchTickets } from './watch'
 
 const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
-const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base']
+const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base', 'parent']
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const bad = (what: string): Error => new Error(`${what} invalide`)
@@ -31,7 +31,7 @@ function assertId(id: unknown): asserts id is string {
 function parseFields(raw: unknown): Partial<TicketFields> {
   if (!isObject(raw)) throw bad('Ticket')
   for (const k of Object.keys(raw)) if (!(FIELD_KEYS as string[]).includes(k)) throw bad(`Champ ${k}`)
-  const { title, description, status, priority, labels, subtasks, branch, worktree, base } = raw
+  const { title, description, status, priority, labels, subtasks, branch, worktree, base, parent } = raw
   if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > MAX_TITLE)) throw bad('Titre')
   if (description !== undefined && (typeof description !== 'string' || description.length > MAX_DESCRIPTION)) throw bad('Description')
   if (status !== undefined && !STATUSES.includes(status as TicketStatus)) throw bad('Statut')
@@ -46,10 +46,13 @@ function parseFields(raw: unknown): Partial<TicketFields> {
   if (branch !== undefined && typeof branch !== 'string') throw bad('Branche')
   if (worktree !== undefined && (typeof worktree !== 'string' || !isAbsolute(worktree))) throw bad('Worktree')
   if (base !== undefined && (typeof base !== 'string' || base === '' || base.startsWith('-'))) throw bad('Base')
+  if (parent !== undefined && parent !== null && (typeof parent !== 'string' || !ID_RE.test(parent))) throw bad('Parent')
   const out: Record<string, unknown> = {}
   for (const k of FIELD_KEYS) if (raw[k] !== undefined) out[k] = k === 'subtasks'
     ? (raw[k] as { title: string; done: boolean }[]).map((s) => ({ title: s.title, done: s.done }))
     : raw[k]
+  // null from the renderer means "remove the parent": a key present with value undefined.
+  if (parent === null) out.parent = undefined
   return out as Partial<TicketFields>
 }
 
