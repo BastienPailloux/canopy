@@ -889,3 +889,10 @@
 .mockup-link-menu button:hover,
 .mockup-link-menu button:focus-visible { background: var(--selected); outline: none; }
 .mockup-link-menu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
+.editor-template {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.editor-template select { height: 28px; font-size: 12.5px; }
