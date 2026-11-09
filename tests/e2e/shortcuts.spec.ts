@@ -43,7 +43,8 @@ const press = async (id: string): Promise<void> => {
   await app.evaluate(({ Menu }, itemId) => { Menu.getApplicationMenu()?.getMenuItemById(`shortcut:${itemId}`)?.click() }, id)
 }
 
-const nav = (name: string): Locator => page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name, exact: true })
+// Tickets carries a count once one is open: its name starts with the label.
+const nav = (name: string): Locator => page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: new RegExp(`^${name}`) })
 
 test('⌘1 to ⌘3 switch screens', async () => {
   await press('view-code')
@@ -82,4 +83,20 @@ test('⌘⇧N opens the new worktree dialog from Tickets, and nothing changes be
   await expect(page.getByLabel('Nom de la branche')).toBeHidden()
   await press('view-sessions')
   await expect(page.getByTestId('active-worktree')).toHaveText('feat/b')
+})
+
+test('⌘⇧T creates a local ticket without leaving the screen', async () => {
+  await press('view-code')
+  await press('new-ticket')
+  await page.getByLabel('Titre').fill('Idée rapide')
+  await page.getByLabel('Description').fill('Notée depuis Code')
+  await page.keyboard.press('Meta+Enter')
+  const notice = page.getByTestId('quick-ticket-notice')
+  await expect(notice).toBeVisible()
+  await expect(nav('Code')).toHaveAttribute('aria-current', 'page')
+  const list = await page.evaluate((r) => window.canopy.listTickets(r), repo.path)
+  expect(list.some((e) => e.kind === 'ticket' && e.ticket.title === 'Idée rapide')).toBe(true)
+  await notice.getByRole('button', { name: 'Ouvrir' }).click()
+  await expect(nav('Tickets')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByLabel('Titre', { exact: true })).toHaveValue('Idée rapide')
 })

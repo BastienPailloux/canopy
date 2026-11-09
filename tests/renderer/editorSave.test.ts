@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TicketFields } from '../../src/shared/tickets'
-import { closeSaver, createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
+import { closeSaver, createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, quickTicketFields, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
 
 type Changes = Partial<TicketFields>
 
@@ -259,5 +259,15 @@ describe('closeSaver', () => {
     expect(save).toHaveBeenCalledTimes(2)
     untrack()
     s.dispose()
+  })
+})
+
+describe('quickTicketFields', () => {
+  it('creates nothing without a title', () => {
+    expect(quickTicketFields('  ', 'x')).toBeNull()
+  })
+
+  it('takes the trimmed title and the editor defaults', () => {
+    expect(quickTicketFields(' Bug ', 'd')).toEqual({ title: 'Bug', description: 'd', status: 'backlog', priority: 'none', labels: [], subtasks: [] })
   })
 })

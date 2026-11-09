@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Workspace } from '../shared/types'
 import type { Stash } from '../shared/update'
 import { CodeScreen } from './code/CodeScreen'
@@ -26,6 +26,7 @@ import { LinearEditor } from './tickets/LinearEditor'
 import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
+import { QuickTicketDialog, QuickTicketNotice } from './tickets/QuickTicketDialog'
 import { connectShortcutContext, connectShortcuts } from './shell/shortcuts'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
@@ -123,15 +124,21 @@ function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element | null {
 }
 
 /** Dialogs a shortcut opens from any screen. The sidebar shows the new worktree one itself where it is mounted. */
-function ShortcutDialogs({ repo, sidebar }: { repo: string; sidebar: boolean }): React.JSX.Element | null {
+function ShortcutDialogs({ repo, sidebar }: { repo: string; sidebar: boolean }): React.JSX.Element {
   const dialog = useApp((s) => s.dialog)
   const setDialog = useApp((s) => s.setDialog)
   const setWorktree = useApp((s) => s.setWorktree)
-  if (dialog === 'new-worktree' && !sidebar) {
-    // The sidebar reads the list again when it comes back: the new worktree is in it by then.
-    return <NewWorktreeDialog repo={repo} onClose={() => setDialog(null)} onCreated={(path) => { setDialog(null); setWorktree(path) }} />
-  }
-  return null
+  const [created, setCreated] = useState<string | null>(null)
+  return (
+    <>
+      {dialog === 'new-worktree' && !sidebar && (
+        // The sidebar reads the list again when it comes back: the new worktree is in it by then.
+        <NewWorktreeDialog repo={repo} onClose={() => setDialog(null)} onCreated={(path) => { setDialog(null); setWorktree(path) }} />
+      )}
+      {dialog === 'new-ticket' && <QuickTicketDialog repo={repo} onCreated={setCreated} />}
+      {created && <QuickTicketNotice key={created} id={created} onDone={() => setCreated(null)} />}
+    </>
+  )
 }
 
 export function App(): React.JSX.Element {

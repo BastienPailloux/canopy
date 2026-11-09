@@ -131,6 +131,12 @@ export function draftToCreate(local: TicketFields): TicketFields | null {
   return { title, description, status, priority, labels, subtasks }
 }
 
+/** A ticket from the quick dialog (⇧⌘T): the editor's defaults for all but the title and description. */
+export function quickTicketFields(title: string, description: string): TicketFields | null {
+  const t = title.trim()
+  return t === '' ? null : { title: t, description, status: 'backlog', priority: 'none', labels: [], subtasks: [] }
+}
+
 /** The fields the editor changes; the others (id, dates, branch, worktree, base) always come from disk. */
 export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks'] as const
 
