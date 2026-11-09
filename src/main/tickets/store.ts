@@ -161,9 +161,46 @@ export class TicketStore {
     return parseTicket(text, id)
   }
 
+  /**
+   * The parent must be a live, readable ticket and must not lead back to `id` (archived tickets are not in `.tickets/`).
+   * Only the direct parent must be valid: a missing or unreadable ancestor further up ends the walk.
+   */
+  private async checkParent(root: string, id: string | undefined, parent: string): Promise<void> {
+    checkId(parent)
+    if (parent === id) throw new Error('Un ticket ne peut pas être son propre parent')
+    const read = async (tid: string): Promise<Ticket | null | 'unreadable'> => {
+      const text = await readFile(join(this.dir(root), `${tid}.md`), 'utf8').catch(() => null)
+      if (text === null) return null
+      try { return parseTicket(text, tid) } catch { return 'unreadable' }
+    }
+    const first = await read(parent)
+    if (first === null) throw new Error(`Parent introuvable : ${parent}`)
+    if (first === 'unreadable') throw new Error(`Parent illisible : ${parent}`)
+    // A visited set, not a step limit: a hand-made loop of any length must be caught, not accepted.
+    const seen = new Set([parent])
+    let cur = first.parent
+    while (cur) {
+      if (cur === id) throw new Error(`Ce parent créerait une boucle : ${parent}`)
+      if (seen.has(cur)) throw new Error(`Chaîne de parents en boucle à partir de ${cur}`)
+      seen.add(cur)
+      const t = await read(cur)
+      if (t === null || t === 'unreadable') break
+      cur = t.parent
+    }
+  }
+
+  /** Non-archived tickets whose parent is `id`, sorted by id. */
+  async children(repo: string, id: string): Promise<Ticket[]> {
+    checkId(id)
+    const out: Ticket[] = []
+    for (const e of await this.list(repo)) if (e.kind === 'ticket' && e.ticket.parent === id) out.push(e.ticket)
+    return out.sort((x, y) => x.id.localeCompare(y.id, 'en', { numeric: true }))
+  }
+
   create(repo: string, f: TicketFields): Promise<Ticket> {
     return this.withRoot(repo, '#config', async (root) => {
       await this.prepare(root)
+      if (f.parent) await this.checkParent(root, undefined, f.parent)
       const c = await this.resolveConfig(root)
       const now = new Date().toISOString()
       const ticket: Ticket = { ...f, id: `${c.prefix}-${c.next}`, created: now, updated: now, archived: false }
@@ -181,11 +218,12 @@ export class TicketStore {
       const text = await readFile(file, 'utf8').catch(() => null)
       if (text === null) throw notFound(id)
       const current = parseTicket(text, id)
+      if (changes.parent) await this.checkParent(root, id, changes.parent)
       const next: Ticket = { ...current, updated: new Date().toISOString() }
       for (const [k, v] of Object.entries(changes)) {
         const rec = next as unknown as Record<string, unknown>
         if (v !== undefined) rec[k] = v
-        else if (k === 'branch' || k === 'worktree' || k === 'base') delete rec[k]
+        else if (k === 'branch' || k === 'worktree' || k === 'base' || k === 'parent') delete rec[k]
       }
       await writeAtomic(file, serializeTicket(next, unknownFields(text)))
       return next

@@ -92,4 +92,32 @@ describe('ticket format', () => {
   it('takes the id from the file name, not the front matter', () => {
     expect(parseTicket(minimal('x'), 'DPP-9').id).toBe('DPP-9')
   })
+
+  it('parses and writes parent', () => {
+    const t = parseTicket(minimal('x', 'parent: CAN-3\n'), 'DPP-1')
+    expect(t.parent).toBe('CAN-3')
+    const out = serializeTicket(t)
+    expect(out).toContain('parent: CAN-3\n')
+    expect(parseTicket(out, 'DPP-1')).toEqual(t)
+  })
+
+  it('ignores an invalid parent', () => {
+    expect(parseTicket(minimal('x', "parent: 'not an id'\n"), 'DPP-1').parent).toBeUndefined()
+    expect(parseTicket(minimal('x', 'parent: 12\n'), 'DPP-1').parent).toBeUndefined()
+  })
+
+  it('parent is not an unknown field', () => {
+    expect(unknownFields(minimal('x', 'parent: CAN-3\n'))).not.toHaveProperty('parent')
+  })
+
+  it('an invalid parent written by hand stays in the file on the next save', () => {
+    const x = minimal('x', 'parent: can-3\n')
+    const t = parseTicket(x, 'DPP-1')
+    expect(t.parent).toBeUndefined()
+    const out = serializeTicket({ ...t, title: 'T2' }, unknownFields(x))
+    expect(out).toContain('parent: can-3\n')
+    expect(parseTicket(out, 'DPP-1').parent).toBeUndefined()
+    // A valid parent set since wins over the hand-written one.
+    expect(serializeTicket({ ...t, parent: 'CAN-4' }, unknownFields(x))).toMatch(/parent: CAN-4\n(?![\s\S]*parent:)/)
+  })
 })

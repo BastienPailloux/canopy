@@ -10,7 +10,7 @@ export type { LinearChange, LinearField, PendingEdit, SaveResult } from '../../s
 
 type Client = Pick<LinearClient, 'issueBrief' | 'save'>
 
-const PRIORITY_VALUE: Record<TicketPriority, number> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4 }
+export const PRIORITY_VALUE: Record<TicketPriority, number> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4 }
 
 const PLAIN: { field: Exclude<LinearField, 'description'>; arg: string; value: (c: LinearChange) => unknown }[] = [
   { field: 'title', arg: 'title', value: (c) => c.title },

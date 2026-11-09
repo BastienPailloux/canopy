@@ -12,6 +12,8 @@ export interface Row {
   priority: TicketPriority
   labels: string[]
   pending: boolean
+  /** Local id of the parent ticket. */
+  parent?: string
 }
 
 export interface Filters {
@@ -32,7 +34,7 @@ export function mergeRows(local: TicketListEntry[], linear: LinearIssue[], pendi
   for (const e of local) {
     if (e.kind !== 'ticket') continue
     const t = e.ticket
-    rows.push({ key: ticketKey('local', t.id), source: 'local', id: t.id, title: t.title, status: t.status, priority: t.priority, labels: t.labels, pending: false })
+    rows.push({ key: ticketKey('local', t.id), source: 'local', id: t.id, title: t.title, status: t.status, priority: t.priority, labels: t.labels, pending: false, ...(t.parent ? { parent: t.parent } : {}) })
   }
   for (const i of linear) {
     const status = listGroup(i.status, kept.has(i.id) || pendingIds.has(i.id))

@@ -37,6 +37,11 @@ More issues may be captured and added later.
 - `list_users`: `{users:[{id,name,email,displayName,avatarUrl?,isAdmin,isGuest,isActive,createdAt,updatedAt,status}], hasNextPage}` (includes the "Linear" bot user).
 - `list_comments`: `{comments:[],hasNextPage:false}` (empty; comment shape UNKNOWN).
 
+## Creation (replay only)
+`CANOPY_FAKE_LINEAR` replays `save_issue` creation too: a call without `id` needs `team` (name or id, else `Error: team is required when creating.`)
+and `title`. The new issue gets id `CAN-<max+1>` (max over the current issues), status of the `unstarted` type, no assignee, and the given `parentId`.
+Not captured: the real creation answer and a non-null `parentId`; both are assumed to have the same shape as the update answer.
+
 ## `save_issue` `patch`
 `patch` is a top-level argument of `save_issue` (sibling of `id`; only on update, in place of `description`): array of 1-50 ops, applied in order, atomic.
 Ops (from `tools.json`):

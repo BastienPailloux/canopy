@@ -4,6 +4,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { LinearComment, LinearConnection, LinearIssue, LinearIssueDetail, LinearStatus, LinearUser } from '../../shared/linear'
 import type { AppStore } from '../appStore'
 import { LinearAuthProvider, waitForCallback } from './auth'
+import type { TicketPriority } from '../../shared/tickets'
+import { PRIORITY_VALUE } from './edits'
 import {
   ISSUE_FIELDS, LIST_FIELDS, LinearError, LinearFormatError, parseComments, parseIssue, parseIssueList, parseLabels, parseStatuses, parseUsers,
   parseWhoami, toolJson, type CallToolResult,
@@ -233,6 +235,15 @@ export class LinearClient {
   /** `save_issue` on `id`; the answer is the saved issue (its fields as Linear normalised them). */
   save(id: string, args: Record<string, unknown>): Promise<LinearIssue> {
     return this.call('save_issue', { ...args, id }).then(parseIssue)
+  }
+
+  /**
+   * Creates an issue (`save_issue` without `id`), assigned to the viewer. The create answer is not captured yet: assumed
+   * to have the shape of the update answer (the full issue).
+   */
+  createIssue(args: { title: string; team: string; description?: string; parentId?: string; priority?: TicketPriority; labels?: string[]; state?: string }): Promise<LinearIssue> {
+    const { priority, ...rest } = args
+    return this.call('save_issue', { ...rest, assignee: 'me', ...(priority === undefined ? {} : { priority: PRIORITY_VALUE[priority] }) }).then(parseIssue)
   }
 
   async comment(id: string, body: string): Promise<LinearComment> {

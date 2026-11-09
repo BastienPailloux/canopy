@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
 import {
-  LINEAR_MAX_LABEL, LINEAR_MAX_LABELS, LINEAR_MAX_TITLE, type LinearChange, type LinearField, type LinearLaunchRequest, type LinearListState,
+  LINEAR_ID_RE, LINEAR_MAX_LABEL, LINEAR_MAX_LABELS, LINEAR_MAX_TITLE, type LinearChange, type LinearField, type LinearLaunchRequest, type LinearListState,
 } from '../../shared/linear'
 import { MAX_DESCRIPTION, PRIORITIES, type LaunchTarget, type TicketPriority } from '../../shared/tickets'
 import type { AppStore } from '../appStore'
@@ -12,7 +12,6 @@ import type { LinearEdits } from './edits'
 import { launchLinear } from './launch'
 import type { LinearSync } from './sync'
 
-export const LINEAR_ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
 export const PENDING_REFUSAL = "Des modifications Linear n'ont pas été envoyées."
 const CHANGE_KEYS: LinearField[] = ['title', 'description', 'statusId', 'priority', 'labels', 'assigneeId']
 /** Linear ids (status, team, user) are UUIDs; anything much longer is not one. */

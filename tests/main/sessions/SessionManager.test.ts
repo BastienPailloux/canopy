@@ -6,7 +6,7 @@ import type {
   CanUseTool, getSessionMessages, listSessions, Options, PermissionResult, PermissionUpdate, Query, SDKMessage,
   SDKSessionInfo, SDKUserMessage, SessionMessage, SlashCommand
 } from '@anthropic-ai/claude-agent-sdk'
-import { SessionManager } from '../../../src/main/sessions/SessionManager'
+import { SessionManager, type SessionManagerDeps } from '../../../src/main/sessions/SessionManager'
 import type { SessionEvents } from '../../../src/shared/api'
 import { isRepoNotTrusted, REPO_NOT_TRUSTED, RepoNotTrustedError } from '../../../src/shared/errors'
 import { isAttachmentNote } from '../../../src/shared/attachments'
@@ -87,7 +87,7 @@ interface Harness {
   getSessionMessages: ReturnType<typeof vi.fn<typeof getSessionMessages>>
 }
 
-function setup(o: { attachmentsDir?: string; query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (root: string) => boolean; disk?: Partial<SDKSessionInfo>[] } = {}): Harness {
+function setup(o: { attachmentsDir?: string; query?: (p: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => FakeQuery; env?: NodeJS.ProcessEnv; executable?: () => string | undefined; isTrusted?: (root: string) => boolean; disk?: Partial<SDKSessionInfo>[]; canopyServer?: SessionManagerDeps['canopyServer'] } = {}): Harness {
   const queries: FakeQuery[] = []
   const states: SessionEvents['state'][] = []
   const permissions: PermissionRequest[] = []
@@ -105,7 +105,8 @@ function setup(o: { attachmentsDir?: string; query?: (p: { prompt: AsyncIterable
     env: () => o.env ?? { PATH: '/x' },
     pathToClaudeCodeExecutable: o.executable,
     isTrusted: o.isTrusted ?? (() => true),
-    attachmentsDir: o.attachmentsDir
+    attachmentsDir: o.attachmentsDir,
+    canopyServer: o.canopyServer
   })
   m.on('state', (s) => states.push(s))
   m.on('permission', (p) => permissions.push(p))
@@ -970,4 +971,70 @@ test('a mode the CLI changes by itself, as when a plan is approved, is followed'
   await tick()
   await tick()
   expect((await h.m.list('/wt')).find((s) => s.localId === localId)?.mode).toBe('default')
+})
+
+test('without a canopyServer dep, no MCP server nor allowed tool is added', () => {
+  const h = setup()
+  h.m.start('/a', { content: content('hi') })
+  expect(h.queries[0].options.mcpServers).toBeUndefined()
+  expect(h.queries[0].options.allowedTools).toBeUndefined()
+})
+
+test('every session gets the canopy server of its repo, its tools allowed', () => {
+  const server = { type: 'sdk', name: 'canopy', instance: {} } as never
+  const factory = vi.fn<NonNullable<SessionManagerDeps['canopyServer']>>(() => server)
+  const h = setup({ canopyServer: factory })
+  h.m.start('/repo/.worktrees/x', { content: content('hi'), repoRoot: '/repo' })
+  h.m.start('/b', { content: content('hi') })
+  expect(h.queries[0].options.mcpServers).toEqual({ canopy: server })
+  expect(h.queries[0].options.allowedTools).toEqual(['mcp__canopy'])
+  expect(factory.mock.calls.map(([ctx]) => ctx.repoRoot)).toEqual(['/repo', '/b'])
+})
+
+test("the canopy server reads the session's current mode", async () => {
+  let mode: (() => string) | undefined
+  const h = setup({ canopyServer: (ctx) => { mode = ctx.mode; return { type: 'sdk', name: 'canopy', instance: {} } as never } })
+  const id = h.m.start('/a', { content: content('hi'), mode: 'acceptEdits' })
+  expect(mode?.()).toBe('acceptEdits')
+  await h.m.setMode(id, 'plan')
+  expect(mode?.()).toBe('plan')
+})
+
+test('setMode switches the mode before the SDK confirms it, and restores it if the SDK refuses', async () => {
+  let mode: (() => string) | undefined
+  const h = setup({ canopyServer: (ctx) => { mode = ctx.mode; return { type: 'sdk', name: 'canopy', instance: {} } as never } })
+  const id = h.m.start('/a', { content: content('hi'), mode: 'acceptEdits' })
+  let confirm: () => void = () => undefined
+  h.queries[0].setPermissionMode.mockImplementationOnce(() => new Promise<undefined>((r) => { confirm = () => r(undefined) }))
+  const switching = h.m.setMode(id, 'plan')
+  expect(mode?.()).toBe('plan')
+  confirm()
+  await switching
+  h.queries[0].setPermissionMode.mockRejectedValueOnce(new Error('refused'))
+  await expect(h.m.setMode(id, 'default')).rejects.toThrow('refused')
+  expect(mode?.()).toBe('plan')
+})
+
+test('canopy tools are allowed with no permission request', async () => {
+  const h = setup({ canopyServer: () => ({ type: 'sdk', name: 'canopy', instance: {} }) as never })
+  const id = h.m.start('/a', { content: content('hi') })
+  await tick()
+  const input = { source: 'local', title: 'x' }
+  await expect(h.queries[0].ask('mcp__canopy__create_ticket', 'r1', { input, extra: { mcpServer: { source: 'sdk', name: 'canopy' } } }))
+    .resolves.toEqual({ behavior: 'allow', updatedInput: input })
+  expect(h.permissions).toEqual([])
+  expect(h.stateOf(id)).toBe('running')
+})
+
+test.each([
+  ['a configured server whose name starts with canopy__', 'mcp__canopy__x__run', { mcpServer: { source: 'project', name: 'canopy__x' } }],
+  ['a configured server named canopy', 'mcp__canopy__create_ticket', { mcpServer: { source: 'user', name: 'canopy' } }],
+  ['a call with no server origin', 'mcp__canopy__create_ticket', {}],
+])('a canopy-named tool from %s goes through the permission flow', async (_, tool, extra) => {
+  const h = setup({ canopyServer: () => ({ type: 'sdk', name: 'canopy', instance: {} }) as never })
+  h.m.start('/a', { content: content('hi') })
+  await tick()
+  void h.queries[0].ask(tool, 'r1', { extra })
+  await tick()
+  expect(h.permissions.map((p) => p.toolName)).toEqual([tool])
 })

@@ -160,3 +160,40 @@ test('hand-edited ticket refreshes the list', async () => {
   await writeFile(ticketFile(), text.replace('Titre initial', 'Titre modifié à la main'))
   await expect(page.getByTestId('ticket-REP-1')).toContainText('Titre modifié à la main', { timeout: 2_000 })
 })
+
+test('sub-tickets', async () => {
+  await launch()
+  await newTicket('Export')
+  await newTicket('Export CSV')
+  await nav('Tickets').click()
+
+  await page.getByTestId('ticket-REP-2').click()
+  await page.getByRole('combobox', { name: 'Parent' }).selectOption({ label: 'REP-1 · Export' })
+  await expect(page.getByText('Sous-ticket de REP-1 · Export')).toBeVisible()
+  await expect.poll(async () => readFile(ticketFile('REP-2'), 'utf8')).toContain('parent: REP-1')
+
+  await page.getByRole('button', { name: 'Mes tickets', exact: true }).click()
+  await expect(page.getByTestId('ticket-REP-2')).toContainText('REP-1')
+
+  await page.getByTestId('ticket-REP-1').click()
+  const subs = page.getByRole('region', { name: 'Sous-tickets' })
+  await expect(subs).toContainText('Export CSV')
+  // A descendant cannot become the parent.
+  await expect(page.getByRole('combobox', { name: 'Parent' }).locator('option', { hasText: 'Export CSV' })).toHaveCount(0)
+  await subs.getByRole('button', { name: /Export CSV/ }).click()
+  await expect(page.getByLabel('Titre', { exact: true })).toHaveValue('Export CSV')
+
+  await page.getByRole('combobox', { name: 'Parent' }).selectOption({ label: 'Aucun' })
+  await expect(page.getByText('Sous-ticket de')).toHaveCount(0)
+  await expect.poll(async () => readFile(ticketFile('REP-2'), 'utf8')).not.toContain('parent:')
+})
+
+test('missing parent', async () => {
+  await launch()
+  await newTicket('Orphelin')
+  const text = await readFile(ticketFile(), 'utf8')
+  await writeFile(ticketFile(), text.replace('status:', 'parent: TKT-999\nstatus:'))
+  await nav('Tickets').click()
+  await page.getByTestId('ticket-REP-1').click()
+  await expect(page.locator('p.parent-line')).toHaveText('TKT-999 (introuvable)')
+})
