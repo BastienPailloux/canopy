@@ -57,12 +57,12 @@ La création des tags `v*` reste ouverte : sur un dépôt personnel, GitHub Acti
 
 ## 4 ter. CI des pull requests
 
-Chaque PR vers `develop` ou `master`, et chaque push sur ces branches, lance :
+`ci.yml` et `codeql.yml` tournent sur chaque PR vers `develop` ou `master` et sur chaque push sur ces branches ; `pr-title.yml` seulement sur les PR vers `develop` (le titre devient le commit de squash) :
 
 | Workflow | Job (nom du check) | Rôle |
 |---|---|---|
 | `ci.yml` | `typecheck, tests, build` | `npm ci`, typecheck, tests Vitest, build (macOS) |
-| `ci.yml` | `e2e` | Playwright sur l'app Electron (macOS), traces jointes en cas d'échec |
+| `ci.yml` | `e2e` | Playwright sur l'app Electron, réparti sur 3 runners macOS (`e2e 1/3`…), traces jointes en cas d'échec |
 | `ci.yml` | `npm audit` | échoue sur une vulnérabilité `high` ou `critical` dans les dépendances livrées (`--omit=dev`) |
 | `pr-title.yml` | `conventional title` | le titre de PR (futur commit de squash) doit être un Conventional Commit valide (`scripts/ci/prTitle.ts`) |
 | `codeql.yml` | `analyze` | analyse de sécurité CodeQL (`security-extended`), aussi chaque lundi |
