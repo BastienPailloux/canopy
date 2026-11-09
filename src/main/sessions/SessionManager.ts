@@ -193,8 +193,15 @@ export class SessionManager extends EventEmitter<EventMap> {
   async setMode(localId: string, mode: PermissionMode): Promise<void> {
     const s = this.sessions.get(localId)
     if (!s) return
-    await s.query.setPermissionMode(mode)
+    // Set first: a canopy tool called while the SDK switches must already see the new mode (plan refuses writes).
+    const previous = s.mode
     s.mode = mode
+    try {
+      await s.query.setPermissionMode(mode)
+    } catch (err) {
+      s.mode = previous
+      throw err
+    }
   }
 
   async setModel(localId: string, model: string): Promise<void> {

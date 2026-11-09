@@ -1000,6 +1000,21 @@ test("the canopy server reads the session's current mode", async () => {
   expect(mode?.()).toBe('plan')
 })
 
+test('setMode switches the mode before the SDK confirms it, and restores it if the SDK refuses', async () => {
+  let mode: (() => string) | undefined
+  const h = setup({ canopyServer: (ctx) => { mode = ctx.mode; return { type: 'sdk', name: 'canopy', instance: {} } as never } })
+  const id = h.m.start('/a', { content: content('hi'), mode: 'acceptEdits' })
+  let confirm: () => void = () => undefined
+  h.queries[0].setPermissionMode.mockImplementationOnce(() => new Promise<undefined>((r) => { confirm = () => r(undefined) }))
+  const switching = h.m.setMode(id, 'plan')
+  expect(mode?.()).toBe('plan')
+  confirm()
+  await switching
+  h.queries[0].setPermissionMode.mockRejectedValueOnce(new Error('refused'))
+  await expect(h.m.setMode(id, 'default')).rejects.toThrow('refused')
+  expect(mode?.()).toBe('plan')
+})
+
 test('canopy tools are allowed with no permission request', async () => {
   const h = setup({ canopyServer: () => ({ type: 'sdk', name: 'canopy', instance: {} }) as never })
   const id = h.m.start('/a', { content: content('hi') })
