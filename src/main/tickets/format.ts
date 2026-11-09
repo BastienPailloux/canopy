@@ -4,7 +4,7 @@ import { PRIORITIES, STATUSES, type Subtask, type Ticket, type TicketPriority, t
 const SUBTASKS_HEADING = '## Sous-tâches'
 const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base']
 
-function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {
+export function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {
   const m = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(text)
   if (!m) throw new Error('Front matter manquant')
   const data = parse(m[1] ?? '') ?? {}
@@ -28,7 +28,7 @@ function trimBlank(s: string): string {
   return s.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '')
 }
 
-function splitBody(body: string): { description: string; subtasks: Subtask[] } {
+export function splitBody(body: string): { description: string; subtasks: Subtask[] } {
   const lines = body.replace(/\r\n/g, '\n').split('\n')
   const at = lines.map((l) => l.trimEnd()).lastIndexOf(SUBTASKS_HEADING)
   if (at === -1) return { description: trimBlank(body.replace(/\r\n/g, '\n')), subtasks: [] }
