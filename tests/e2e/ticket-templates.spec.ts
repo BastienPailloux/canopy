@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeApp } from '../helpers/closeApp'
@@ -175,6 +175,23 @@ test('deletes a template', async () => {
   await page.getByRole('button', { name: '+ Nouveau ticket' }).click()
   await expect(description()).toHaveValue(/### Contexte/)
   await expect(picker().locator('option')).toHaveText(['Contexte', 'Fonctionnalité', 'Bug', 'Aucun'])
+})
+
+test('a failed delete keeps the template editable', async () => {
+  await openManager()
+  dialogs(() => true)
+  await entry('Refacto').click()
+  // A read-only folder: the delete fails.
+  await chmod(join(repo.path, '.tickets', 'templates'), 0o555)
+  try {
+    await manager().getByRole('button', { name: 'Supprimer', exact: true }).click()
+    await expect(manager().getByRole('alert')).toBeVisible()
+  } finally {
+    await chmod(join(repo.path, '.tickets', 'templates'), 0o755)
+  }
+  expect(await exists(templateFile('refacto'))).toBe(true)
+  await manager().getByLabel('Description', { exact: true }).fill('### Après échec')
+  await expect.poll(async () => readFile(templateFile('refacto'), 'utf8').catch(() => '')).toContain('### Après échec')
 })
 
 test('opens from the draft', async () => {

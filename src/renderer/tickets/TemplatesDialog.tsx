@@ -110,7 +110,13 @@ export function TemplatesDialog({ repo, onClose }: { repo: string; onClose: () =
     const at = templates.findIndex((t) => t.slug === selected.slug)
     const rest = templates.filter((t) => t.slug !== selected.slug)
     e.discard()
-    if (selected.slug) await window.canopy.deleteTicketTemplate(repo, selected.slug)
+    try {
+      if (selected.slug) await window.canopy.deleteTicketTemplate(repo, selected.slug)
+    } catch (err) {
+      // The discarded editor writes nothing any more: a fresh one keeps the template editable.
+      open(selected.slug, selected.slug ? undefined : e.fields())
+      throw err
+    }
     const next = rest[Math.min(Math.max(at, 0), rest.length - 1)]
     if (next) open(next.slug)
     else setSelected(null)
