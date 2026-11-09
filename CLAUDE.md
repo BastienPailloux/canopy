@@ -64,8 +64,9 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 
 ## Git et branches
 
-- `develop` : branche d'intégration, cible de toutes les PR.
-- `master` : branche de release. Chaque push sur `master` peut publier une version.
+- `develop` : branche d'intégration, cible de toutes les PR. Protégée : pas de push direct ni de force-push, merge par PR en squash uniquement.
+- `master` : branche de release. Chaque push sur `master` peut publier une version, après approbation dans l'environment `release`. Force-push et suppression interdits, comme pour les tags `v*` (rulesets, cf. `docs/release.md`).
+- Ne jamais lancer ni valider un `git push` vers `master` depuis une session Claude : la livraison reste un geste du mainteneur.
 - Branches de travail : `<type>/<sujet-court>` (`feat/add-tickets`, `fix/answer`, `docs/claude-md`, `chore/…`), créées depuis `develop`, idéalement dans un worktree sous `.worktrees/`.
 - Ne jamais committer : `out/`, `dist/`, `dist-notes/`, `test-results/`, `.worktrees/`, `.superpowers/`, `.canopy/dev-user-data`, ni `src/shared/releases.json` régénéré par la CI.
 
@@ -98,7 +99,7 @@ Détails et configuration Apple/GitHub : `docs/release.md`. Résumé :
 
 1. Les PR sont mergées dans `develop` (squash, titre conventionnel).
 2. Pour livrer, `develop` est mergé dans `master` par **vrai merge ou fast-forward, jamais en squash** (les types des commits seraient perdus).
-3. Le push sur `master` déclenche `.github/workflows/release.yml` (macOS, environment `release`, pas de release parallèle) :
+3. Le push sur `master` déclenche `.github/workflows/release.yml` (macOS, environment `release` avec approbation manuelle du mainteneur, pas de release parallèle) :
    - `scripts/release/cli.ts` lit les commits depuis le dernier tag `v*`, calcule la version suivante (première release : `1.0.0`), génère `dist-notes/notes.md` et `src/shared/releases.json` (historique affiché dans « Quoi de neuf »). Aucun `feat`/`fix`/`perf`/breaking : le workflow finit en vert sans rien publier.
    - typecheck, tests unitaires, injection de la version (`npm version`), build ;
    - packaging electron-builder, signature Developer ID et notarisation Apple (secrets exposés uniquement à cette étape) ;
