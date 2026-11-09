@@ -89,6 +89,19 @@ describe('TicketStore templates', () => {
     expect(await readFile(join(tdir(), 'oops.md'), 'utf8')).toBe('no front matter')
   })
 
+  it('lists a file whose name is not a template slug as unreadable', async () => {
+    await mkdir(tdir(), { recursive: true })
+    const valid = '---\nname: Bug perso\n---\nbody\n'
+    await writeFile(join(tdir(), 'Bug.md'), valid)
+    await writeFile(join(tdir(), 'foo.bar.md'), valid)
+    const list = await store.templates(repo.path)
+    expect(list.entries).toMatchObject([
+      { kind: 'unreadable', file: 'Bug.md', error: expect.stringMatching(/Nom de fichier/) },
+      { kind: 'unreadable', file: 'foo.bar.md', error: expect.stringMatching(/Nom de fichier/) },
+    ])
+    expect(list.defaultSlug).toBeNull()
+  })
+
   it('falls back to the first template when the default is gone', async () => {
     await store.templates(repo.path)
     await store.setDefaultTemplate(repo.path, 'bug')

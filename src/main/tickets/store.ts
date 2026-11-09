@@ -270,6 +270,11 @@ export class TicketStore {
       const good: TicketTemplate[] = []
       const bad: TemplateList['entries'] = []
       for (const file of (await mdFiles(dir)).sort()) {
+        // Editing, deleting and making it the default all go by slug: a file named otherwise could not be managed.
+        if (!TEMPLATE_SLUG_RE.test(basename(file, '.md'))) {
+          bad.push({ kind: 'unreadable', file, error: 'Nom de fichier invalide : minuscules, chiffres et tirets seulement' })
+          continue
+        }
         try {
           good.push(parseTemplate(await readFile(join(dir, file), 'utf8'), basename(file, '.md')))
         } catch (e) {
