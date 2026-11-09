@@ -98,6 +98,17 @@ describe('classify', () => {
     expect(classify(dep({ version: '1.2.0' }), [adv({ fixed: '1.2.5' })], info({ latest: '3.0.0' }), NOW)!.target).toBe('1.2.5')
     expect(classify(dep({ version: '1.2.0' }), [adv({ fixed: '2.0.1' })], info({ latest: '3.0.0' }), NOW)!.target).toBe('3.0.0')
   })
+  it('ignores the fixed version of a transitive package', () => {
+    const t = adv({ package: 'follow-redirects', fixed: '1.15.4' })
+    expect(classify(dep({ name: 'axios', version: '1.6.0' }), [t], info({ latest: '1.7.9' }), NOW)!.target).toBe('1.7.9')
+  })
+  it('targets the latest when one of its own serious advisories has no fix in the installed major', () => {
+    const fixedOne = adv({ id: 'GHSA-a', fixed: '1.2.5' })
+    expect(classify(dep({ version: '1.2.0' }), [fixedOne, adv({ id: 'GHSA-b', fixed: null })], info({ latest: '3.0.0' }), NOW)!.target).toBe('3.0.0')
+    expect(classify(dep({ version: '1.2.0' }), [fixedOne, adv({ id: 'GHSA-b', fixed: '2.0.0', severity: 'critical' })], info({ latest: '3.0.0' }), NOW)!.target).toBe('3.0.0')
+    // A moderate one without a fix does not outweigh the fix of a serious one.
+    expect(classify(dep({ version: '1.2.0' }), [fixedOne, adv({ id: 'GHSA-c', fixed: null, severity: 'moderate' })], info({ latest: '3.0.0' }), NOW)!.target).toBe('1.2.5')
+  })
   it('names the transitive package', () => {
     const e = classify(dep({ name: 'mkdirp', via: ['mkdirp'] }), [adv({ package: 'minimist', severity: 'critical' })], info(), NOW)!
     expect(e.reason).toBe('Faille critique dans minimist (via mkdirp)')

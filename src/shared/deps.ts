@@ -131,8 +131,12 @@ export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | nul
   const latest = info?.latest ?? null
 
   let target = latest
-  const fixes = advisories.map((a) => a.fixed).filter((f): f is string => !!f && major(f) === major(d.version!))
-  if (fixes.length) target = fixes.reduce((a, b) => (compare(a, b) >= 0 ? a : b))
+  // A transitive advisory's `fixed` is a version of the other package, not of this one.
+  const own = advisories.filter((a) => a.package === d.name)
+  const inMajor = (f: string | null): f is string => !!f && major(f) === major(d.version!)
+  const unfixable = own.some((a) => SEVERITY_RANK[a.severity] >= SEVERITY_RANK.high && !inMajor(a.fixed))
+  const fixes = own.map((a) => a.fixed).filter(inMajor)
+  if (fixes.length && !unfixable) target = fixes.reduce((a, b) => (compare(a, b) >= 0 ? a : b))
   const out = (level: Level, cause: Cause, reason: string): DepEntry => ({ ...base, target, level, cause, reason })
 
   if (top && topRank >= SEVERITY_RANK.high) return out('critical', 'advisory', adviceReason(top, d))
