@@ -40,6 +40,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 ```
 
 - **IPC** : le contrat est dans `src/shared/api.ts` (`CanopyApi`). Ajouter une méthode = la déclarer dans `api.ts`, l'exposer dans `src/preload/index.ts` (`ipcRenderer.invoke('domaine:action', …)`), la gérer dans `src/main/ipc.ts` (ou dans le module `*Ipc.ts` du domaine, comme `tickets/ticketIpc.ts` et `linear/linearIpc.ts`). Les événements main → renderer passent par le canal unique `canopy:event` (`broadcast`).
+- **Raccourcis clavier** : une seule table dans `src/shared/shortcuts.ts` alimente le menu de l'app (accélérateurs, entrées grisées) et l'aide ⇧⌘H. Un raccourci est une entrée de menu (prioritaire sur Monaco et xterm), diffusée en `menu:shortcut` et exécutée par `runShortcut` (`renderer/shell/shortcuts.ts`). En E2E, les touches Playwright n'atteignent pas le menu macOS : cliquer l'entrée via `app.evaluate` (cf. `tests/e2e/shortcuts.spec.ts`).
 - **Renderer** : jamais d'accès Node direct, tout passe par `window.canopy`. L'état vit dans des stores Zustand par domaine (`sessionStore`, `terminalStore`, `ticketStore`…).
 - **Binaires natifs** (SDK Claude, node-pty, ripgrep, serveur LSP) sont en `asarUnpack` dans `electron-builder.yml`. Toute nouvelle dépendance qui spawn un binaire doit y être ajoutée, sinon elle casse uniquement en build packagé.
 - **Worktrees** : créés par défaut sous `<repo>/.worktrees/` (ignoré par git). `.canopy/config.json` décrit le setup et les services lancés par « Tester la PR » ; le port est fourni via `PORT`.
