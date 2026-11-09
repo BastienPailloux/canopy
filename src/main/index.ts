@@ -35,6 +35,7 @@ import { createOpenFolders } from './openFolders'
 import { createQuitFlow, linearCounts, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
+import { createCanopyServer } from './mcp/canopyServer'
 import { TerminalManager } from './terminal/TerminalManager'
 import { createUpdater, type Updater } from './update/updater'
 
@@ -140,6 +141,9 @@ void app.whenReady().then(async () => {
   const store = new AppStore(join(app.getPath('userData'), 'state.json'), safeStorage)
   // A login shell can take minutes: the window opens on the last known PATH, and new processes get the real env once it resolves.
   startEnv({ persistedPath: store.loginPath, onResolved: (env) => { if (env.PATH) store.setLoginPath(env.PATH) } })
+  const tickets = new TicketStore()
+  // One instance for the IPC and Claude's tools: it serializes the writes of each registry file.
+  const mockups = new MockupStore()
   const sessions = new SessionManager({
     query: selectQuery(query, { isPackaged: app.isPackaged, env: process.env }),
     listSessions,
@@ -148,7 +152,11 @@ void app.whenReady().then(async () => {
     env: () => ({ ...currentEnv(), ...store.apiKeyEnv() }),
     pathToClaudeCodeExecutable: claudeExecutablePath,
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot),
-    attachmentsDir: join(app.getPath('userData'), 'attachments')
+    attachmentsDir: join(app.getPath('userData'), 'attachments'),
+    // Only called when a session starts, after the Linear objects below exist.
+    canopyServer: ({ repoRoot, mode }) => createCanopyServer({
+      repoRoot, mode, tickets, mockups, linear: linearClient, edits: linearEdits, sync: linearSync
+    })
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
@@ -197,10 +205,9 @@ void app.whenReady().then(async () => {
     e.preventDefault()
     void quit.request()
   })
-  const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets, new MockupStore(),
+    tickets, mockups,
     () => { void depsHooks?.onRecentReposChanged().catch((e: unknown) => { console.error('deps check of a new repo failed', e) }) })
   const launchDeps = {
     tickets, store,

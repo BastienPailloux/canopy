@@ -28,6 +28,10 @@ afterEach(() => repo.cleanup())
 
 const dir = () => join(repo.path, '.tickets')
 
+/** A ticket file written by hand, with a parent. */
+const raw = (id: string, parent: string) =>
+  `---\nid: ${id}\ntitle: ${id}\nstatus: todo\npriority: none\nlabels: []\ncreated: 2026-11-08T10:12:00Z\nupdated: 2026-11-08T10:12:00Z\nparent: ${parent}\n---\n`
+
 describe('TicketStore', () => {
   it('create writes .tickets/CAN-1.md in the main checkout', async () => {
     const wt = join(repo.path, '..', 'wt')
@@ -195,5 +199,88 @@ describe('TicketStore', () => {
     expect(p.id).toBe('CAN-4')
     expect(await readFile(join(dir(), 'CAN-4.md'), 'utf8')).toMatch(/^id: CAN-4$/m)
     expect((await store.get(repo.path, 'CAN-1')).title).toBe('Original')
+  })
+
+  describe('parent', () => {
+    it('creates a sub-ticket', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      expect((await store.get(repo.path, b.id)).parent).toBe(a.id)
+      expect((await store.children(repo.path, a.id)).map((t) => t.id)).toEqual([b.id])
+    })
+
+    it('sorts children by number, not lexicographically', async () => {
+      const a = await store.create(repo.path, fields())
+      const ids: string[] = []
+      for (let i = 0; i < 10; i++) ids.push((await store.create(repo.path, fields({ parent: a.id }))).id)
+      expect((await store.children(repo.path, a.id)).map((t) => t.id)).toEqual(ids)
+    })
+
+    it('refuses a missing parent', async () => {
+      await expect(store.create(repo.path, fields({ parent: 'CAN-99' }))).rejects.toThrow('Parent introuvable : CAN-99')
+    })
+
+    it('refuses itself as parent', async () => {
+      const a = await store.create(repo.path, fields())
+      await expect(store.patch(repo.path, a.id, { parent: a.id })).rejects.toThrow('Un ticket ne peut pas être son propre parent')
+    })
+
+    it('refuses a cycle', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      await expect(store.patch(repo.path, a.id, { parent: b.id })).rejects.toThrow(`Ce parent créerait une boucle : ${b.id}`)
+    })
+
+    it('refuses a parent that exists but does not parse', async () => {
+      await store.create(repo.path, fields())
+      await writeFile(join(dir(), 'CAN-1.md'), 'pas un ticket')
+      await expect(store.create(repo.path, fields({ parent: 'CAN-1' }))).rejects.toThrow('Parent illisible : CAN-1')
+    })
+
+    it('refuses a cycle longer than a thousand tickets', async () => {
+      await store.create(repo.path, fields())
+      // CAN-2 -> CAN-3 -> … -> CAN-1501 -> CAN-1: making CAN-2 the parent of CAN-1 closes the loop.
+      await Promise.all(Array.from({ length: 1500 }, (_, i) => i + 2).map((n) => writeFile(join(dir(), `CAN-${n}.md`), raw(`CAN-${n}`, n === 1501 ? 'CAN-1' : `CAN-${n + 1}`))))
+      await expect(store.patch(repo.path, 'CAN-1', { parent: 'CAN-2' })).rejects.toThrow('Ce parent créerait une boucle : CAN-2')
+    })
+
+    it('refuses a parent whose chain already loops without the ticket', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      await writeFile(join(dir(), `${a.id}.md`), raw(a.id, b.id))
+      await expect(store.create(repo.path, fields({ parent: a.id }))).rejects.toThrow(`Chaîne de parents en boucle à partir de ${a.id}`)
+    })
+
+    it('a missing or unreadable ancestor above the direct parent ends the walk', async () => {
+      const a = await store.create(repo.path, fields())
+      await writeFile(join(dir(), `${a.id}.md`), raw(a.id, 'CAN-99'))
+      await expect(store.create(repo.path, fields({ parent: a.id }))).resolves.toBeDefined()
+      const b = await store.create(repo.path, fields())
+      await writeFile(join(dir(), 'CAN-99.md'), 'pas un ticket')
+      await expect(store.create(repo.path, fields({ parent: a.id }))).resolves.toBeDefined()
+      expect(b.id).toBe('CAN-3')
+    })
+
+    it('refuses an archived parent', async () => {
+      const a = await store.create(repo.path, fields())
+      await store.archive(repo.path, a.id)
+      await expect(store.create(repo.path, fields({ parent: a.id }))).rejects.toThrow(`Parent introuvable : ${a.id}`)
+    })
+
+    it('removes the parent', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      await store.patch(repo.path, b.id, { parent: undefined })
+      expect((await store.get(repo.path, b.id)).parent).toBeUndefined()
+      expect(await store.children(repo.path, a.id)).toEqual([])
+    })
+
+    it('keeps children of a missing parent readable', async () => {
+      await store.create(repo.path, fields())
+      await writeFile(join(dir(), 'CAN-2.md'), '---\nid: CAN-2\ntitle: Orphelin\nstatus: todo\npriority: none\nlabels: []\ncreated: 2026-11-08T10:12:00Z\nupdated: 2026-11-08T10:12:00Z\nparent: CAN-999\n---\n')
+      expect((await store.get(repo.path, 'CAN-2')).parent).toBe('CAN-999')
+      const listed = await store.list(repo.path)
+      expect(listed.some((e) => e.kind === 'ticket' && e.ticket.parent === 'CAN-999')).toBe(true)
+    })
   })
 })
