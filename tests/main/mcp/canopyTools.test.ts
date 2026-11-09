@@ -10,6 +10,7 @@ import type { LinearChange, LinearIssue, LinearIssueDetail, PendingEdit } from '
 import { createRepo, type TestRepo } from '../../helpers/repo'
 import { fakeLinear, type FakeLinear } from '../../helpers/fakeLinear'
 import { LinearClient } from '../../../src/main/linear/client'
+import { LinearFormatError } from '../../../src/main/linear/parse'
 import { LinearEdits } from '../../../src/main/linear/edits'
 
 const fields = (title: string, extra: Partial<TicketFields> = {}): TicketFields => ({
@@ -76,6 +77,7 @@ describe('canopy read tools', () => {
   it('parseKey splits and validates', () => {
     expect(parseKey('local:CAN-1')).toEqual({ source: 'local', id: 'CAN-1' })
     expect(parseKey('linear:ENG-482')).toEqual({ source: 'linear', id: 'ENG-482' })
+    expect(parseKey('linear:can-3')).toEqual({ source: 'linear', id: 'CAN-3' })
     expect(() => parseKey('CAN-1')).toThrow('Clé de ticket invalide : CAN-1')
     expect(() => parseKey('local:../x')).toThrow('Clé de ticket invalide : local:../x')
   })
@@ -194,6 +196,14 @@ describe('canopy read tools', () => {
         children: [{ key: 'linear:ENG-2', title: 'Kid', status: 'Todo' }],
         statuses: ['Todo', 'Done'], availableLabels: ['Bug', 'Feature'],
       })
+      expect(r.pending).toBeUndefined()
+    })
+
+    it('linear: a pending edit on another issue is ignored', async () => {
+      details['ENG-1'] = { ...linearIssue('ENG-1', 'Remote', { description: 'Old' }), children: [], comments: [] }
+      pending = [{ id: 'ENG-2', change: { title: 'Other' }, error: '', held: {}, uncertain: false }]
+      const r = (await tools.get_ticket({ key: 'linear:ENG-1' })) as Record<string, unknown>
+      expect(r).toMatchObject({ title: 'Remote', description: 'Old' })
       expect(r.pending).toBeUndefined()
     })
 
@@ -377,6 +387,19 @@ describe('canopy Linear writes', () => {
   afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
 
   describe('update_ticket', () => {
+    it('a lowercase key chains onto the pending edit of the same issue', async () => {
+      await edits.save('CAN-3', { description: { base: 'X', text: 'X de Bastien' } })
+      await tools.update_ticket({ key: 'linear:can-3', description: 'X de Bastien et Claude' })
+      expect(edits.pending()).toHaveLength(1)
+      expect(edits.pending()[0]).toMatchObject({ id: 'CAN-3', change: { description: { base: 'X', text: 'X de Bastien et Claude' } } })
+    })
+
+    it('Linear limits apply, not the local ones', async () => {
+      const labels = Array.from({ length: 25 }, (_, i) => `L${i}`)
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', title: 'T'.repeat(300), labels })).resolves.toBeDefined()
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', title: 'T'.repeat(1001) })).rejects.toThrow('Titre invalide')
+    })
+
     it('description goes out as a patch, never in full', async () => {
       await fake.callTool('save_issue', { id: 'CAN-2', description: 'A\n\nB' })
       fake.calls.length = 0
@@ -452,6 +475,16 @@ describe('canopy Linear writes', () => {
   })
 
   describe('create_ticket', () => {
+    it('an unreadable answer after the creation is not an error: refresh and tell Claude to check', async () => {
+      const spy = vi.spyOn(client, 'createIssue').mockRejectedValue(new LinearFormatError('save_issue', 'id'))
+      const r = await tools.create_ticket({ source: 'linear', title: 'x' })
+      expect(r).toEqual({ result: 'créé, mais la réponse de Linear est illisible : vérifie avec list_tickets avant de recréer' })
+      expect(refresh).toHaveBeenCalled()
+      spy.mockRestore()
+      vi.spyOn(client, 'createIssue').mockRejectedValue(new Error('boom'))
+      await expect(tools.create_ticket({ source: 'linear', title: 'x' })).rejects.toThrow('boom')
+    })
+
     it("a sub-issue goes in the parent's team, then the list is refreshed", async () => {
       const r = await tools.create_ticket({ source: 'linear', title: 'Child', description: 'D', priority: 'high', labels: ['Bug'], status: 'todo', parent: 'linear:CAN-3' })
       expect(r).toEqual({ key: 'linear:CAN-5' })

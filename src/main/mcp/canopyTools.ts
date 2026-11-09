@@ -7,7 +7,8 @@ import type { TicketStore } from '../tickets/store'
 import { parseFields } from '../tickets/ticketIpc'
 import { STATUSES, TICKET_ID_RE, ticketKey, type Ticket, type TicketKey, type TicketSource } from '../../shared/tickets'
 import { MOCKUP_ID_RE, MOCKUP_STATUSES, parseArtifactUrl, type Mockup, type MockupStatus } from '../../shared/mockups'
-import type { LinearChange, LinearIssue, SaveResult } from '../../shared/linear'
+import { LINEAR_ID_RE, LINEAR_MAX_LABEL, LINEAR_MAX_LABELS, LINEAR_MAX_TITLE, type LinearChange, type LinearIssue, type SaveResult } from '../../shared/linear'
+import { LinearFormatError } from '../linear/parse'
 
 export type CanopyToolName = 'list_tickets' | 'get_ticket' | 'list_mockups' | 'create_ticket' | 'update_ticket' | 'link_mockup'
 
@@ -26,7 +27,6 @@ export interface CanopyToolDeps {
 type Args = Record<string, unknown>
 
 const NOT_CONNECTED = "Canopy n'est pas connecté à Linear."
-const LINEAR_ID_RE = /^[A-Za-z][A-Za-z0-9]*-\d+$/
 
 /** Case- and accent-insensitive form used for searching. */
 const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -34,8 +34,10 @@ const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').t
 /** Splits `local:CAN-4` / `linear:ENG-482`; the id is checked here because this is the security boundary. */
 export function parseKey(key: string): { source: TicketSource; id: string } {
   const m = /^(local|linear):(.+)$/.exec(typeof key === 'string' ? key : '')
-  if (!m || !(m[1] === 'local' ? TICKET_ID_RE : LINEAR_ID_RE).test(m[2])) throw new Error(`Clé de ticket invalide : ${key}`)
-  return { source: m[1] as TicketSource, id: m[2] }
+  // The edit queue is keyed by the exact identifier, so a Linear id is upper-cased before it is used anywhere.
+  const id = m && m[1] === 'linear' ? m[2].toUpperCase() : m?.[2]
+  if (!m || !id || !(m[1] === 'local' ? TICKET_ID_RE : LINEAR_ID_RE).test(id)) throw new Error(`Clé de ticket invalide : ${key}`)
+  return { source: m[1] as TicketSource, id }
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
@@ -206,11 +208,16 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     return s.id
   }
 
-  /** Fields shared with local tickets, checked with the same limits; the status is a Linear status name. */
+  /** Title and labels follow Linear's limits (as in linearIpc), the rest the local ones; the status is a Linear status name. */
   function linearFields(args: Args): { f: Partial<Pick<Ticket, 'title' | 'description' | 'priority' | 'labels'>>; status?: string } {
     const { status, ...rest } = fieldsOf(args)
     if (status !== undefined && (typeof status !== 'string' || status.trim() === '')) throw new Error('Statut invalide')
-    return { f: parseFields(rest), ...(status !== undefined ? { status: status as string } : {}) }
+    const { title, labels, ...others } = rest
+    if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > LINEAR_MAX_TITLE)) throw new Error('Titre invalide')
+    if (labels !== undefined && (!Array.isArray(labels) || labels.length > LINEAR_MAX_LABELS ||
+      labels.some((l) => typeof l !== 'string' || l === '' || l.length > LINEAR_MAX_LABEL))) throw new Error('Étiquette invalide')
+    const f = { ...parseFields(others), ...(title !== undefined ? { title: title as string } : {}), ...(labels !== undefined ? { labels: labels as string[] } : {}) }
+    return { f, ...(status !== undefined ? { status: status as string } : {}) }
   }
 
   /**
@@ -239,14 +246,23 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
       parentId = k.id
     }
     const team = parentId ? (await deps.linear.issueBrief(parentId)).team.id : linearTeam(args.team)
-    const created = await deps.linear.createIssue({
-      title: f.title, team,
-      ...(f.description ? { description: f.description } : {}),
-      ...(parentId ? { parentId } : {}),
-      ...(f.priority ? { priority: f.priority } : {}),
-      ...(f.labels?.length ? { labels: f.labels } : {}),
-      ...(status !== undefined ? { state: await linearStatus(team, status) } : {}),
-    })
+    const state = status !== undefined ? await linearStatus(team, status) : undefined
+    let created: { id: string }
+    try {
+      created = await deps.linear.createIssue({
+        title: f.title, team,
+        ...(f.description ? { description: f.description } : {}),
+        ...(parentId ? { parentId } : {}),
+        ...(f.priority ? { priority: f.priority } : {}),
+        ...(f.labels?.length ? { labels: f.labels } : {}),
+        ...(state !== undefined ? { state } : {}),
+      })
+    } catch (e) {
+      if (!(e instanceof LinearFormatError)) throw e
+      // Linear has probably created the issue: failing would make Claude retry and duplicate it.
+      await deps.sync.refresh().catch(() => undefined)
+      return { result: 'créé, mais la réponse de Linear est illisible : vérifie avec list_tickets avant de recréer' }
+    }
     // The list is what Claude searches next: it must hold the new issue.
     await deps.sync.refresh().catch(() => undefined)
     return { key: ticketKey('linear', created.id) }

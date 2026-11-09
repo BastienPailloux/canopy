@@ -13,7 +13,7 @@ let app: ElectronApplication | undefined
 let page: Page
 
 const FIXTURES = resolve('tests/fixtures/linear')
-const MCP_NOTE = 'Le reste du ticket (commentaires, sous-tickets, pièces jointes) est accessible via le MCP Linear.'
+const MCP_NOTE = 'Sous-tickets et détails : outil `get_ticket` de Canopy. Commentaires et pièces jointes : MCP Linear s\'il est configuré.'
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
 
 const calls = (): string => join(userData, 'fake-linear-calls.jsonl')
