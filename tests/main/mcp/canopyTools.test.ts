@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCanopyTools, parseKey, WRITE_TOOLS, type CanopyToolDeps } from '../../../src/main/mcp/canopyTools'
 import { TicketStore } from '../../../src/main/tickets/store'
@@ -5,6 +8,9 @@ import { MockupStore } from '../../../src/main/mockups/store'
 import type { TicketFields } from '../../../src/shared/tickets'
 import type { LinearChange, LinearIssue, LinearIssueDetail, PendingEdit } from '../../../src/shared/linear'
 import { createRepo, type TestRepo } from '../../helpers/repo'
+import { fakeLinear, type FakeLinear } from '../../helpers/fakeLinear'
+import { LinearClient } from '../../../src/main/linear/client'
+import { LinearEdits } from '../../../src/main/linear/edits'
 
 const fields = (title: string, extra: Partial<TicketFields> = {}): TicketFields => ({
   title, description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...extra,
@@ -330,5 +336,154 @@ describe('canopy read tools', () => {
       await expect(tools.link_mockup({ mockup: 'nope', ticket: null })).rejects.toThrow('Maquette invalide : nope')
       expect(await mockups.list(repo.path)).toEqual({ kind: 'ok', mockups: [] })
     })
+  })
+})
+
+describe('canopy Linear writes', () => {
+  const dirs: string[] = []
+  let fake: FakeLinear
+  let client: LinearClient
+  let edits: LinearEdits
+  let failFile: string
+  let issues: LinearIssue[]
+  let refresh: ReturnType<typeof vi.fn>
+  let tools: ReturnType<typeof createCanopyTools>
+
+  const saves = () => fake.calls.filter((c) => c.name === 'save_issue').map((c) => c.args as Record<string, unknown>)
+  const down = () => writeFileSync(failFile, '')
+  const up = () => unlinkSync(failFile)
+
+  beforeEach(async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'canopy-mcp-linear-'))
+    dirs.push(dir)
+    failFile = join(dir, 'down')
+    fake = fakeLinear({ failFile })
+    client = new LinearClient(async () => fake, { saveLinearAuth: () => {} })
+    await client.connect()
+    edits = new LinearEdits(join(dir, 'linear-pending.json'), client)
+    issues = await client.listMine()
+    refresh = vi.fn(async () => ({}))
+    fake.calls.length = 0
+    tools = createCanopyTools({
+      repoRoot: dir,
+      mode: () => 'default',
+      tickets: new TicketStore(),
+      mockups: new MockupStore(),
+      linear: client,
+      edits,
+      sync: { state: () => ({ issues }) as never, refresh: refresh as never },
+    })
+  })
+  afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
+
+  describe('update_ticket', () => {
+    it('description goes out as a patch, never in full', async () => {
+      await fake.callTool('save_issue', { id: 'CAN-2', description: 'A\n\nB' })
+      fake.calls.length = 0
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', description: 'A\n\nB2' })).resolves.toEqual({ result: 'enregistré' })
+      const [sent] = saves()
+      expect(sent).not.toHaveProperty('description')
+      expect(sent.patch).toEqual(expect.any(Array))
+      expect((await client.issueBrief('CAN-2')).description).toBe('A\n\nB2')
+    })
+
+    it("builds on Bastien's unsent description and labels instead of replacing them", async () => {
+      await fake.callTool('save_issue', { id: 'CAN-2', description: 'A\n\nB' })
+      fake.calls.length = 0
+      down()
+      await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB de Bastien' }, labels: { base: [], next: ['Bug'] } })
+      const mine = 'A\n\nB de Bastien\nligne de Claude'
+      const r = (await tools.update_ticket({ key: 'linear:CAN-2', description: mine, labels: ['Bug', 'Feature'] })) as { result: string }
+      expect(r.result).toMatch(/^en attente : /)
+      expect(edits.pending()[0].change).toEqual({
+        description: { base: 'A\n\nB', text: mine },
+        labels: { base: [], next: ['Bug', 'Feature'] },
+      })
+      up()
+      await edits.retryAll()
+      const now = await client.issueBrief('CAN-2')
+      expect(now.description).toBe(mine)
+      expect(now.labels.sort()).toEqual(['Bug', 'Feature'])
+      expect(saves().length).toBeGreaterThan(0)
+      expect(saves().every((s) => s.description === undefined)).toBe(true)
+    })
+
+    it("on top of Bastien's unsent edit, a colleague's edit elsewhere is kept", async () => {
+      await fake.callTool('save_issue', { id: 'CAN-2', description: 'A\n\nB' })
+      down()
+      await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A\n\nB de Bastien' } })
+      up()
+      await fake.callTool('save_issue', { id: 'CAN-2', description: 'A du collègue\n\nB' })
+      fake.calls.length = 0
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', description: 'A\n\nB de Bastien\nligne de Claude' })).resolves.toEqual({ result: 'enregistré' })
+      expect((await client.issueBrief('CAN-2')).description).toBe('A du collègue\n\nB de Bastien\nligne de Claude')
+      expect(saves().every((x) => x.description === undefined && Array.isArray(x.patch))).toBe(true)
+    })
+
+    it("a colleague's edit of the same passage is a conflict, reported in plain words", async () => {
+      await fake.callTool('save_issue', { id: 'CAN-2', description: 'A\n\nB' })
+      down()
+      await edits.save('CAN-2', { description: { base: 'A\n\nB', text: 'A2\n\nB' } })
+      up()
+      await fake.callTool('save_issue', { id: 'CAN-2', description: 'A3\n\nB' })
+      fake.calls.length = 0
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', description: 'A4\n\nB' }))
+        .resolves.toEqual({ result: "conflit avec une modification d'un collègue : la description n'a pas été envoyée" })
+      expect(saves()).toEqual([])
+      expect((await client.issueBrief('CAN-2')).description).toBe('A3\n\nB')
+    })
+
+    it('status by name, case-insensitive; unknown lists the names', async () => {
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', status: 'in progress', priority: 'high', title: 'T' })).resolves.toEqual({ result: 'enregistré' })
+      expect(saves()).toEqual([{ id: 'CAN-2', title: 'T', state: '65d36428-f47c-4f20-a820-43d226fb0577', priority: 2 }])
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', status: 'Nope' }))
+        .rejects.toThrow('Statut inconnu : Nope. Statuts possibles : In Review, Done, Canceled, In Progress, Todo, Duplicate, Backlog')
+    })
+
+    it('refuses a parent change and an empty update', async () => {
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', parent: 'linear:CAN-3' }))
+        .rejects.toThrow("Le parent d'un ticket Linear existant ne se change pas depuis Canopy.")
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', parent: null }))
+        .rejects.toThrow("Le parent d'un ticket Linear existant ne se change pas depuis Canopy.")
+      await expect(tools.update_ticket({ key: 'linear:CAN-2' })).rejects.toThrow('Rien à modifier.')
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', priority: 'nope' })).rejects.toThrow('Priorité invalide')
+      expect(saves()).toEqual([])
+    })
+  })
+
+  describe('create_ticket', () => {
+    it("a sub-issue goes in the parent's team, then the list is refreshed", async () => {
+      const r = await tools.create_ticket({ source: 'linear', title: 'Child', description: 'D', priority: 'high', labels: ['Bug'], status: 'todo', parent: 'linear:CAN-3' })
+      expect(r).toEqual({ key: 'linear:CAN-5' })
+      expect(saves()).toEqual([{
+        title: 'Child', team: '78589deb-f061-45b7-b299-bb1c34d4b638', description: 'D', parentId: 'CAN-3', labels: ['Bug'],
+        state: '2dadbe3f-ba74-4c3d-af57-8e01466b083a', assignee: 'me', priority: 2,
+      }])
+      expect(refresh).toHaveBeenCalled()
+      expect(await client.issueBrief('CAN-5')).toMatchObject({ title: 'Child', parentId: 'CAN-3' })
+    })
+
+    it('team: the only known one, else the team argument, else an error listing them', async () => {
+      await tools.create_ticket({ source: 'linear', title: 'Solo' })
+      expect(saves()[0].team).toBe('78589deb-f061-45b7-b299-bb1c34d4b638')
+      fake.calls.length = 0
+      issues = [...issues, linearIssue('ENG-1', 'Other', { team: { id: 'team-eng', name: 'Engineering' } })]
+      const msg = "Précise l'équipe Linear : Canopy, Engineering"
+      await expect(tools.create_ticket({ source: 'linear', title: 'x' })).rejects.toThrow(msg)
+      await expect(tools.create_ticket({ source: 'linear', title: 'x', team: 'Nope' })).rejects.toThrow(msg)
+      expect(saves()).toEqual([])
+      await tools.create_ticket({ source: 'linear', title: 'x', team: 'canopy' })
+      expect(saves()[0].team).toBe('78589deb-f061-45b7-b299-bb1c34d4b638')
+    })
+
+    it('refuses a local parent', async () => {
+      await expect(tools.create_ticket({ source: 'linear', title: 'x', parent: 'local:CAN-1' })).rejects.toThrow('Le parent doit venir de la même source que le ticket.')
+    })
+  })
+
+  it('not connected: both tools refuse', async () => {
+    await client.disconnect()
+    await expect(tools.create_ticket({ source: 'linear', title: 'x' })).rejects.toThrow("Canopy n'est pas connecté à Linear.")
+    await expect(tools.update_ticket({ key: 'linear:CAN-2', title: 'x' })).rejects.toThrow("Canopy n'est pas connecté à Linear.")
   })
 })

@@ -7,7 +7,7 @@ import type { TicketStore } from '../tickets/store'
 import { parseFields } from '../tickets/ticketIpc'
 import { STATUSES, TICKET_ID_RE, ticketKey, type Ticket, type TicketKey, type TicketSource } from '../../shared/tickets'
 import { MOCKUP_ID_RE, MOCKUP_STATUSES, parseArtifactUrl, type Mockup, type MockupStatus } from '../../shared/mockups'
-import type { LinearIssue } from '../../shared/linear'
+import type { LinearChange, LinearIssue, SaveResult } from '../../shared/linear'
 
 export type CanopyToolName = 'list_tickets' | 'get_ticket' | 'list_mockups' | 'create_ticket' | 'update_ticket' | 'link_mockup'
 
@@ -174,8 +174,6 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     return { mockups: rows.map(mockupRow) }
   }
 
-  const unavailable = async (): Promise<never> => { throw new Error('Pas encore disponible') }
-
   /** Refuses writes while the session is in plan mode; read at each call because the mode can change mid-session. */
   const guarded = (fn: (args: Args) => Promise<unknown>) => async (args: Args): Promise<unknown> => {
     if (deps.mode() === 'plan') throw new Error('Mode plan : Canopy ne modifie rien tant que la session est en mode plan.')
@@ -200,8 +198,86 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     return raw
   }
 
+  /** `statusId` of the status named `name` (any case) in the team's workflow. */
+  async function linearStatus(teamId: string, name: string): Promise<string> {
+    const { statuses } = await deps.linear.teamOptions(teamId)
+    const s = statuses.find((x) => x.name.toLowerCase() === name.toLowerCase())
+    if (!s) throw new Error(`Statut inconnu : ${name}. Statuts possibles : ${statuses.map((x) => x.name).join(', ')}`)
+    return s.id
+  }
+
+  /** Fields shared with local tickets, checked with the same limits; the status is a Linear status name. */
+  function linearFields(args: Args): { f: Partial<Pick<Ticket, 'title' | 'description' | 'priority' | 'labels'>>; status?: string } {
+    const { status, ...rest } = fieldsOf(args)
+    if (status !== undefined && (typeof status !== 'string' || status.trim() === '')) throw new Error('Statut invalide')
+    return { f: parseFields(rest), ...(status !== undefined ? { status: status as string } : {}) }
+  }
+
+  /** Team of a new issue: the parent's, else the only team of Bastien's issues, else the one Claude named among them. */
+  function linearTeam(name: unknown): string {
+    const teams = [...new Map(deps.sync.state().issues.map((i) => [i.team.id, i.team])).values()]
+    const named = typeof name === 'string' ? teams.find((t) => t.name.toLowerCase() === name.toLowerCase()) : undefined
+    if (named) return named.id
+    if (name === undefined && teams.length === 1) return teams[0].id
+    throw new Error(`Précise l'équipe Linear : ${teams.map((t) => t.name).join(', ')}`)
+  }
+
+  // Not queued: the queue only knows edits of an existing issue, so offline the creation fails with its reason.
+  async function createLinear(args: Args) {
+    requireLinear()
+    const { f, status } = linearFields(args)
+    if (typeof f.title !== 'string') throw new Error('Titre invalide')
+    let parentId: string | undefined
+    if (args.parent !== undefined && args.parent !== null) {
+      const k = parseKey(args.parent as string)
+      if (k.source !== 'linear') throw new Error('Le parent doit venir de la même source que le ticket.')
+      parentId = k.id
+    }
+    const team = parentId ? (await deps.linear.issueBrief(parentId)).team.id : linearTeam(args.team)
+    const created = await deps.linear.createIssue({
+      title: f.title, team,
+      ...(f.description ? { description: f.description } : {}),
+      ...(parentId ? { parentId } : {}),
+      ...(f.priority ? { priority: f.priority } : {}),
+      ...(f.labels?.length ? { labels: f.labels } : {}),
+      ...(status !== undefined ? { state: await linearStatus(team, status) } : {}),
+    })
+    // The list is what Claude searches next: it must hold the new issue.
+    await deps.sync.refresh().catch(() => undefined)
+    return { key: ticketKey('linear', created.id) }
+  }
+
+  function saveResult(r: SaveResult): { result: string } {
+    if (r.kind === 'sent') return { result: 'enregistré' }
+    if (r.kind === 'pending') return { result: `en attente : ${r.reason}` }
+    return { result: "conflit avec une modification d'un collègue : la description n'a pas été envoyée" }
+  }
+
+  /**
+   * Always through `LinearEdits.save`, like the editor: the description leaves as `patch` ops and the queue survives a
+   * failure. Bastien's unsent edit is the base, so `merge` chains Claude's edit onto it instead of replacing it.
+   */
+  async function updateLinear(id: string, args: Args) {
+    requireLinear()
+    if (args.parent !== undefined) throw new Error("Le parent d'un ticket Linear existant ne se change pas depuis Canopy.")
+    const { f, status } = linearFields(args)
+    if (Object.keys(f).length === 0 && status === undefined) throw new Error('Rien à modifier.')
+    const queued = deps.edits.pending().find((p) => p.id === id)?.change
+    let brief: Promise<LinearIssue> | undefined
+    const fresh = (): Promise<LinearIssue> => (brief ??= deps.linear.issueBrief(id))
+    const change: LinearChange = {}
+    if (f.title !== undefined) change.title = f.title
+    if (f.priority !== undefined) change.priority = f.priority
+    if (f.description !== undefined) {
+      change.description = { base: queued?.description?.text ?? (await fresh()).description, text: f.description }
+    }
+    if (f.labels !== undefined) change.labels = { base: queued?.labels?.next ?? (await fresh()).labels, next: f.labels }
+    if (status !== undefined) change.statusId = await linearStatus((await fresh()).team.id, status)
+    return saveResult(await deps.edits.save(id, change))
+  }
+
   async function createTicket(args: Args) {
-    if (args.source === 'linear') return unavailable()
+    if (args.source === 'linear') return createLinear(args)
     if (args.source !== 'local') throw new Error('Source inconnue : local ou linear attendu.')
     checkStatus(args.status)
     const parent = localParent(args.parent)
@@ -213,7 +289,7 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
 
   async function updateTicket(args: Args) {
     const { source, id } = parseKey(args.key as string)
-    if (source === 'linear') return unavailable()
+    if (source === 'linear') return updateLinear(id, args)
     checkStatus(args.status)
     const parent = localParent(args.parent)
     const changes = parseFields(fieldsOf(args))
