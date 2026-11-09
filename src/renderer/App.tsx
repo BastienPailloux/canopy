@@ -10,6 +10,7 @@ import { connectTerminals } from './terminal/terminalStore'
 import { AccountFooter } from './shell/AccountFooter'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
+import { NewWorktreeDialog } from './shell/NewWorktreeDialog'
 import { useLayout } from './shell/layoutStore'
 import { dragLeft, dragRight, LEFT_DEFAULT, RAIL_WIDTH, RIGHT_DEFAULT, stepLeft } from './shell/panelWidths'
 import { Resizer } from './shell/Resizer'
@@ -25,7 +26,7 @@ import { LinearEditor } from './tickets/LinearEditor'
 import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
-import { connectShortcutContext } from './shell/shortcuts'
+import { connectShortcutContext, connectShortcuts } from './shell/shortcuts'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
 import { UpdateBanner } from './update/UpdateBanner'
@@ -121,6 +122,18 @@ function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element | null {
   return null
 }
 
+/** Dialogs a shortcut opens from any screen. The sidebar shows the new worktree one itself where it is mounted. */
+function ShortcutDialogs({ repo, sidebar }: { repo: string; sidebar: boolean }): React.JSX.Element | null {
+  const dialog = useApp((s) => s.dialog)
+  const setDialog = useApp((s) => s.setDialog)
+  const setWorktree = useApp((s) => s.setWorktree)
+  if (dialog === 'new-worktree' && !sidebar) {
+    // The sidebar reads the list again when it comes back: the new worktree is in it by then.
+    return <NewWorktreeDialog repo={repo} onClose={() => setDialog(null)} onCreated={(path) => { setDialog(null); setWorktree(path) }} />
+  }
+  return null
+}
+
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   const workspace = useApp((s) => s.workspace)
@@ -132,6 +145,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectTerminals(), [])
   useEffect(() => connectUnsaved(), [])
   useEffect(() => connectShortcutContext(), [])
+  useEffect(() => connectShortcuts(), [])
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => connectTickets(), [])
@@ -180,6 +194,7 @@ export function App(): React.JSX.Element {
       <RestoredChip />
       <WhatsNew />
       <Header />
+      {repo && workspace && <ShortcutDialogs repo={repo} sidebar={view !== 'tickets' && view !== 'mockups'} />}
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
           <main className="main tickets-view">{openTicket ? <OpenTicket k={openTicket} /> : <TicketsScreen />}</main>

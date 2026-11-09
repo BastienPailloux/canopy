@@ -8,6 +8,9 @@ export { worktreeLabel }
 
 export type View = 'sessions' | 'code' | 'tickets' | 'mockups'
 
+/** A dialog a shortcut can open from any screen. */
+export type AppDialog = 'new-worktree' | 'new-ticket' | 'shortcuts'
+
 /** A file the Code view must open as soon as it shows. */
 export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; /** 1-based line to reveal. */ line?: number; /** 1-based column of `line` for the cursor. */ column?: number; seq: number }
 
@@ -24,6 +27,7 @@ interface AppState {
   /** Worktrees of the workspace deleted from outside, kept reachable for what still runs in them. */
   orphans: OrphanedWorktree[]
   view: View
+  dialog: AppDialog | null
   /** Ticket open in the editor of the Tickets view; null: the list. */
   openTicket: TicketKey | 'new' | null
   /** Ticket highlighted in the list. */
@@ -59,6 +63,7 @@ interface AppState {
   setOrphans: (list: OrphanedWorktree[]) => void
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
+  setDialog: (dialog: AppDialog | null) => void
   setOpenTicket: (key: TicketKey | 'new' | null) => void
   setSelectedTicket: (key: TicketKey | null) => void
   setOpenMockup: (id: string | null) => void
@@ -92,6 +97,7 @@ export const useApp = create<AppState>((set) => ({
   worktrees: [],
   orphans: [],
   view: 'sessions',
+  dialog: null,
   openTicket: null,
   selectedTicket: null,
   openMockup: null,
@@ -132,6 +138,7 @@ export const useApp = create<AppState>((set) => ({
     })),
   setWorktree: (worktree) => set({ worktree }),
   setView: (view) => set({ view }),
+  setDialog: (dialog) => set({ dialog }),
   setOpenTicket: (openTicket) => set({ openTicket }),
   setSelectedTicket: (selectedTicket) => set({ selectedTicket }),
   setOpenMockup: (openMockup) => set({ openMockup }),
