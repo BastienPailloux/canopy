@@ -127,6 +127,61 @@ describe('readInventory', () => {
       expect(inv.notes).toHaveLength(1)
     })
 
+    test('protocol.ext.allow in local config does not let an ext:: remote run', async () => {
+      repo = await createRepo({ remote: true })
+      const marker = join(repo.path, '..', 'ran')
+      sh(repo.path, 'config', 'protocol.ext.allow', 'always')
+      sh(repo.path, 'remote', 'set-url', 'origin', `ext::sh -c "touch '${marker}'"`)
+      await readInventory(repo.path)
+      expect(await exists(marker)).toBe(false)
+    })
+
+    test('core.alternateRefsCommand never runs', async () => {
+      repo = await createRepo({ remote: true })
+      const marker = join(repo.path, '..', 'ran')
+      sh(repo.path, 'config', 'core.alternateRefsCommand', `touch '${marker}'`)
+      await writeFile(join(repo.path, '.git', 'objects', 'info', 'alternates'), join(repo.path, '..', 'remote.git', 'objects') + '\n')
+      await readInventory(repo.path)
+      expect(await exists(marker)).toBe(false)
+    })
+
+    test('an unknown local key skips the fetch', async () => {
+      repo = await createRepo({ remote: true })
+      await pushOther()
+      sh(repo.path, 'config', 'foo.bar', 'baz')
+      const inv = await readInventory(repo.path)
+      expect(inv.notes).toEqual([UNSAFE])
+      expect(inv.units).toEqual([])
+    })
+
+    test('a submodule\'s own config is never used: the fetch does not recurse', async () => {
+      repo = await createRepo({ remote: true })
+      const subrepo = await createRepo({ dirName: 'subsrc' })
+      try {
+        const marker = join(repo.path, '..', 'ran')
+        const fileOk = ['-c', 'protocol.file.allow=always']
+        execFileSync('git', [...fileOk, 'submodule', 'add', '-q', subrepo.path, 'sub'], { cwd: repo.path, env: ENV })
+        sh(repo.path, 'commit', '-q', '-m', 'add sub')
+        sh(repo.path, 'push', '-q', 'origin', 'main')
+        sh(repo.path, 'config', '-f', join(repo.path, '.git', 'modules', 'sub', 'config'), 'remote.origin.uploadpack', `touch '${marker}'; git-upload-pack`)
+        await subrepo.commit('x.txt', 'x')
+        const other = join(repo.path, '..', 'other')
+        execFileSync('git', [...fileOk, 'clone', '-q', '--recurse-submodules', join(repo.path, '..', 'remote.git'), other], { env: ENV })
+        sh(join(other, 'sub'), 'fetch', '-q', 'origin')
+        sh(join(other, 'sub'), 'checkout', '-q', 'origin/main')
+        await writeFile(join(other, 'Gemfile.lock'), GEMS)
+        sh(other, 'add', '.')
+        sh(other, 'commit', '-q', '-m', 'bump sub')
+        sh(other, 'push', '-q', 'origin', 'main')
+        const inv = await readInventory(repo.path)
+        expect(inv.notes).toEqual([])
+        expect(inv.units).toHaveLength(1)
+        expect(await exists(marker)).toBe(false)
+      } finally {
+        await subrepo.cleanup()
+      }
+    })
+
     test('still fetches from a plain local remote', async () => {
       repo = await createRepo({ remote: true })
       await pushOther()

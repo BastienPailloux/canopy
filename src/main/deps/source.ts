@@ -20,23 +20,54 @@ const unreadable = (path: string, ecosystem: Unit['ecosystem']): Unit =>
 /** Never prompts (credentials, host keys): an unattended fetch must fail rather than hang. */
 const FETCH_ENV = {
   GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes',
-  GIT_ASKPASS: '/usr/bin/false', SSH_ASKPASS: '/usr/bin/false'
+  GIT_ASKPASS: '/usr/bin/false', SSH_ASKPASS: '/usr/bin/false',
+  // Wins over every protocol.*.allow in config, and children inherit it.
+  GIT_ALLOW_PROTOCOL: 'https:ssh:git:file'
 }
 /** Only the plain transports: `ext::` and the like would run a command named by the remote URL. */
 const FETCH_PROTOCOLS = ['-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always', '-c', 'protocol.ssh.allow=always', '-c', 'protocol.git.allow=always', '-c', 'protocol.file.allow=always']
-/** Settings that make a fetch run a command or reroute it; the repo's own config must not set any. */
-const RISKY_CONFIG = '^(credential\\..*helper|core\\.askpass|core\\.gitproxy|core\\.sshcommand|remote\\..*\\.(uploadpack|receivepack|proxy)|http\\..*proxy|url\\..*\\.(insteadof|pushinsteadof))$'
+/**
+ * An allowlist, not a denylist: git has too many settings that run a command or reroute a fetch
+ * (credential helpers, proxies, uploadpack, alternateRefsCommand, protocol.*.allow, includes...) to name them all.
+ * Any repo-local key outside this list skips the fetch. Keys are lowercase here, as `git config --list` prints
+ * the section and variable names (the subsection keeps its case, hence `.+`).
+ */
+const SAFE_LOCAL_KEYS = [
+  /^core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|safecrlf|quotepath|sparsecheckout|sparsecheckoutcone)$/,
+  /^extensions\.(worktreeconfig|objectformat|refstorage|partialclone)$/,
+  /^remote\..+\.(url|pushurl|fetch|tagopt|prune|mirror|promisor|partialclonefilter)$/,
+  /^branch\..+\.(remote|merge|rebase|pushremote|description|vscode-merge-base|github-pr-owner-number)$/,
+  /^(user|pull|color|lfs|maintenance)\./,
+  /^push\.(default|autosetupremote|followtags)$/,
+  /^init\.defaultbranch$/,
+  // Fetch runs no filter, and the untrusted git() blanks them anyway.
+  /^filter\.lfs\.(clean|smudge|process|required)$/,
+  /^submodule\..+\.(url|active)$/,
+  /^gc\.auto$/,
+  /^rerere\.enabled$/,
+  /^merge\.(ff|conflictstyle)$/,
+  // Included files report as local, so their keys are checked too.
+  /^(include|includeif\..+)\.path$/,
+  // Written by `git init` here and by many setups; fetch never signs.
+  /^commit\.gpgsign$/
+]
 const OWN_SCOPES = new Set(['local', 'worktree'])
 
-async function hasRiskyLocalConfig(root: string): Promise<boolean> {
-  const out = await git(root, ['config', '--show-scope', '--get-regexp', RISKY_CONFIG], { okCodes: [1] })
-  return out.split('\n').some((line) => OWN_SCOPES.has(line.split('\t')[0]))
+async function hasUnknownLocalConfig(root: string): Promise<boolean> {
+  const out = await git(root, ['config', '--list', '--show-scope', '--name-only', '-z'], { okCodes: [1] })
+  const fields = out.split('\0')
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    if (!OWN_SCOPES.has(fields[i])) continue
+    const key = fields[i + 1].toLowerCase()
+    if (!SAFE_LOCAL_KEYS.some((re) => re.test(key))) return true
+  }
+  return false
 }
 
 async function refresh(root: string, branch: string, timeoutMs: number): Promise<string | null> {
   try {
-    if (await hasRiskyLocalConfig(root)) return 'Branche de base non rafraîchie : configuration locale non sûre'
-    await git(root, [...FETCH_PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--upload-pack=git-upload-pack', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
+    if (await hasUnknownLocalConfig(root)) return 'Branche de base non rafraîchie : configuration locale non sûre'
+    await git(root, [...FETCH_PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--no-recurse-submodules', '--no-auto-maintenance', '--no-write-fetch-head', '--upload-pack=git-upload-pack', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
     return null
   } catch (e) {
     const stderr = (e as { stderr?: string }).stderr ?? ''
