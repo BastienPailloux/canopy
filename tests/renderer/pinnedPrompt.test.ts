@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pinnedUserIndex } from '../../src/renderer/sessions/pinnedPrompt'
+import { pinnedLabel, pinnedUserIndex } from '../../src/renderer/sessions/pinnedPrompt'
 import type { TranscriptItem } from '../../src/renderer/sessions/transcript'
 
 const user = (text: string): TranscriptItem => ({ kind: 'user', text, images: [] })
@@ -34,5 +34,18 @@ describe('pinnedUserIndex', () => {
 
   it('reads rows in any order, as only some are rendered', () => {
     expect(pinnedUserIndex(items, [rows[5], rows[4]], 450)).toBe(3)
+  })
+})
+
+describe('pinnedLabel', () => {
+  it('shows the text sent', () => {
+    expect(pinnedLabel({ kind: 'user', text: 'corrige le bug', images: [] })).toBe('corrige le bug')
+  })
+
+  it('names the attachments of a message sent without text', () => {
+    const image = { mediaType: 'image/png', base64: '' }
+    expect(pinnedLabel({ kind: 'user', text: '  ', images: [image] })).toBe('Image jointe')
+    expect(pinnedLabel({ kind: 'user', text: '', images: [image, image], documents: [{ name: 'spec.pdf' }, { name: 'plan.pdf' }] }))
+      .toBe('2 images jointes · spec.pdf, plan.pdf')
   })
 })

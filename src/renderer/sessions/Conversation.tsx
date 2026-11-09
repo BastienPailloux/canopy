@@ -2,7 +2,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Markdown } from './Markdown'
 import { PermissionCard } from './PermissionCard'
-import { pinnedUserIndex } from './pinnedPrompt'
+import { pinnedLabel, pinnedUserIndex } from './pinnedPrompt'
 import { QuestionCard, questionsOf } from './QuestionCard'
 import { interrupt, type SessionTab, useSessions } from './sessionStore'
 import { ToolCard } from './ToolCard'
@@ -70,7 +70,9 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
     count: items.length,
     getScrollElement: () => scroller.current,
     estimateSize: () => ESTIMATED_ROW_PX,
-    overscan: OVERSCAN_ROWS
+    overscan: OVERSCAN_ROWS,
+    // The list's top padding: without it, scrolling to a row stops short and shows the one before.
+    scrollMargin: list.current?.offsetTop ?? 0
   })
   const total = rows.getTotalSize()
   const onInterrupt = useCallback(() => interrupt(tab.id), [tab.id])
@@ -84,10 +86,9 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
     const el = scroller.current
     if (!el) return
     following.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_PX
-    // Row offsets start below the list's own top padding. The rendered range may still be stale here, measurements are not.
-    const top = Math.max(0, el.scrollTop - (list.current?.offsetTop ?? 0))
-    const row = rows.getVirtualItemForOffset(top)
-    setPinned(row ? pinnedUserIndex(items, [row], top) : undefined)
+    // The rendered range may still be stale here, measurements are not.
+    const row = rows.getVirtualItemForOffset(el.scrollTop)
+    setPinned(row ? pinnedUserIndex(items, [row], el.scrollTop) : undefined)
   }
 
   const goToPinned = (): void => {
@@ -105,7 +106,7 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
           <div className="pinned-prompt-anchor">
             <button type="button" className="pinned-prompt" data-testid="pinned-prompt"
               title="Revenir à ce message" onClick={goToPinned}>
-              {pinnedItem.text}
+              {pinnedLabel(pinnedItem)}
             </button>
           </div>
         )}
@@ -115,7 +116,7 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
             const tight = item.kind === 'tool' && items[row.index + 1]?.kind === 'tool'
             return (
               <div key={row.key} ref={rows.measureElement} data-index={row.index} data-tight={tight}
-                className="conversation-row" style={{ transform: `translateY(${row.start}px)` }}>
+                className="conversation-row" style={{ transform: `translateY(${row.start - rows.options.scrollMargin}px)` }}>
                 <Item item={item} cwd={tab.cwd} onInterrupt={tab.localId ? onInterrupt : undefined} />
               </div>
             )

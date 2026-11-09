@@ -17,3 +17,12 @@ export function pinnedUserIndex(items: TranscriptItem[], rows: RowSpan[], scroll
   }
   return undefined
 }
+
+/** What the pinned copy shows: the text sent, else what was attached, so it never shows blank. */
+export function pinnedLabel(item: Extract<TranscriptItem, { kind: 'user' }>): string {
+  if (item.text.trim()) return item.text
+  const n = item.images.length
+  const images = n === 0 ? [] : [n === 1 ? 'Image jointe' : `${n} images jointes`]
+  const documents = item.documents?.length ? [item.documents.map((d) => d.name).join(', ')] : []
+  return [...images, ...documents].join(' · ')
+}
