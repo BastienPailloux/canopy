@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { TicketStore } from '../../../src/main/tickets/store'
 import { watchFolder, watchTickets } from '../../../src/main/tickets/watch'
+import { createRepo } from '../../helpers/repo'
 
 let root: string
 let stop: (() => void) | undefined
@@ -52,6 +54,30 @@ describe('watchTickets', () => {
     await writeFile(`${file}.abc.tmp`, 'v3')
     await rename(`${file}.abc.tmp`, file)
     await vi_waitFor(() => calls > before)
+  })
+
+  it('fires when a ticket or template created by the store is deleted outside Canopy', async () => {
+    // macOS FSEvents reports nothing for the deletion of a file created by hard link: the store must not create that way.
+    const repo = await createRepo({ dirName: 'canopy' })
+    try {
+      const store = new TicketStore()
+      await store.templates(repo.path)
+      const ticket = await store.create(repo.path, { title: 'T', description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [] })
+      const template = await store.saveTemplate(repo.path, null, { name: 'Neuf', description: 'd', priority: 'none', labels: [], subtasks: [] })
+      let calls = 0
+      stop = watchTickets(repo.path, () => { calls++ })
+      await sleep(500)
+      for (const file of [join('.tickets', `${ticket.id}.md`), join('.tickets', 'templates', 'bug.md'), join('.tickets', 'templates', `${template.slug}.md`)]) {
+        const before = calls
+        await rm(join(repo.path, file))
+        await vi_waitFor(() => calls > before)
+        await sleep(300)
+      }
+    } finally {
+      stop?.()
+      stop = undefined
+      await repo.cleanup()
+    }
   })
 
   it('fires when .tickets is created after watching started', async () => {

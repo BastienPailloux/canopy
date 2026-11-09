@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join, sep } from 'node:path'
 import { defaultPrefix, PREFIX_RE, sortTemplates, TEMPLATE_SLUG_RE, templateSlug } from '../../shared/tickets'
 import type { TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketTemplate } from '../../shared/tickets'
@@ -22,16 +22,18 @@ async function writeAtomic(file: string, data: string): Promise<void> {
   await rename(tmp, file)
 }
 
-/** Create `file` only if it does not exist yet (link + unlink of a private temp file). */
+/**
+ * Create `file` only if it does not exist yet (exclusive create). Not through a hard link to a temp file:
+ * macOS FSEvents then never reports the file's deletion, so a ticket removed outside Canopy would stay listed.
+ */
 async function writeNew(file: string, data: string): Promise<void> {
-  const tmp = `${file}.${randomUUID()}.tmp`
-  await writeFile(tmp, data, { flag: 'wx' })
   try {
-    await link(tmp, file)
+    await writeFile(file, data, { flag: 'wx' })
   } catch (e) {
-    throw (e as NodeJS.ErrnoException).code === 'EEXIST' ? new Error(`Le fichier existe déjà : ${basename(file)}`) : e
-  } finally {
-    await rm(tmp, { force: true })
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Le fichier existe déjà : ${basename(file)}`)
+    // The exclusive open succeeded (anything else is EEXIST), so a partial file is ours to remove.
+    await rm(file, { force: true }).catch(() => undefined)
+    throw e
   }
 }
 

@@ -29,7 +29,7 @@ export function isUntouched(draft: TicketFields, applied: DraftContent): boolean
 }
 
 /**
- * Fired on `window` once the templates screen has written: the drafts read the templates again. `tickets:changed`
- * alone is not enough, as the watch misses the deletion of a file written by `writeNew` (temp file then hard link).
+ * Fired on `window` once the templates screen has written: the drafts read the templates again right away,
+ * without waiting for the watcher's debounced `tickets:changed`.
  */
 export const TEMPLATES_CHANGED = 'canopy:templates-changed'
