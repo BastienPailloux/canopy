@@ -15,6 +15,7 @@ import { listDepsRepos, registerDepsIpc } from './deps/depsIpc'
 import { checkRepo } from './deps/check'
 import { depsFirstPassDelay, selectDepsHttp } from './deps/replay'
 import { createDepsService } from './deps/service'
+import { createRegistry } from './deps/registries'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
@@ -160,8 +161,9 @@ void app.whenReady().then(async () => {
   const linearLinked = new LinkedIssues(store, localBranches)
   const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
     () => linearEdits.pending().map((p) => p.id))
+  const depsRegistry = createRegistry({ file: join(userData, 'deps-registry-cache.json') })
   const depsService = createDepsService({
-    check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now }, repo, prev),
+    check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now, packageInfo: depsRegistry.packageInfo }, repo, prev),
     repos: () => listDepsRepos(store.recentRepos),
     file: join(userData, 'deps-reports.json'),
     now: Date.now, setInterval, clearInterval, setTimeout, clearTimeout, broadcast,

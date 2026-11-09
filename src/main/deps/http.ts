@@ -1,5 +1,8 @@
+/** `body` is null on a 304 (an `If-None-Match` hit). */
+export interface JsonResponse { status: number; etag: string | null; body: unknown }
+
 export interface Http {
-  getJson(url: string, headers?: Record<string, string>): Promise<unknown>
+  getJson(url: string, headers?: Record<string, string>): Promise<JsonResponse>
   postJson(url: string, body: unknown): Promise<unknown>
 }
 
@@ -11,7 +14,9 @@ export class HttpError extends Error {
 
 /** The only services the dependency check talks to. */
 const HOSTS = new Set(['api.osv.dev', 'registry.npmjs.org', 'rubygems.org', 'pypi.org'])
-const MAX_BYTES = 32 * 1024 * 1024
+const MB = 1024 * 1024
+/** Registry documents of big packages (all versions) exceed 32 MB; they are parsed once, then only derived info is kept. */
+const maxBytes = (host: string) => (host === 'api.osv.dev' ? 32 * MB : 64 * MB)
 
 export function assertAllowedUrl(url: string): void {
   let u: URL
@@ -21,15 +26,18 @@ export function assertAllowedUrl(url: string): void {
 
 /** Real client. Redirects are errors (hosts are allow-listed) and bodies are capped: responses are untrusted. */
 export function fetchHttp(timeoutMs?: number): Http {
-  async function request(url: string, init: RequestInit): Promise<unknown> {
+  async function request(url: string, init: RequestInit): Promise<JsonResponse> {
     assertAllowedUrl(url)
+    const max = maxBytes(new URL(url).hostname)
     const res = await fetch(url, {
       ...init, redirect: 'error', signal: AbortSignal.timeout(timeoutMs ?? 15_000),
       headers: { 'User-Agent': 'Canopy', ...(init.headers as Record<string, string> | undefined) }
     })
+    const etag = res.headers.get('etag')
+    if (res.status === 304) { await res.body?.cancel(); return { status: 304, etag, body: null } }
     if (!res.ok) throw new HttpError(res.status, url)
     const declared = Number(res.headers.get('content-length'))
-    if (declared > MAX_BYTES) throw new Error('Réponse trop volumineuse')
+    if (declared > max) throw new Error('Réponse trop volumineuse')
     const chunks: Uint8Array[] = []
     let size = 0
     const reader = res.body?.getReader()
@@ -37,14 +45,16 @@ export function fetchHttp(timeoutMs?: number): Http {
       const r = await reader?.read()
       if (!r || r.done) break
       size += r.value.length
-      if (size > MAX_BYTES) { await reader?.cancel(); throw new Error('Réponse trop volumineuse') }
+      if (size > max) { await reader?.cancel(); throw new Error('Réponse trop volumineuse') }
       chunks.push(r.value)
     }
-    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new Error(`Réponse illisible : ${url}`) }
+    let body: unknown
+    try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new Error(`Réponse illisible : ${url}`) }
+    return { status: res.status, etag, body }
   }
   return {
     getJson: (url, headers) => request(url, { headers }),
-    postJson: (url, body) => request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    postJson: async (url, body) => (await request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).body
   }
 }
 

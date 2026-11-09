@@ -26,7 +26,7 @@ async function read(file: string, url: string): Promise<unknown> {
 /** Replays captured answers, see tests/fixtures/deps/README.md. */
 export function replayHttp(dir: string): Http {
   return {
-    getJson: async (url) => read(fileFor(dir, url), url),
+    getJson: async (url) => ({ status: 200, etag: null, body: await read(fileFor(dir, url), url) }),
     async postJson(url, body) {
       if (url !== 'https://api.osv.dev/v1/querybatch') throw new HttpError(404, url)
       const map = (await read(fileFor(dir, url), url)) as Record<string, unknown[]>

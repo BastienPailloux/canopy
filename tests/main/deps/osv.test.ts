@@ -14,7 +14,7 @@ function fake(batch: (queries: any[]) => any[], details: Record<string, unknown>
       gets.push(url)
       const id = decodeURIComponent(url.split('/v1/vulns/')[1])
       if (!(id in details)) throw new Error('boom')
-      return details[id]
+      return { status: 200, etag: null, body: details[id] }
     },
     async postJson(url, body) { posts.push({ url, body }); return { results: batch((body as any).queries) } }
   }
@@ -106,7 +106,7 @@ describe('advisoriesFor', () => {
   test('detail fetches run at most 6 at a time', async () => {
     let cur = 0, max = 0
     const http: Http = {
-      async getJson() { cur++; max = Math.max(max, cur); await new Promise((r) => setTimeout(r, 5)); cur--; return {} },
+      async getJson() { cur++; max = Math.max(max, cur); await new Promise((r) => setTimeout(r, 5)); cur--; return { status: 200, etag: null, body: {} } },
       async postJson(_u, body) { return { results: (body as any).queries.map(() => ({ vulns: Array.from({ length: 20 }, (_, i) => ({ id: `V-${i}` })) })) } }
     }
     await advisoriesFor(http, [dep('a', '1.0.0')])

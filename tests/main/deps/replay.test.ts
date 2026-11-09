@@ -15,7 +15,7 @@ afterEach(async () => { if (tmp) await rm(tmp, { recursive: true, force: true })
 
 describe('replayHttp', () => {
   test('rereads registry fixtures', async () => {
-    const j: any = await replayHttp(FIX).getJson('https://registry.npmjs.org/zustand')
+    const j: any = (await replayHttp(FIX).getJson('https://registry.npmjs.org/zustand')).body
     expect(j['dist-tags'].latest).toBe('5.0.8')
   })
 
@@ -35,7 +35,7 @@ describe('replayHttp', () => {
     tmp = await mkdtemp(join(tmpdir(), 'deps-'))
     await mkdir(join(tmp, 'registry.npmjs.org'))
     await writeFile(join(tmp, 'registry.npmjs.org', '@s%2fn.json'), '{"ok":1}')
-    expect(await replayHttp(tmp).getJson('https://registry.npmjs.org/@s%2fn')).toEqual({ ok: 1 })
+    expect((await replayHttp(tmp).getJson('https://registry.npmjs.org/@s%2fn')).body).toEqual({ ok: 1 })
   })
 
   test('answers querybatch from the per-package map and details from vulns/<id>', async () => {

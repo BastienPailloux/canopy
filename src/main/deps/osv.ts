@@ -63,7 +63,7 @@ export async function advisoriesFor(http: Http, deps: Dep[]): Promise<Map<string
     let p = details.get(id)
     if (!p) {
       p = limit(async () => {
-        try { const v = await http.getJson(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`); return isObj(v) ? v : null } catch { return null }
+        try { const v = (await http.getJson(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`)).body; return isObj(v) ? v : null } catch { return null }
       })
       details.set(id, p)
     }

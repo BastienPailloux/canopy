@@ -1,10 +1,13 @@
-import { describe, expect, test } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createRegistry, packageInfo } from '../../../src/main/deps/registries'
 import type { Http } from '../../../src/main/deps/http'
 import type { Dep } from '../../../src/shared/deps'
 
 const dep = (ecosystem: Dep['ecosystem'], name: string, version: string | null): Dep => ({ ecosystem, name, version, manifest: 'm', private: false })
-function fake(answers: Record<string, unknown>, delay = 0) {
+function fake(answers: Record<string, unknown>, delay = 0, etags: Record<string, string> = {}) {
   const gets: { url: string; headers?: Record<string, string> }[] = []
   let cur = 0, max = 0
   const http: Http = {
@@ -13,7 +16,9 @@ function fake(answers: Record<string, unknown>, delay = 0) {
       if (delay) await new Promise((r) => setTimeout(r, delay))
       cur--
       if (!(url in answers)) throw new Error('404')
-      return answers[url]
+      const etag = etags[url] ?? null
+      if (etag !== null && headers?.['If-None-Match'] === etag) return { status: 304, etag, body: null }
+      return { status: 200, etag, body: answers[url] }
     },
     async postJson() { throw new Error('no') }
   }
@@ -84,5 +89,65 @@ describe('packageInfo', () => {
     const r = createRegistry({})
     await Promise.all(Array.from({ length: 20 }, (_, i) => r.packageInfo(f.http, dep('npm', `p${i}`, '1.0.0'))))
     expect(f.max()).toBe(6)
+  })
+
+  test('the same package at another version is looked up again: documents are not kept', async () => {
+    const f = fake({ 'https://registry.npmjs.org/a': { 'dist-tags': { latest: '2.0.0' }, versions: { '1.0.0': { deprecated: 'old' } } } })
+    const r = createRegistry({})
+    expect((await r.packageInfo(f.http, dep('npm', 'a', '1.0.0'))).deprecated).toBe('old')
+    expect((await r.packageInfo(f.http, dep('npm', 'a', '1.0.0'))).deprecated).toBe('old')
+    expect((await r.packageInfo(f.http, dep('npm', 'a', '2.0.0'))).deprecated).toBeNull()
+    expect(f.gets).toHaveLength(2)
+  })
+
+  test('revalidates with the ETag after 6 hours and reuses the info on 304', async () => {
+    let now = 0
+    const url = 'https://registry.npmjs.org/a'
+    const answers: Record<string, unknown> = { [url]: { 'dist-tags': { latest: '1.0.0' }, versions: {} } }
+    const f = fake(answers, 0, { [url]: '"v1"' })
+    const r = createRegistry({ now: () => now })
+    await r.packageInfo(f.http, dep('npm', 'a', '1.0.0'))
+    expect(f.gets[0].headers?.['If-None-Match']).toBeUndefined()
+    now = 6 * 3600_000
+    answers[url] = { 'dist-tags': { latest: '9.9.9' }, versions: {} }
+    expect((await r.packageInfo(f.http, dep('npm', 'a', '1.0.0'))).latest).toBe('1.0.0')
+    expect(f.gets[1].headers).toEqual({ Accept: 'application/vnd.npm.install-v1+json', 'If-None-Match': '"v1"' })
+    // Revalidated: fresh again for 6 hours.
+    now = 12 * 3600_000 - 1
+    await r.packageInfo(f.http, dep('npm', 'a', '1.0.0'))
+    expect(f.gets).toHaveLength(2)
+  })
+})
+
+describe('registry cache file', () => {
+  let dir: string
+  let file: string
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'deps-registry-')); file = join(dir, 'deps-registry-cache.json') })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  const doc = { 'dist-tags': { latest: '1.0.0' }, readme: 'HUGE-README', versions: { '1.0.0': {} } }
+
+  test('a restart within 6 hours reuses the stored info, which holds no document', async () => {
+    let now = 1000
+    const f = fake({ 'https://registry.npmjs.org/a': doc }, 0, { 'https://registry.npmjs.org/a': '"e"' })
+    await createRegistry({ now: () => now, file, schedule: (fn) => fn() }).packageInfo(f.http, dep('npm', 'a', '1.0.0'))
+    const saved = readFileSync(file, 'utf8')
+    expect(JSON.parse(saved).version).toBe(1)
+    expect(saved).not.toContain('HUGE-README')
+    now += 6 * 3600_000 - 1
+    const again = createRegistry({ now: () => now, file, schedule: (fn) => fn() })
+    expect((await again.packageInfo(f.http, dep('npm', 'a', '1.0.0'))).latest).toBe('1.0.0')
+    expect(f.gets).toHaveLength(1)
+    now += 1
+    await again.packageInfo(f.http, dep('npm', 'a', '1.0.0'))
+    expect(f.gets[1].headers?.['If-None-Match']).toBe('"e"')
+  })
+
+  test('ignores a corrupt file or another version', async () => {
+    const f = fake({ 'https://registry.npmjs.org/a': doc })
+    writeFileSync(file, '{nope')
+    await createRegistry({ file, schedule: () => undefined }).packageInfo(f.http, dep('npm', 'a', '1.0.0'))
+    writeFileSync(file, JSON.stringify({ version: 2, entries: { 'npm\u0000a\u00001.0.0': { at: Date.now(), etag: null, info: { latest: 'x', deprecated: null, yanked: false, inactive: false, lastRelease: null } } } }))
+    await createRegistry({ file, schedule: () => undefined }).packageInfo(f.http, dep('npm', 'a', '1.0.0'))
+    expect(f.gets).toHaveLength(2)
   })
 })
