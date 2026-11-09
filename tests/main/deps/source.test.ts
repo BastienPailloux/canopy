@@ -1,9 +1,16 @@
 import { execFileSync } from 'node:child_process'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { git as gitSpy } from '../../../src/main/git/exec'
 import { EXCLUDED_DIRS, readAtRef, readInventory } from '../../../src/main/deps/source'
 import { createRepo, type TestRepo } from '../../helpers/repo'
+
+// Pass-through spy: lets a test list the git commands readInventory ran.
+vi.mock('../../../src/main/git/exec', async (original) => {
+  const m = await original<typeof import('../../../src/main/git/exec')>()
+  return { ...m, git: vi.fn(m.git) }
+})
 
 let repo: TestRepo | undefined
 afterEach(async () => { await repo?.cleanup(); repo = undefined })
@@ -215,6 +222,45 @@ describe('readInventory', () => {
       sh(repo.path, 'config', 'remote.evil.uploadpack', `touch '${marker}'; git-upload-pack`)
       await readInventory(repo.path)
       expect(await exists(marker)).toBe(false)
+    })
+
+    test('a partial clone is skipped before any object read or fetch', async () => {
+      repo = await createRepo({ remote: true })
+      const marker = join(repo.path, '..', 'ran')
+      await repo.commit('d/f', 'x')
+      sh(repo.path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+      const commit = sh(repo.path, 'rev-parse', 'HEAD').trim()
+      sh(repo.path, 'reset', '-q', '--hard', 'HEAD~1')
+      await rm(join(repo.path, '.git', 'objects', commit.slice(0, 2), commit.slice(2)))
+      sh(repo.path, 'config', 'core.repositoryformatversion', '1')
+      sh(repo.path, 'config', 'extensions.partialClone', 'evil')
+      sh(repo.path, 'config', 'remote.evil.promisor', 'true')
+      sh(repo.path, 'config', 'remote.evil.url', join(repo.path, '..', 'remote.git'))
+      sh(repo.path, 'config', 'remote.evil.uploadpack', `touch '${marker}'; git-upload-pack`)
+      vi.mocked(gitSpy).mockClear()
+      const inv = await readInventory(repo.path)
+      expect(inv).toEqual({ repo: repo.path, baseRef: null, units: [], notes: ['Dépôt partiel : dépendances non vérifiées'] })
+      const commands = vi.mocked(gitSpy).mock.calls.map(([, args]) => args.find((a) => !a.startsWith('-') && !a.includes('=')))
+      expect(new Set(commands)).toEqual(new Set(['worktree', 'config']))
+      expect(await exists(marker)).toBe(false)
+    })
+
+    test('a promisor remote alone (git boolean) marks a partial clone', async () => {
+      repo = await createRepo({ remote: true })
+      sh(repo.path, 'config', 'remote.Evil.promisor', 'yes')
+      const inv = await readInventory(repo.path, { fetch: false })
+      expect(inv.notes).toEqual(['Dépôt partiel : dépendances non vérifiées'])
+      expect(inv.baseRef).toBeNull()
+    })
+
+    test('a promisor remote set to false is not a partial clone', async () => {
+      repo = await createRepo({ remote: true })
+      await repo.commit('package-lock.json', npmLock('a'))
+      sh(repo.path, 'push', '-q', 'origin', 'main')
+      sh(repo.path, 'config', 'remote.origin.promisor', 'false')
+      const inv = await readInventory(repo.path, { fetch: false })
+      expect(inv.notes).toEqual([])
+      expect(inv.units).toHaveLength(1)
     })
 
     test('a remote.origin.fetch refspec cannot move a local branch', async () => {

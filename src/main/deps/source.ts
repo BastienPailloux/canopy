@@ -60,20 +60,39 @@ const SAFE_LOCAL_KEYS = [
 ]
 const OWN_SCOPES = new Set(['local', 'worktree'])
 
-async function hasUnknownLocalConfig(root: string): Promise<boolean> {
-  const out = await git(root, ['config', '--list', '--show-scope', '--name-only', '-z'], { okCodes: [1] })
+/** The repo's own (local and worktree scope) config entries; a key with no value is a git boolean true. Reads no object. */
+async function localConfig(root: string): Promise<{ key: string; value: string | null }[]> {
+  const out = await git(root, ['config', '--list', '--show-scope', '-z'], { okCodes: [1] })
   const fields = out.split('\0')
+  const entries: { key: string; value: string | null }[] = []
   for (let i = 0; i + 1 < fields.length; i += 2) {
     if (!OWN_SCOPES.has(fields[i])) continue
-    const key = fields[i + 1].toLowerCase()
-    if (!SAFE_LOCAL_KEYS.some((re) => re.test(key))) return true
+    const nl = fields[i + 1].indexOf('\n')
+    entries.push(nl < 0 ? { key: fields[i + 1], value: null } : { key: fields[i + 1].slice(0, nl), value: fields[i + 1].slice(nl + 1) })
   }
-  return false
+  return entries
 }
 
-async function refresh(root: string, branch: string, timeoutMs: number): Promise<string | null> {
+const isTrue = (value: string | null): boolean => value === null || ['true', 'yes', 'on', '1'].includes(value.trim().toLowerCase())
+
+/**
+ * Any read of a missing object would fetch it from the promisor remote, running the repo's own config.
+ * GIT_NO_LAZY_FETCH forbids that only from git 2.45: older git (Apple's) ignores it, so such a repo is never read.
+ */
+function isPartialClone(config: { key: string; value: string | null }[]): boolean {
+  return config.some(({ key, value }) => {
+    const k = key.toLowerCase()
+    return k === 'extensions.partialclone' || (k.startsWith('remote.') && k.endsWith('.promisor') && isTrue(value))
+  })
+}
+
+function hasUnknownLocalConfig(config: { key: string }[]): boolean {
+  return config.some(({ key }) => !SAFE_LOCAL_KEYS.some((re) => re.test(key.toLowerCase())))
+}
+
+async function refresh(root: string, branch: string, timeoutMs: number, config: { key: string }[]): Promise<string | null> {
   try {
-    if (await hasUnknownLocalConfig(root)) return 'Branche de base non rafraîchie : configuration locale non sûre'
+    if (hasUnknownLocalConfig(config)) return 'Branche de base non rafraîchie : configuration locale non sûre'
     await git(root, [...FETCH_PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--refmap=', '--no-recurse-submodules', '--no-auto-maintenance', '--no-write-fetch-head', '--upload-pack=git-upload-pack', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
     return null
   } catch (e) {
@@ -151,10 +170,12 @@ async function readDir(root: string, ref: string, dir: string, files: string[]):
 /** Fetches the base branch non-interactively, then reads every recognized lockfile at it. */
 export async function readInventory(repo: string, o: { fetch?: boolean; fetchTimeoutMs?: number } = {}): Promise<Inventory> {
   const root = await mainWorktreeRoot(repo)
+  const config = await localConfig(root)
+  if (isPartialClone(config)) return { repo: root, baseRef: null, units: [], notes: ['Dépôt partiel : dépendances non vérifiées'] }
   const notes: string[] = []
   let base = await resolveBaseRef(root, { env: NO_LAZY_FETCH }).catch(() => null)
   if (base && o.fetch !== false && base.ref.startsWith('origin/')) {
-    const note = await refresh(root, base.name, o.fetchTimeoutMs ?? 30_000)
+    const note = await refresh(root, base.name, o.fetchTimeoutMs ?? 30_000, config)
     if (note) notes.push(note)
     // Fresh read: the shared cache could still hold the ref as it was before the fetch.
     base = await resolveBaseRef(root, { env: NO_LAZY_FETCH }).catch(() => base)
