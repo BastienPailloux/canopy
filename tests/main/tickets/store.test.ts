@@ -28,6 +28,10 @@ afterEach(() => repo.cleanup())
 
 const dir = () => join(repo.path, '.tickets')
 
+/** A ticket file written by hand, with a parent. */
+const raw = (id: string, parent: string) =>
+  `---\nid: ${id}\ntitle: ${id}\nstatus: todo\npriority: none\nlabels: []\ncreated: 2026-11-08T10:12:00Z\nupdated: 2026-11-08T10:12:00Z\nparent: ${parent}\n---\n`
+
 describe('TicketStore', () => {
   it('create writes .tickets/CAN-1.md in the main checkout', async () => {
     const wt = join(repo.path, '..', 'wt')
@@ -225,6 +229,36 @@ describe('TicketStore', () => {
       const a = await store.create(repo.path, fields())
       const b = await store.create(repo.path, fields({ parent: a.id }))
       await expect(store.patch(repo.path, a.id, { parent: b.id })).rejects.toThrow(`Ce parent créerait une boucle : ${b.id}`)
+    })
+
+    it('refuses a parent that exists but does not parse', async () => {
+      await store.create(repo.path, fields())
+      await writeFile(join(dir(), 'CAN-1.md'), 'pas un ticket')
+      await expect(store.create(repo.path, fields({ parent: 'CAN-1' }))).rejects.toThrow('Parent illisible : CAN-1')
+    })
+
+    it('refuses a cycle longer than a thousand tickets', async () => {
+      await store.create(repo.path, fields())
+      // CAN-2 -> CAN-3 -> … -> CAN-1501 -> CAN-1: making CAN-2 the parent of CAN-1 closes the loop.
+      await Promise.all(Array.from({ length: 1500 }, (_, i) => i + 2).map((n) => writeFile(join(dir(), `CAN-${n}.md`), raw(`CAN-${n}`, n === 1501 ? 'CAN-1' : `CAN-${n + 1}`))))
+      await expect(store.patch(repo.path, 'CAN-1', { parent: 'CAN-2' })).rejects.toThrow('Ce parent créerait une boucle : CAN-2')
+    })
+
+    it('refuses a parent whose chain already loops without the ticket', async () => {
+      const a = await store.create(repo.path, fields())
+      const b = await store.create(repo.path, fields({ parent: a.id }))
+      await writeFile(join(dir(), `${a.id}.md`), raw(a.id, b.id))
+      await expect(store.create(repo.path, fields({ parent: a.id }))).rejects.toThrow(`Chaîne de parents en boucle à partir de ${a.id}`)
+    })
+
+    it('a missing or unreadable ancestor above the direct parent ends the walk', async () => {
+      const a = await store.create(repo.path, fields())
+      await writeFile(join(dir(), `${a.id}.md`), raw(a.id, 'CAN-99'))
+      await expect(store.create(repo.path, fields({ parent: a.id }))).resolves.toBeDefined()
+      const b = await store.create(repo.path, fields())
+      await writeFile(join(dir(), 'CAN-99.md'), 'pas un ticket')
+      await expect(store.create(repo.path, fields({ parent: a.id }))).resolves.toBeDefined()
+      expect(b.id).toBe('CAN-3')
     })
 
     it('refuses an archived parent', async () => {

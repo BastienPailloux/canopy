@@ -161,22 +161,31 @@ export class TicketStore {
     return parseTicket(text, id)
   }
 
-  /** The parent must be a live ticket and must not lead back to `id` (archived tickets are not in `.tickets/`). */
+  /**
+   * The parent must be a live, readable ticket and must not lead back to `id` (archived tickets are not in `.tickets/`).
+   * Only the direct parent must be valid: a missing or unreadable ancestor further up ends the walk.
+   */
   private async checkParent(root: string, id: string | undefined, parent: string): Promise<void> {
     checkId(parent)
     if (parent === id) throw new Error('Un ticket ne peut pas être son propre parent')
-    const read = (tid: string) => readFile(join(this.dir(root), `${tid}.md`), 'utf8').catch(() => null)
-    if ((await read(parent)) === null) throw new Error(`Parent introuvable : ${parent}`)
-    let cur: string | undefined = parent
-    for (let i = 0; cur && i < 1000; i++) {
+    const read = async (tid: string): Promise<Ticket | null | 'unreadable'> => {
+      const text = await readFile(join(this.dir(root), `${tid}.md`), 'utf8').catch(() => null)
+      if (text === null) return null
+      try { return parseTicket(text, tid) } catch { return 'unreadable' }
+    }
+    const first = await read(parent)
+    if (first === null) throw new Error(`Parent introuvable : ${parent}`)
+    if (first === 'unreadable') throw new Error(`Parent illisible : ${parent}`)
+    // A visited set, not a step limit: a hand-made loop of any length must be caught, not accepted.
+    const seen = new Set([parent])
+    let cur = first.parent
+    while (cur) {
       if (cur === id) throw new Error(`Ce parent créerait une boucle : ${parent}`)
-      const text = await read(cur)
-      if (text === null) break
-      try {
-        cur = parseTicket(text, cur).parent
-      } catch {
-        break
-      }
+      if (seen.has(cur)) throw new Error(`Chaîne de parents en boucle à partir de ${cur}`)
+      seen.add(cur)
+      const t = await read(cur)
+      if (t === null || t === 'unreadable') break
+      cur = t.parent
     }
   }
 
