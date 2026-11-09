@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  classify, criticalKeys, defaultDepsBranch, depKey, depsLaunchPrompt, isPromptSafe, severityFromCvss,
+  classify, compareVersions, criticalKeys, defaultDepsBranch, depKey, depsLaunchPrompt, isPromptSafe, severityFromCvss,
   type Advisory, type Dep, type DepEntry, type DepsReport, type PackageInfo
 } from '../../../src/shared/deps'
 
@@ -39,6 +39,19 @@ describe('depKey', () => {
   })
 })
 
+describe('compareVersions', () => {
+  it('sorts a prerelease below its release', () => {
+    for (const [pre, rel] of [['2.0.0-rc.1', '2.0.0'], ['2.0.0rc1', '2.0.0'], ['2.0.0.beta.2', '2.0.0'], ['1.0.0-alpha', '1.0.0-beta'], ['1.0.0-rc.2', '1.0.0-rc.10']]) {
+      expect(compareVersions(pre, rel)).toBeLessThan(0)
+      expect(compareVersions(rel, pre)).toBeGreaterThan(0)
+    }
+    expect(compareVersions('1.9.9', '2.0.0-rc.1')).toBeLessThan(0)
+    expect(compareVersions('1.0.0', '1.0.0.post1')).toBeLessThan(0)
+    expect(compareVersions('1.0.0+build.5', '1.0.0')).toBe(0)
+    expect(compareVersions('1.10.0', '1.9.0')).toBeGreaterThan(0)
+  })
+})
+
 describe('classify', () => {
   it('returns null when up to date', () => {
     expect(classify(dep(), [], info(), NOW)).toBeNull()
@@ -74,6 +87,18 @@ describe('classify', () => {
   it('majors behind is soon', () => {
     const e = classify(dep({ version: '3.0.0' }), [], info({ latest: '5.1.0' }), NOW)!
     expect([e.level, e.reason, e.target]).toEqual(['soon', '2 versions majeures de retard', '5.1.0'])
+  })
+  it('0.x versions: the first non-zero segment is the major', () => {
+    const e = classify(dep({ version: '0.3.0' }), [], info({ latest: '0.9.0' }), NOW)!
+    expect([e.level, e.reason]).toEqual(['soon', '6 versions majeures de retard'])
+    expect(classify(dep({ version: '0.3.0' }), [], info({ latest: '0.3.4' }), NOW)!.reason).toBe('Correctifs disponibles')
+    expect(classify(dep({ version: '0.0.3' }), [], info({ latest: '0.0.5' }), NOW)!.cause).toBe('majors')
+    // A fix in 0.4 is not in the installed 0.3 "major": the target is the latest.
+    expect(classify(dep({ version: '0.3.0' }), [adv({ fixed: '0.4.0' })], info({ latest: '0.9.0' }), NOW)!.target).toBe('0.9.0')
+    expect(classify(dep({ version: '0.3.0' }), [adv({ fixed: '0.3.2' })], info({ latest: '0.9.0' }), NOW)!.target).toBe('0.3.2')
+  })
+  it('a prerelease latest is not a patch to install', () => {
+    expect(classify(dep({ version: '2.0.0' }), [], info({ latest: '2.0.0-rc.1' }), NOW)).toBeNull()
   })
   it('stale project is soon', () => {
     const e = classify(dep(), [], info({ lastRelease: '2023-03-01T00:00:00Z' }), NOW)!

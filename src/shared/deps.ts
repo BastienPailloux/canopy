@@ -82,20 +82,56 @@ export function depKey(d: Pick<Dep, 'ecosystem' | 'manifest' | 'name'>): string 
   return `${d.ecosystem}:${d.manifest}:${d.name}`
 }
 
-/** Numeric segments only: enough for common npm, gem and PEP 440 versions. */
-function segments(v: string): number[] {
-  return (v.match(/\d+/g) ?? []).map(Number)
+/**
+ * Leading numeric release segments, then what follows: enough for common npm, gem and PEP 440 versions.
+ * `stage`: -1 for a prerelease (`-rc.1`, `rc1`, `.beta.2`...), 1 for a PEP 440 post release, 0 for the release.
+ * Build metadata (`+...`) is ignored.
+ */
+function parseVersion(v: string): { release: number[]; stage: number; tag: string[] } {
+  const m = /^\D*?(\d+(?:\.\d+)*)(.*)$/.exec(v.split('+')[0].trim())
+  if (!m) return { release: [], stage: 0, tag: [] }
+  const rest = m[2].replace(/^[.-]/, '')
+  const tag = rest.match(/\d+|[A-Za-z]+/g) ?? []
+  const stage = tag.length === 0 ? 0 : /^(post|rev|r)$/i.test(tag[0] ?? '') ? 1 : -1
+  return { release: m[1].split('.').map(Number), stage, tag }
 }
+const segments = (v: string) => parseVersion(v).release
 function compare(a: string, b: string): number {
-  const x = segments(a), y = segments(b)
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0)
+  const x = parseVersion(a), y = parseVersion(b)
+  for (let i = 0; i < Math.max(x.release.length, y.release.length); i++) {
+    const d = (x.release[i] ?? 0) - (y.release[i] ?? 0)
     if (d) return d
+  }
+  if (x.stage !== y.stage) return x.stage - y.stage
+  // Semver identifier order: numbers numerically, below words; words in ASCII order; fewer identifiers first.
+  for (let i = 0; i < Math.max(x.tag.length, y.tag.length); i++) {
+    const p = x.tag[i], q = y.tag[i]
+    if (p === undefined || q === undefined) return p === undefined ? -1 : 1
+    const pn = /^\d+$/.test(p), qn = /^\d+$/.test(q)
+    if (pn && qn) { if (Number(p) !== Number(q)) return Number(p) - Number(q); continue }
+    if (pn !== qn) return pn ? -1 : 1
+    if (p !== q) return p.toLowerCase() < q.toLowerCase() ? -1 : 1
   }
   return 0
 }
 export { compare as compareVersions }
-const major = (v: string) => segments(v)[0] ?? 0
+
+/**
+ * Index of the segment that is the major, caret style: the first non-zero one (0.3.x: 1, 0.0.3: 2), at most 2.
+ * Two versions are in the same major when they agree up to it.
+ */
+const majorIndex = (release: number[]) => { const i = release.slice(0, 3).findIndex((n) => n !== 0); return i < 0 ? 2 : i }
+function sameMajor(v: string, installed: string): boolean {
+  const x = segments(v), y = segments(installed)
+  for (let i = 0; i <= majorIndex(y); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return false
+  return true
+}
+/** How many majors `latest` is ahead of `installed`, counted on the first segment that differs up to the installed major. */
+function majorsBehind(latest: string, installed: string): number {
+  const x = segments(latest), y = segments(installed)
+  for (let i = 0; i <= majorIndex(y); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
+  return 0
+}
 
 function registryUrl(d: Dep): string | null {
   if (d.private) return null
@@ -140,7 +176,7 @@ export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | nul
   let target = latest
   // A transitive advisory's `fixed` is a version of the other package, not of this one.
   const own = advisories.filter((a) => a.package === d.name)
-  const inMajor = (f: string | null): f is string => !!f && major(f) === major(d.version!)
+  const inMajor = (f: string | null): f is string => !!f && sameMajor(f, d.version!)
   const unfixable = own.some((a) => SEVERITY_RANK[a.severity] >= SEVERITY_RANK.high && !inMajor(a.fixed))
   const fixes = own.map((a) => a.fixed).filter(inMajor)
   if (fixes.length && !unfixable) target = fixes.reduce((a, b) => (compare(a, b) >= 0 ? a : b))
@@ -152,7 +188,7 @@ export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | nul
   if (info?.inactive) return out('critical', 'inactive', 'Projet déclaré inactif')
   if (top) return out('soon', 'advisory', adviceReason(top, d))
   if (!info) return null
-  const behind = latest ? major(latest) - major(d.version) : 0
+  const behind = latest ? majorsBehind(latest, d.version) : 0
   if (behind >= MAJORS_BEHIND) return out('soon', 'majors', `${behind} versions majeures de retard`)
   if (info.lastRelease) {
     const t = Date.parse(info.lastRelease)
