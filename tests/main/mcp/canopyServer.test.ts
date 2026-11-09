@@ -41,6 +41,7 @@ test('the canopy server lists the six tools, read ones annotated read-only, alwa
   const create = tools.find((t) => t.name === 'create_ticket')!
   expect(create.description).toContain('required when the user has no assigned Linear issue and no parent is given')
   expect(Object.keys(create.inputSchema.properties ?? {}).sort()).toEqual(['description', 'labels', 'parent', 'priority', 'source', 'status', 'team', 'title'])
+  expect(tools.find((t) => t.name === 'update_ticket')!.description).toContain('Only Linear issues assigned to the user or created in this session can be changed.')
 })
 
 test('a thrown error comes back as an error result with its French message', async () => {

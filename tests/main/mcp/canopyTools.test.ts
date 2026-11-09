@@ -463,6 +463,20 @@ describe('canopy Linear writes', () => {
         .rejects.toThrow('Statut inconnu : Nope. Statuts possibles : In Review, Done, Canceled, In Progress, Todo, Duplicate, Backlog')
     })
 
+    it("refuses an issue that is neither Bastien's nor created in this session, and queues nothing", async () => {
+      issues = issues.filter((i) => i.id !== 'CAN-2')
+      await expect(tools.update_ticket({ key: 'linear:can-2', title: 'T' }))
+        .rejects.toThrow('Canopy ne modifie que tes tickets Linear assignés et ceux créés dans cette session : CAN-2')
+      expect(edits.pending()).toEqual([])
+      expect(saves()).toEqual([])
+    })
+
+    it('an issue created by these tools can be updated, even before the list knows it', async () => {
+      const { key } = (await tools.create_ticket({ source: 'linear', title: 'New', parent: 'linear:CAN-3' })) as { key: string }
+      expect(issues.some((i) => `linear:${i.id}` === key)).toBe(false)
+      await expect(tools.update_ticket({ key: key.toLowerCase(), title: 'Renamed' })).resolves.toEqual({ result: 'enregistré' })
+    })
+
     it('refuses a parent change and an empty update', async () => {
       await expect(tools.update_ticket({ key: 'linear:CAN-2', parent: 'linear:CAN-3' }))
         .rejects.toThrow("Le parent d'un ticket Linear existant ne se change pas depuis Canopy.")

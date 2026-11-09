@@ -26,7 +26,8 @@ const DESCRIPTIONS: Record<CanopyToolName, string> = {
     'else the one named by `team` (Linear team name), which is required when the user has no assigned Linear issue and no parent is given. Returns the new key.',
   update_ticket:
     `Changes the given fields of a ticket. ${KEY} \`description\` is the full wanted text, not a diff; \`labels\` is the full wanted set. ` +
-    '`parent` (a key, or null to detach) is for local tickets only. Linear edits are queued and sent like the user\'s; the result says if they were sent.',
+    '`parent` (a key, or null to detach) is for local tickets only. Linear edits are queued and sent like the user\'s; the result says if they were sent. ' +
+    'Only Linear issues assigned to the user or created in this session can be changed.',
   link_mockup:
     'Links a mockup (id or claude.ai artifact URL, added to the registry if new) to a local ticket, unlinks it with `ticket: null`, ' +
     'or changes its status.',

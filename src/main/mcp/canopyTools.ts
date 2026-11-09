@@ -67,6 +67,8 @@ function mockupRow(m: Mockup) {
 
 export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, (args: Args) => Promise<unknown>> {
   const { repoRoot } = deps
+  /** Linear issues created by this instance, one per session: Claude may edit them before the list knows them. */
+  const created = new Set<string>()
 
   const requireLinear = (): void => {
     if (deps.linear.connection().state !== 'connected') throw new Error(NOT_CONNECTED)
@@ -247,9 +249,9 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     }
     const team = parentId ? (await deps.linear.issueBrief(parentId)).team.id : linearTeam(args.team)
     const state = status !== undefined ? await linearStatus(team, status) : undefined
-    let created: { id: string }
+    let issue: { id: string }
     try {
-      created = await deps.linear.createIssue({
+      issue = await deps.linear.createIssue({
         title: f.title, team,
         ...(f.description ? { description: f.description } : {}),
         ...(parentId ? { parentId } : {}),
@@ -263,9 +265,10 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
       await deps.sync.refresh().catch(() => undefined)
       return { result: 'créé, mais la réponse de Linear est illisible : vérifie avec list_tickets avant de recréer' }
     }
+    created.add(issue.id.toUpperCase())
     // The list is what Claude searches next: it must hold the new issue.
     await deps.sync.refresh().catch(() => undefined)
-    return { key: ticketKey('linear', created.id) }
+    return { key: ticketKey('linear', issue.id) }
   }
 
   function saveResult(r: SaveResult): { result: string } {
@@ -280,6 +283,10 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
    */
   async function updateLinear(id: string, args: Args) {
     requireLinear()
+    // A prompt-injected Claude must not write the repo's content into any issue of the workspace with no prompt.
+    if (!created.has(id) && !deps.sync.state().issues.some((i) => i.id.toUpperCase() === id)) {
+      throw new Error(`Canopy ne modifie que tes tickets Linear assignés et ceux créés dans cette session : ${id}`)
+    }
     if (args.parent !== undefined) throw new Error("Le parent d'un ticket Linear existant ne se change pas depuis Canopy.")
     const { f, status } = linearFields(args)
     if (Object.keys(f).length === 0 && status === undefined) throw new Error('Rien à modifier.')
