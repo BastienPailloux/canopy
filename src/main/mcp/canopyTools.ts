@@ -239,6 +239,21 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     throw new Error(teams.length ? `Précise l'équipe Linear : ${teams.map((t) => t.name).join(', ')}` : "Précise l'équipe Linear.")
   }
 
+  /** Id of Bastien's account, from whoami; unknown when whoami failed. */
+  const myId = (): string | undefined => deps.linear.connection().userId
+
+  /**
+   * The issue a creation with an unreadable answer has most likely made: same title, assigned to Bastien, touched since
+   * the call started (issues carry no creation date), the newest one.
+   */
+  function justCreated(title: string, started: number): LinearIssue | undefined {
+    const me = myId()
+    if (!me) return undefined
+    return deps.sync.state().issues
+      .filter((i) => i.title === title && i.assignee?.id === me && !(Date.parse(i.updatedAt) < started))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
+  }
+
   // Not queued: the queue only knows edits of an existing issue, so offline the creation fails with its reason.
   async function createLinear(args: Args) {
     requireLinear()
@@ -253,6 +268,7 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     const team = parentId ? (await deps.linear.issueBrief(parentId)).team.id : linearTeam(args.team)
     const state = status !== undefined ? await linearStatus(team, status) : undefined
     let issue: { id: string }
+    const started = Date.now()
     try {
       issue = await deps.linear.createIssue({
         title: f.title, team,
@@ -266,7 +282,10 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
       if (!(e instanceof LinearFormatError)) throw e
       // Linear has probably created the issue: failing would make Claude retry and duplicate it.
       await deps.sync.refresh().catch(() => undefined)
-      return { result: 'créé, mais la réponse de Linear est illisible : vérifie avec list_tickets avant de recréer' }
+      const found = justCreated(f.title, started)
+      if (!found) return { result: 'créé, mais la réponse de Linear est illisible : vérifie avec list_tickets avant de recréer' }
+      created.add(found.id.toUpperCase())
+      return { key: ticketKey('linear', found.id), result: 'créé (réponse de Linear lue depuis la liste)' }
     }
     created.add(issue.id.toUpperCase())
     // The list is what Claude searches next: it must hold the new issue.
@@ -286,8 +305,11 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
    */
   async function updateLinear(id: string, args: Args) {
     requireLinear()
-    // A prompt-injected Claude must not write the repo's content into any issue of the workspace with no prompt.
-    if (!created.has(id) && !deps.sync.state().issues.some((i) => i.id.toUpperCase() === id)) {
+    // A prompt-injected Claude must not write the repo's content into any issue of the workspace with no prompt. The list
+    // also keeps launched issues and unsent edits reassigned to a colleague since: the assignee is checked too.
+    const me = myId()
+    const mine = me !== undefined && deps.sync.state().issues.some((i) => i.id.toUpperCase() === id && i.assignee?.id === me)
+    if (!created.has(id) && !mine) {
       throw new Error(`Canopy ne modifie que tes tickets Linear assignés et ceux créés dans cette session : ${id}`)
     }
     if (args.parent !== undefined) throw new Error("Le parent d'un ticket Linear existant ne se change pas depuis Canopy.")

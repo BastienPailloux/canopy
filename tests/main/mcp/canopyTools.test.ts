@@ -494,6 +494,27 @@ describe('canopy Linear writes', () => {
       expect(saves()).toEqual([])
     })
 
+    it("refuses an issue still in the list but reassigned to a colleague, and queues nothing", async () => {
+      issues = issues.map((i) => (i.id === 'CAN-2' ? { ...i, assignee: { id: 'colleague', name: 'Alice' } } : i))
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', title: 'T' }))
+        .rejects.toThrow('Canopy ne modifie que tes tickets Linear assignés et ceux créés dans cette session : CAN-2')
+      expect(edits.pending()).toEqual([])
+      expect(saves()).toEqual([])
+    })
+
+    it('an issue of the list assigned to me can be updated', async () => {
+      expect(issues.find((i) => i.id === 'CAN-2')?.assignee?.id).toBe(client.connection().userId)
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', title: 'T' })).resolves.toEqual({ result: 'enregistré' })
+    })
+
+    it('with an unknown user id, only the issues created in this session can be updated', async () => {
+      const { key } = (await tools.create_ticket({ source: 'linear', title: 'New', parent: 'linear:CAN-3' })) as { key: string }
+      vi.spyOn(client, 'connection').mockReturnValue({ state: 'connected', missingTools: [] } as never)
+      await expect(tools.update_ticket({ key: 'linear:CAN-2', title: 'T' }))
+        .rejects.toThrow('Canopy ne modifie que tes tickets Linear assignés et ceux créés dans cette session : CAN-2')
+      await expect(tools.update_ticket({ key, title: 'Renamed' })).resolves.toEqual({ result: 'enregistré' })
+    })
+
     it('an issue created by these tools can be updated, even before the list knows it', async () => {
       const { key } = (await tools.create_ticket({ source: 'linear', title: 'New', parent: 'linear:CAN-3' })) as { key: string }
       expect(issues.some((i) => `linear:${i.id}` === key)).toBe(false)
@@ -520,6 +541,26 @@ describe('canopy Linear writes', () => {
       spy.mockRestore()
       vi.spyOn(client, 'createIssue').mockRejectedValue(new Error('boom'))
       await expect(tools.create_ticket({ source: 'linear', title: 'x' })).rejects.toThrow('boom')
+    })
+
+    it('an unreadable answer: the new issue found in the refreshed list is returned and can be updated', async () => {
+      const me = client.connection().userId ?? null
+      const team = issues[0].team
+      vi.spyOn(client, 'createIssue').mockRejectedValue(new LinearFormatError('save_issue', 'id'))
+      const old = linearIssue('CAN-8', 'Same', { assignee: { id: me!, name: 'Bastien' }, updatedAt: '2020-01-01T00:00:00Z', team })
+      issues = [...issues, old]
+      refresh.mockImplementation(async () => {
+        const now = new Date().toISOString()
+        issues = [...issues,
+          linearIssue('CAN-9', 'Same', { assignee: { id: 'colleague', name: 'Alice' }, updatedAt: now, team }),
+          linearIssue('CAN-7', 'Same', { assignee: { id: me!, name: 'Bastien' }, updatedAt: now, team })]
+        return {}
+      })
+      const r = await tools.create_ticket({ source: 'linear', title: 'Same' })
+      expect(r).toEqual({ key: 'linear:CAN-7', result: 'créé (réponse de Linear lue depuis la liste)' })
+      issues = issues.filter((i) => i.id !== 'CAN-7')
+      vi.spyOn(client, 'issueBrief').mockResolvedValue(linearIssue('CAN-7', 'Same'))
+      await expect(tools.update_ticket({ key: 'linear:CAN-7', priority: 'high' })).resolves.toBeDefined()
     })
 
     it("a sub-issue goes in the parent's team, then the list is refreshed", async () => {
