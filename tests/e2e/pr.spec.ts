@@ -219,3 +219,52 @@ test('Envoyer à Claude sends the comment to a new session and publishes nothing
   await expect(page.getByTestId('assistant-message').last()).toContainText('Documente la route dans le README.')
   expect(await loggedActions()).toEqual([])
 })
+
+test('a failed check shows its log and Corriger avec Claude starts a session', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('tab', { name: /Checks/ }).click()
+  const body = page.getByRole('region', { name: 'Contenu de la PR' })
+  await expect(body).toContainText('1 check en échec · 1/2 réussis')
+  // Greptile's check is not a workflow: nothing to rerun.
+  await expect(body.getByRole('button', { name: 'Relancer', exact: true })).toHaveCount(1)
+  await body.getByRole('button', { name: /e2e · products/ }).click()
+  await expect(body.getByTestId('pr-check-log')).toContainText('products')
+  await body.getByRole('button', { name: 'Corriger avec Claude' }).click()
+  await expect(nav().getByRole('button', { name: 'Sessions' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('assistant-message').last()).toContainText('e2e · products')
+  expect(await loggedActions()).toEqual([])
+})
+
+test('Relancer les échecs reruns each failing run once', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('tab', { name: /Checks/ }).click()
+  await page.getByRole('button', { name: 'Relancer les échecs' }).click()
+  await expect.poll(async () => (await loggedActions()).map((l) => l.action)).toEqual([{ type: 'rerun', runId: 4001, jobId: null }])
+})
+
+test('marking a file viewed goes through gh', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('tab', { name: /Fichiers/ }).click()
+  const body = page.getByRole('region', { name: 'Contenu de la PR' })
+  await expect(body).toContainText('5 fichiers modifiés · 0 vus')
+  await body.getByRole('checkbox', { name: 'Vu : src/lib/gtin.ts' }).click()
+  await expect.poll(async () => (await loggedActions()).map((l) => l.action)).toEqual([{ type: 'viewed', path: 'src/lib/gtin.ts', viewed: true }])
+})
+
+test('Ouvrir le diff complet dans Code switches to Code', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('tab', { name: /Fichiers/ }).click()
+  await page.getByRole('button', { name: 'Ouvrir le diff complet dans Code' }).click()
+  await expect(nav().getByRole('button', { name: 'Code' })).toHaveAttribute('aria-current', 'page')
+})
+
+test('the Commits tab lists the commits', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('tab', { name: /Commits/ }).click()
+  await expect(page.getByRole('region', { name: 'Contenu de la PR' })).toContainText('feat(products): add gtin lookup route')
+})

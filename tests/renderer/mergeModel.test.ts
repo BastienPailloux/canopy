@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import type { PrDetail, PrThread } from '../../src/shared/pr'
-import { tabCounts } from '../../src/renderer/pr/mergeModel'
+import type { PrCheck, PrDetail, PrThread } from '../../src/shared/pr'
+import { checksSummary, tabCounts } from '../../src/renderer/pr/mergeModel'
 
 const fixture = (): PrDetail => (JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail
 const thread = (id: string, resolved: boolean): PrThread =>
@@ -49,5 +49,19 @@ describe('tabCounts', () => {
       checks: [{ name: 'build', detail: '', outcome: 'pending', durationMs: null, url: null, run: null }]
     }
     expect(tabCounts(pr).alert).toEqual({ conv: false, checks: false })
+  })
+})
+
+describe('checksSummary', () => {
+  const c = (outcome: PrCheck['outcome']): PrCheck => ({ name: 'x', detail: '', outcome, durationMs: null, url: null, run: null })
+  it('says all pass, counting neutral as passed', () => {
+    expect(checksSummary([c('success'), c('neutral')])).toBe('Tous les checks passent')
+  })
+  it('counts failures with ok/total', () => {
+    expect(checksSummary([c('success'), c('failure'), c('success')])).toBe('1 check en échec · 2/3 réussis')
+    expect(checksSummary([c('failure'), c('failure')])).toBe('2 checks en échec · 0/2 réussis')
+  })
+  it('says running while one is pending and none failed', () => {
+    expect(checksSummary([c('success'), c('pending')])).toBe('Checks en cours · 1/2 réussis')
   })
 })

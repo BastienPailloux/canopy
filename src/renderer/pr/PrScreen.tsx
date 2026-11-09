@@ -1,5 +1,6 @@
 import type { PrDetail, PrState } from '../../shared/pr'
 import { Conversation } from './Conversation'
+import { ChecksTab, CommitsTab, FilesTab } from './PrTabs'
 import { tabCounts } from './mergeModel'
 import { act, setSubTab, usePr, type PrSubTab } from './prStore'
 import './pr.css'
@@ -91,6 +92,9 @@ export function PrScreen(): React.JSX.Element {
             </div>
             <section className="pr-body" aria-label="Contenu de la PR" data-tab={subTab}>
               {subTab === 'conv' && <Conversation pr={detail} />}
+              {subTab === 'commits' && <CommitsTab pr={detail} />}
+              {subTab === 'checks' && <ChecksTab pr={detail} />}
+              {subTab === 'files' && <FilesTab pr={detail} />}
             </section>
           </>
         )

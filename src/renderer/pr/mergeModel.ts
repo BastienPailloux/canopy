@@ -1,4 +1,4 @@
-import type { PrDetail } from '../../shared/pr'
+import type { PrCheck, PrDetail } from '../../shared/pr'
 
 export interface TabCounts {
   openThreads: number
@@ -21,4 +21,13 @@ export function tabCounts(pr: PrDetail): TabCounts {
     files: pr.files.length,
     alert: { conv: openThreads > 0, checks: pr.checks.some((c) => c.outcome === 'failure') }
   }
+}
+
+/** The Checks tab's headline: passed (neutral counts), failing, or still running. */
+export function checksSummary(checks: PrCheck[]): string {
+  const ok = checks.filter((c) => c.outcome === 'success' || c.outcome === 'neutral').length
+  const failed = checks.filter((c) => c.outcome === 'failure').length
+  if (failed > 0) return `${failed} check${failed > 1 ? 's' : ''} en échec · ${ok}/${checks.length} réussis`
+  if (ok < checks.length) return `Checks en cours · ${ok}/${checks.length} réussis`
+  return 'Tous les checks passent'
 }
