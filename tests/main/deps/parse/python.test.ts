@@ -1,0 +1,260 @@
+import { describe, expect, it } from 'vitest'
+import { parsePipfileLock, parsePoetryLock, parseRequirements, parseUvLock } from '../../../../src/main/deps/parse/python'
+
+const names = (ds: { name: string }[]) => ds.map((d) => d.name).sort()
+const pypi = (name: string, version: string | null, manifest: string, priv = false) => ({ ecosystem: 'PyPI', name, version, manifest, private: priv })
+
+describe('parseUvLock', () => {
+  const LOCK = `version = 1
+
+[[package]]
+name = "app"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+  { name = "Requests" },
+  { name = "internal-lib" },
+  { name = "forked" },
+]
+
+[package.dev-dependencies]
+dev = [{ name = "pytest" }]
+
+[[package]]
+name = "requests"
+version = "2.31.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest"
+version = "8.0.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "internal-lib"
+version = "1.0.0"
+source = { registry = "https://pkgs.example.com/simple" }
+
+[[package]]
+name = "forked"
+version = "0.2.0"
+source = { git = "https://github.com/acme/forked" }
+
+[[package]]
+name = "unrelated"
+version = "9.9.9"
+source = { registry = "https://pypi.org/simple" }
+`
+  it('reads the root package dependencies, including dev groups', () => {
+    const u = parseUvLock('', LOCK)
+    expect(u.error).toBeUndefined()
+    expect(u.ecosystem).toBe('PyPI')
+    expect(u.transitive).toEqual([])
+    expect(u.deps).toContainEqual(pypi('requests', '2.31.0', 'pyproject.toml'))
+    expect(names(u.deps)).toEqual(['forked', 'internal-lib', 'pytest', 'requests'])
+  })
+
+  it('marks non-PyPI registries and non-registry sources private', () => {
+    const u = parseUvLock('svc', LOCK)
+    expect(u.deps.find((d) => d.name === 'internal-lib')).toMatchObject({ private: true, manifest: 'svc/pyproject.toml' })
+    expect(u.deps.find((d) => d.name === 'forked')?.private).toBe(true)
+  })
+
+  it('accepts a virtual root', () => {
+    const u = parseUvLock('', `[[package]]
+name = "app"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [{ name = "a" }]
+
+[[package]]
+name = "a"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+`)
+    expect(names(u.deps)).toEqual(['a'])
+  })
+
+  it('returns an error unit for a corrupt lockfile', () => {
+    expect(parseUvLock('x', '[[package\nname = ')).toEqual({ dir: 'x', ecosystem: 'PyPI', deps: [], transitive: [], error: 'Fichier illisible : x/uv.lock' })
+  })
+})
+
+describe('parsePoetryLock', () => {
+  const PYPROJECT = `[tool.poetry.dependencies]
+python = "^3.11"
+Django = "^4.2"
+my_private = { version = "^1", source = "corp" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8"
+`
+  const LOCK = `[[package]]
+name = "django"
+version = "4.2.7"
+
+[[package]]
+name = "pytest"
+version = "8.0.0"
+
+[[package]]
+name = "my-private"
+version = "1.0.0"
+
+[package.source]
+type = "legacy"
+url = "https://pkgs.example.com/simple"
+reference = "corp"
+
+[[package]]
+name = "gitdep"
+version = "0.1.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/acme/gitdep"
+reference = "main"
+`
+  it('reads direct deps from pyproject.toml without python', () => {
+    const u = parsePoetryLock('', PYPROJECT, LOCK)
+    expect(u.error).toBeUndefined()
+    expect(u.transitive).toEqual([])
+    expect(u.deps).toContainEqual(pypi('django', '4.2.7', 'pyproject.toml'))
+    expect(names(u.deps)).toEqual(['django', 'my-private', 'pytest'])
+  })
+
+  it('marks packages with a non-PyPI source private', () => {
+    const u = parsePoetryLock('', PYPROJECT, LOCK)
+    expect(u.deps.find((d) => d.name === 'my-private')?.private).toBe(true)
+    expect(u.deps.find((d) => d.name === 'django')?.private).toBe(false)
+  })
+
+  it('keeps a legacy source pointing at PyPI public and a git source private', () => {
+    const lock = `[[package]]
+name = "a"
+version = "1.0.0"
+
+[package.source]
+type = "legacy"
+url = "https://pypi.org/simple"
+reference = "pypi"
+
+[[package]]
+name = "gitdep"
+version = "0.1.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/acme/gitdep"
+`
+    const u = parsePoetryLock('', '[tool.poetry.dependencies]\na = "1"\ngitdep = { git = "https://github.com/acme/gitdep" }\n', lock)
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['a', false], ['gitdep', true]])
+  })
+
+  it('reads PEP 621 project.dependencies', () => {
+    const u = parsePoetryLock('', '[project]\ndependencies = ["Flask>=2.0", "requests[socks]==2.31.0 ; python_version > \'3.8\'"]\n', `[[package]]
+name = "flask"
+version = "3.0.0"
+
+[[package]]
+name = "requests"
+version = "2.31.0"
+`)
+    expect(u.deps.map((d) => [d.name, d.version])).toEqual([['flask', '3.0.0'], ['requests', '2.31.0']])
+  })
+
+  it('returns an error unit for a corrupt lockfile or a missing pyproject', () => {
+    const err = { dir: 'p', ecosystem: 'PyPI', deps: [], transitive: [] }
+    expect(parsePoetryLock('p', PYPROJECT, '[[package\n')).toEqual({ ...err, error: 'Fichier illisible : p/poetry.lock' })
+    expect(parsePoetryLock('p', null, LOCK)).toEqual({ ...err, error: 'Fichier illisible : p/pyproject.toml' })
+    expect(parsePoetryLock('p', '[tool\n', LOCK)).toEqual({ ...err, error: 'Fichier illisible : p/pyproject.toml' })
+  })
+})
+
+describe('parsePipfileLock', () => {
+  const LOCK = JSON.stringify({
+    _meta: { sources: [{ name: 'pypi', url: 'https://pypi.org/simple', verify_ssl: true }, { name: 'corp', url: 'https://pkgs.example.com/simple' }] },
+    default: {
+      Requests: { version: '==2.31.0', index: 'pypi' },
+      internal: { version: '==1.0.0', index: 'corp' },
+      forked: { git: 'https://github.com/acme/forked', ref: 'abc' },
+      loose: { version: '>=1.0' }
+    },
+    develop: { pytest: { version: '==8.0.0' }, local: { path: '.', editable: true } }
+  })
+  it('reads default and develop with == stripped', () => {
+    const u = parsePipfileLock('', LOCK)
+    expect(u.error).toBeUndefined()
+    expect(u.transitive).toEqual([])
+    expect(u.deps).toContainEqual(pypi('requests', '2.31.0', 'Pipfile'))
+    expect(u.deps).toContainEqual(pypi('pytest', '8.0.0', 'Pipfile'))
+    expect(u.deps.find((d) => d.name === 'loose')?.version).toBeNull()
+  })
+  it('marks non-PyPI indexes, git and path entries private', () => {
+    const u = parsePipfileLock('app', LOCK)
+    expect(u.deps.filter((d) => d.private).map((d) => d.name).sort()).toEqual(['forked', 'internal', 'local'])
+    expect(u.deps[0].manifest).toBe('app/Pipfile')
+  })
+  it('returns an error unit for a corrupt lockfile', () => {
+    expect(parsePipfileLock('', '{nope')).toEqual({ dir: '', ecosystem: 'PyPI', deps: [], transitive: [], error: 'Fichier illisible : Pipfile.lock' })
+  })
+})
+
+describe('parseRequirements', () => {
+  const TEXT = `# comment
+Foo_Bar==1.2   # inline comment
+requests[socks]==2.31.0 ; python_version < "3.9"
+numpy>=1.0
+django>=3,<5
+pinned===2.0
+wild==1.*
+-r other.txt
+-c constraints.txt
+--hash-only-line
+./local/path
+git+https://github.com/acme/x.git
+https://example.com/pkg.whl
+-e git+https://github.com/acme/editable.git#egg=Editable_Pkg
+corp @ https://example.com/corp-1.0.tar.gz
+long==3.0 \\
+    --hash=sha256:abc
+`
+  it('reads pinned, unpinned and normalized entries', () => {
+    const u = parseRequirements('', 'requirements.txt', TEXT)
+    expect(u.error).toBeUndefined()
+    expect(u.ecosystem).toBe('PyPI')
+    expect(u.transitive).toEqual([])
+    expect(u.deps).toContainEqual(pypi('foo-bar', '1.2', 'requirements.txt'))
+    expect(u.deps).toContainEqual(pypi('requests', '2.31.0', 'requirements.txt'))
+    expect(u.deps).toContainEqual(pypi('numpy', null, 'requirements.txt'))
+    expect(u.deps.find((d) => d.name === 'django')?.version).toBeNull()
+    expect(u.deps.find((d) => d.name === 'pinned')?.version).toBe('2.0')
+    expect(u.deps.find((d) => d.name === 'wild')?.version).toBeNull()
+    expect(u.deps.find((d) => d.name === 'long')?.version).toBe('3.0')
+  })
+  it('ignores -r, -c, paths and unnamed URLs but lists named -e and URL requirements as private', () => {
+    const u = parseRequirements('', 'requirements.txt', TEXT)
+    expect(names(u.deps)).toEqual(['corp', 'django', 'editable-pkg', 'foo-bar', 'long', 'numpy', 'pinned', 'requests', 'wild'])
+    expect(u.deps.filter((d) => d.private).map((d) => d.name).sort()).toEqual(['corp', 'editable-pkg'])
+  })
+  it('uses the file itself as manifest', () => {
+    const u = parseRequirements('api', 'requirements-dev.txt', 'a==1\n')
+    expect(u.dir).toBe('api')
+    expect(u.deps[0].manifest).toBe('api/requirements-dev.txt')
+  })
+  it('makes the whole file private for a non-PyPI index', () => {
+    for (const line of ['--index-url https://pkgs.example.com/simple', '--index-url=https://pkgs.example.com/simple', '-i https://pkgs.example.com/simple', '--extra-index-url https://pkgs.example.com/simple']) {
+      const u = parseRequirements('', 'requirements.txt', `${line}\na==1\nb>=2\n`)
+      expect(u.deps.map((d) => d.private)).toEqual([true, true])
+    }
+  })
+  it('keeps the file public for PyPI index URLs', () => {
+    for (const url of ['https://pypi.org/simple', 'https://pypi.org/simple/', 'https://pypi.python.org/simple']) {
+      const u = parseRequirements('', 'requirements.txt', `--index-url ${url}\na==1\n`)
+      expect(u.deps.map((d) => d.private)).toEqual([false])
+    }
+  })
+  it('dedupes by name', () => {
+    expect(parseRequirements('', 'requirements.txt', 'A==1\na==1\n').deps).toHaveLength(1)
+  })
+})
