@@ -1,0 +1,10 @@
+{
+  "id": "GHSA-f5x3-32g6-xq36",
+  "summary": "Denial of service while parsing a tar file due to lack of folders count validation",
+  "severity": [{ "type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" }],
+  "database_specific": { "severity": "CRITICAL" },
+  "affected": [{
+    "package": { "name": "tar", "ecosystem": "npm" },
+    "ranges": [{ "type": "SEMVER", "events": [{ "introduced": "6.0.0" }, { "fixed": "6.2.1" }] }]
+  }]
+}

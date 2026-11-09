@@ -90,6 +90,7 @@ function compare(a: string, b: string): number {
   }
   return 0
 }
+export { compare as compareVersions }
 const major = (v: string) => segments(v)[0] ?? 0
 
 function registryUrl(d: Dep): string | null {
@@ -168,6 +169,10 @@ const NAME_RE: Record<Ecosystem, RegExp> = {
   RubyGems: /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
   PyPI: /^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/
 }
+/** Registry-syntax check on a name read from a lockfile (untrusted): gate before any URL or prompt use. */
+export function isValidPackageName(ecosystem: Ecosystem, name: string): boolean {
+  return NAME_RE[ecosystem]?.test(name) === true
+}
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
 const VERSION_RE = /^[A-Za-z0-9.+_~-]{1,64}$/
 const SEGMENT_RE = /^[A-Za-z0-9._@+-]+$/
@@ -179,7 +184,7 @@ export function isPromptSafe(e: DepEntry): boolean {
   const base = segs[segs.length - 1]
   const manifestOk = e.manifest.length <= 200 && segs.every((s) => SEGMENT_RE.test(s) && s !== '.' && s !== '..') &&
     (MANIFEST_FILES.has(base) || /^requirements[A-Za-z0-9._-]*\.txt$/.test(base))
-  return NAME_RE[e.ecosystem]?.test(e.name) === true && manifestOk &&
+  return isValidPackageName(e.ecosystem, e.name) && manifestOk &&
     (e.installed === null || VERSION_RE.test(e.installed)) && (e.target === null || VERSION_RE.test(e.target)) &&
     e.advisories.every((a) => ID_RE.test(a.id))
 }
