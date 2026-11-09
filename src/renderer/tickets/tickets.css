@@ -896,3 +896,96 @@
   margin-bottom: 18px;
 }
 .editor-template select { height: 28px; font-size: 12.5px; }
+
+/* « Modèles de tickets »: the list on the left, the template edited on the right */
+.dialog.templates-dialog {
+  width: 900px;
+  height: min(720px, calc(100vh - 48px));
+}
+.templates-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 18px;
+}
+.templates-side {
+  flex: none;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.templates-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.templates-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+}
+.templates-list button:hover { background: var(--selected); }
+.templates-list button[aria-current='true'] { background: var(--selected); font-weight: 600; }
+.templates-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.templates-default {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--fg-2);
+  font-size: 10.5px;
+  font-weight: 400;
+}
+.templates-unreadable {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.templates-unreadable .error { color: var(--del); }
+.templates-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.templates-actions button { font-size: 12px; }
+.templates-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.templates-editor .description textarea { min-height: 200px; }
+.templates-hint, .templates-empty { margin: 0; color: var(--fg-3); font-size: 12px; }
+.templates-empty { margin: auto; }
+/* The ticket editor's side panel look, laid inline. */
+.editor-side.templates-props {
+  width: auto;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border-left: 0;
+}
+.templates-props .prop { font-size: 12.5px; }
+/* `.dialog input` is for the dialog's text fields, not the chips' and subtasks' own inputs. */
+.dialog .label-input { height: 22px; font-family: inherit; font-size: 11.5px; border-radius: 999px; }
+.dialog .subtask-input { height: 26px; font-family: inherit; font-size: inherit; border-radius: 4px; }
+.dialog .subtask input[type='checkbox'] { height: auto; padding: 0; }
+.templates-editor .subtasks { margin-top: 4px; }

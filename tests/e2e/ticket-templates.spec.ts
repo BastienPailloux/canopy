@@ -103,3 +103,107 @@ test('Aucun gives an empty ticket', async () => {
   await picker().selectOption({ label: 'Aucun' })
   await expect(description()).toHaveValue('')
 })
+
+const templateFile = (slug: string): string => join(repo.path, '.tickets', 'templates', `${slug}.md`)
+const manager = (): Locator => page.getByRole('dialog', { name: 'Modèles de tickets' })
+const settings = (): Locator => page.getByRole('dialog', { name: 'Réglages' })
+const entry = (name: string): Locator => manager().getByRole('button', { name, exact: true })
+const exists = (path: string): Promise<boolean> => readFile(path).then(() => true, () => false)
+
+/** Opens « Modèles de tickets » from the settings, once the templates are listed. */
+async function openManager(): Promise<void> {
+  await launch()
+  await page.getByRole('button', { name: 'Réglages' }).click()
+  await settings().getByRole('button', { name: 'Modèles de tickets…' }).click()
+  await expect(entry('Bug')).toBeVisible()
+}
+
+test('edits a template and uses it', async () => {
+  await openManager()
+  await entry('Bug').click()
+  await manager().getByLabel('Description', { exact: true }).fill('### Reproduction\nTODO')
+  await expect.poll(async () => readFile(templateFile('bug'), 'utf8').catch(() => '')).toContain('### Reproduction')
+
+  // Escape in a field that answers it stays there; else it closes the top dialog only.
+  await manager().getByRole('button', { name: 'Ajouter un label' }).click()
+  await page.keyboard.press('Escape')
+  await expect(manager().getByLabel('Nouveau label')).toHaveCount(0)
+  await expect(manager()).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(manager()).toHaveCount(0)
+  await expect(settings()).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(settings()).toHaveCount(0)
+
+  await nav('Tickets').click()
+  await page.getByRole('button', { name: '+ Nouveau ticket' }).click()
+  await expect(description()).toHaveValue(/### Contexte/)
+  await picker().selectOption({ label: 'Bug' })
+  await expect(description()).toHaveValue(/### Reproduction/)
+})
+
+test('creates a template and makes it the default', async () => {
+  await openManager()
+  await manager().getByRole('button', { name: '+ Nouveau modèle' }).click()
+  await expect(manager().getByLabel('Nom', { exact: true })).toHaveValue('Nouveau modèle')
+  await manager().getByLabel('Nom', { exact: true }).fill('Spike')
+  await manager().getByRole('button', { name: 'Définir par défaut' }).click()
+  await expect.poll(() => exists(templateFile('spike'))).toBe(true)
+  await expect.poll(async () => JSON.parse(await readFile(join(repo.path, '.tickets', 'config.json'), 'utf8').catch(() => '{}')).defaultTemplate).toBe('spike')
+  await expect(manager().getByRole('button', { name: /^Spike/ })).toContainText('Par défaut')
+  expect(await exists(templateFile('nouveau-modele'))).toBe(false)
+
+  await manager().getByRole('button', { name: 'Fermer' }).click()
+  await settings().getByRole('button', { name: 'Fermer' }).click()
+  await nav('Tickets').click()
+  await page.getByRole('button', { name: '+ Nouveau ticket' }).click()
+  await expect(picker().locator('option:checked')).toHaveText('Spike')
+})
+
+test('deletes a template', async () => {
+  await openManager()
+  const seen = dialogs(() => true)
+  await entry('Refacto').click()
+  await manager().getByRole('button', { name: 'Supprimer', exact: true }).click()
+  await expect.poll(() => exists(templateFile('refacto'))).toBe(false)
+  expect(seen).toEqual(['Supprimer le modèle « Refacto » ?'])
+  await expect(entry('Refacto')).toHaveCount(0)
+
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await nav('Tickets').click()
+  await page.getByRole('button', { name: '+ Nouveau ticket' }).click()
+  await expect(description()).toHaveValue(/### Contexte/)
+  await expect(picker().locator('option')).toHaveText(['Contexte', 'Fonctionnalité', 'Bug', 'Aucun'])
+})
+
+test('opens from the draft', async () => {
+  await openDraft()
+  await page.getByRole('button', { name: 'Gérer les modèles…' }).click()
+  await expect(manager()).toBeVisible()
+  await expect(entry('Bug')).toBeVisible()
+})
+
+test('deleting the template picked in the draft leaves its content', async () => {
+  await openDraft()
+  dialogs(() => true)
+  await page.getByRole('button', { name: 'Gérer les modèles…' }).click()
+  await manager().getByRole('button', { name: /^Contexte/ }).click()
+  await manager().getByRole('button', { name: 'Supprimer', exact: true }).click()
+  await expect.poll(() => exists(templateFile('contexte'))).toBe(false)
+  await page.keyboard.press('Escape')
+  await expect(manager()).toHaveCount(0)
+  await expect(picker().locator('option')).toHaveText(['Fonctionnalité', 'Bug', 'Refacto', 'Aucun'])
+  await expect(picker().locator('option:checked')).toHaveText('Fonctionnalité')
+  await expect(description()).toHaveValue(/### Contexte/)
+})
+
+test('reorders templates', async () => {
+  await openManager()
+  await entry('Bug').click()
+  await manager().getByRole('button', { name: 'Monter' }).click()
+  const names = manager().getByRole('list', { name: 'Modèles' }).getByRole('button')
+  await expect(names).toHaveText(['Contexte Par défaut', 'Bug', 'Fonctionnalité', 'Refacto'])
+  await expect.poll(async () => readFile(templateFile('bug'), 'utf8')).toMatch(/order: 2/)
+  await expect.poll(async () => readFile(templateFile('fonctionnalite'), 'utf8')).toMatch(/order: 3/)
+})

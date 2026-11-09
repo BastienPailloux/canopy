@@ -5,6 +5,7 @@ import { ACCOUNT_CHANGED } from './AccountFooter'
 import { useLinear } from '../tickets/linearStore'
 import type { LinearConnection } from '../../shared/linear'
 import { useModal } from './useModal'
+import { TemplatesDialog } from '../tickets/TemplatesDialog'
 
 interface KeyStatus { set: boolean; encryptionAvailable: boolean; readable: boolean }
 
@@ -164,6 +165,7 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
 
   const dialog = useRef<HTMLFormElement>(null)
   useModal(dialog, () => { onClose() })
+  const [templates, setTemplates] = useState(false)
 
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -220,6 +222,7 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
             )}
             <span style={{ color: 'var(--fg-3)', fontSize: 12, lineHeight: 1.5 }}>S'applique aux nouveaux tickets.</span>
             {prefixNotice && <span role="status" style={{ color: 'var(--add)', fontSize: 12 }}>{prefixNotice}</span>}
+            <button type="button" className="secondary" onClick={() => setTemplates(true)}>Modèles de tickets…</button>
           </div>
         )}
         {error && <p className="error" role="alert">{error}</p>}
@@ -230,6 +233,8 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
           <button type="submit" className="primary" disabled={trimmed === '' || busy || !canStore}>Enregistrer</button>
         </div>
       </form>
+      {/* Outside the form, whose submit its fields must not trigger; opened last, it is the modal Escape closes. */}
+      {templates && repo && <TemplatesDialog repo={repo} onClose={() => setTemplates(false)} />}
     </div>
   )
 }

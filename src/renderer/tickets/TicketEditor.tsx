@@ -8,7 +8,7 @@ import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
 import { closeSaver, createSaver, createVersionFilter, draftToCreate, mergeDisk, notifySavers, trackSaver, type Saver } from './editorSave'
 import { LinkedMockups } from './LinkedMockups'
-import { applyTemplate, type DraftContent, isUntouched, templateContent } from './templateDraft'
+import { applyTemplate, type DraftContent, isUntouched, TEMPLATES_CHANGED, templateContent } from './templateDraft'
 import { useTickets } from './ticketStore'
 import { linkedWorktree, useRepoRefs } from './TicketsScreen'
 
@@ -162,6 +162,12 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
       && !window.confirm(`Remplacer le contenu par le modèle « ${t?.name ?? 'Aucun'} » ? Ce que tu as écrit sera perdu.`)) return
     pick(t)
   }
+  const [templatesRev, setTemplatesRev] = useState(0)
+  useEffect(() => {
+    const bump = (): void => setTemplatesRev((n) => n + 1)
+    window.addEventListener(TEMPLATES_CHANGED, bump)
+    return () => window.removeEventListener(TEMPLATES_CHANGED, bump)
+  }, [])
   // Read again on `tickets:changed`, which templates changes also emit; the default is applied once only.
   useEffect(() => {
     if (props.id !== 'new' || idRef.current) return
@@ -170,6 +176,8 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
       if (!on || idRef.current) return
       const ts = list.entries.flatMap((e) => (e.kind === 'template' ? [e.template] : []))
       setTemplates(ts)
+      // The template picked was deleted: the select names another, the draft keeps what it holds.
+      setPicked((p) => (p === '' || ts.some((t) => t.slug === p) ? p : (ts.find((t) => t.slug === list.defaultSlug) ?? ts[0])?.slug ?? ''))
       if (defaultApplied.current) return
       defaultApplied.current = true
       const def = ts.find((t) => t.slug === list.defaultSlug) ?? null
@@ -177,7 +185,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
       if (def && isUntouched(local.current ?? DRAFT, applied.current)) pick(def)
     }, () => {})
     return () => { on = false }
-  }, [repo, entries])
+  }, [repo, entries, templatesRev])
 
   const app = useApp.getState()
   const back = (): void => app.setOpenTicket(null)
@@ -380,7 +388,7 @@ export function Description(props: {
   )
 }
 
-function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items: Subtask[]) => void }): React.JSX.Element {
+export function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items: Subtask[]) => void }): React.JSX.Element {
   const { items } = props
   /** The row being renamed; `items.length`: a new one. */
   const [editing, setEditingState] = useState<{ index: number; text: string } | null>(null)
@@ -439,7 +447,7 @@ function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items
   )
 }
 
-function Labels(props: { value: string[]; known: string[]; focus: FocusProps; onChange: (l: string[]) => void }): React.JSX.Element {
+export function Labels(props: { value: string[]; known: string[]; focus: FocusProps; onChange: (l: string[]) => void }): React.JSX.Element {
   const ids = useId()
   const [adding, setAddingState] = useState<string | null>(null)
   // Enter adds, then the blur of the input going away must not add again.
