@@ -233,7 +233,8 @@ void app.whenReady().then(async () => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     isPackaged: app.isPackaged,
     onCloseTab: () => broadcast('menu:closeTab'),
-    onInstallCli: () => void installCommand()
+    onInstallCli: () => void installCommand(),
+    onShortcut: (id) => broadcast('menu:shortcut', id)
   })))
   // What the page held died with it.
   const open = (): void => {
