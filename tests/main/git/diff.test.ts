@@ -18,16 +18,15 @@ const ENV = {
 }
 const sh = async (cwd: string, ...args: string[]): Promise<string> =>
   (await run('git', args, { cwd, env: ENV })).stdout.trim()
+// Only loose objects and packs: since git 2.47 a commit starts a detached auto-maintenance that
+// briefly holds objects/maintenance.lock, which made a plain file count flaky.
 const countObjects = async (repo: TestRepo): Promise<number> => {
+  const root = join(repo.path, '.git', 'objects')
   let n = 0
-  const walk = async (dir: string): Promise<void> => {
-    for (const e of await readdir(dir, { withFileTypes: true })) {
-      if (e.isDirectory()) await walk(join(dir, e.name))
-      else n++
-    }
+  for (const e of await readdir(root, { withFileTypes: true })) {
+    if (e.isDirectory() && /^[0-9a-f]{2}$/.test(e.name)) n += (await readdir(join(root, e.name))).filter((f) => /^[0-9a-f]{38,62}$/.test(f)).length
   }
-  await walk(join(repo.path, '.git', 'objects'))
-  return n
+  return n + (await readdir(join(root, 'pack'))).filter((f) => f.endsWith('.pack')).length
 }
 const write = async (repo: TestRepo, file: string, content: string | Buffer): Promise<void> => {
   const full = join(repo.path, file)
