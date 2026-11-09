@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { EXCLUDED_DIRS, readInventory } from '../../../src/main/deps/source'
+import { EXCLUDED_DIRS, readAtRef, readInventory } from '../../../src/main/deps/source'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 let repo: TestRepo | undefined
@@ -115,6 +115,14 @@ describe('readInventory', () => {
     expect((await readInventory(repo.path)).units).toEqual([])
   })
 
+  test('an unlistable ref gives no unit and a French note', async () => {
+    repo = await createRepo()
+    const inv = await readAtRef(repo.path, 'origin/gone')
+    expect(inv.units).toEqual([])
+    expect(inv.notes).toHaveLength(1)
+    expect(inv.notes[0]).toMatch(/^Liste des fichiers illisible : .{1,160}$/)
+  })
+
   test('rejects outside a git repo', async () => {
     await expect(readInventory('/tmp')).rejects.toThrow()
   })
@@ -181,6 +189,13 @@ describe('readInventory', () => {
     test('a private index in an included file makes the including file private', async () => {
       repo = await createRepo()
       await repo.commit('requirements.txt', '--index-url https://corp/simple\nfoo==1.0\n')
+      await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      expect(priv(dev(await readInventory(repo.path)))).toEqual([true])
+    })
+
+    test('an include with only a private index taints the including file', async () => {
+      repo = await createRepo()
+      await repo.commit('requirements.txt', '--index-url https://corp/simple\n')
       await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
       expect(priv(dev(await readInventory(repo.path)))).toEqual([true])
     })

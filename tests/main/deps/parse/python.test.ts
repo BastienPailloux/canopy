@@ -374,3 +374,12 @@ long==3.0 \\
     expect(parseRequirements('', 'requirements.txt', 'A==1\na==1\n').deps).toHaveLength(1)
   })
 })
+
+describe('parseRequirements tainted flag', () => {
+  it('is set by a private index even with no dependency', () => {
+    expect(parseRequirements('', 'requirements.txt', '--index-url https://corp/simple\n').tainted).toBe(true)
+  })
+  it('is absent for a clean file', () => {
+    expect(parseRequirements('', 'requirements.txt', 'foo==1.0\n').tainted).toBeUndefined()
+  })
+})

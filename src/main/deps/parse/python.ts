@@ -236,7 +236,7 @@ export function parseRequirements(dir: string, file: string, text: string): Unit
       put(found, dep(key, version, manifest, priv))
     }
     const deps = [...found.values()].map((d) => (allPrivate ? { ...d, private: true } : d))
-    return { dir, ecosystem: 'PyPI', deps, transitive: [], ...(includes.length ? { includes } : {}) }
+    return { dir, ecosystem: 'PyPI', deps, transitive: [], ...(includes.length ? { includes } : {}), ...(allPrivate ? { tainted: true } : {}) }
   } catch {
     return fail(dir, file)
   }

@@ -9,7 +9,9 @@ import type { Dep, Ecosystem } from '../../../shared/deps'
  */
 export interface Unit { dir: string; ecosystem: Ecosystem; deps: Dep[]; transitive: Dep[]; error?: string
   /** Requirements units only: repo-relative `-r`/`-c` targets, whose privacy taints this file. */
-  includes?: string[] }
+  includes?: string[]
+  /** Requirements units only: a file-level option (private index, unknown option) makes the whole file private, with or without deps. */
+  tainted?: boolean }
 
 const REGISTRIES = ['https://registry.npmjs.org/', 'https://registry.yarnpkg.com/']
 const PRIVATE_PREFIXES = ['file:', 'git+', 'git:', 'github:', 'http:', 'https:', 'link:', 'workspace:', 'portal:', 'patch:']

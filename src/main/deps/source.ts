@@ -50,7 +50,7 @@ async function includesTainted(root: string, ref: string, unit: Unit): Promise<b
     const text = await show(root, ref, path)
     if (text === null) return true
     const parsed = parseRequirements(posix.dirname(path) === '.' ? '' : posix.dirname(path), posix.basename(path), text)
-    if (parsed.error || (parsed.deps.length > 0 && parsed.deps.every((d) => d.private))) return true
+    if (parsed.error || parsed.tainted) return true
     queue.push(...parsed.includes ?? [])
   }
   return false
@@ -61,7 +61,11 @@ async function readDir(root: string, ref: string, dir: string, files: string[]):
   const units: Unit[] = []
   const read = async (file: string, ecosystem: Unit['ecosystem'], parse: (text: string) => Unit | Promise<Unit>) => {
     const text = await show(root, ref, path(file))
-    units.push(text === null ? unreadable(path(file), ecosystem) : await parse(text))
+    try {
+      units.push(text === null ? unreadable(path(file), ecosystem) : await parse(text))
+    } catch {
+      units.push(unreadable(path(file), ecosystem))
+    }
   }
 
   const js = JS_LOCKS.find((f) => files.includes(f))
@@ -84,7 +88,7 @@ async function readDir(root: string, ref: string, dir: string, files: string[]):
     for (const file of files.filter((f) => REQUIREMENTS.test(f)).sort()) {
       await read(file, 'PyPI', async (text) => {
         const unit = parseRequirements(dir, file, text)
-        if (unit.error || !(await includesTainted(root, ref, unit))) return unit
+        if (unit.error || unit.tainted || !(await includesTainted(root, ref, unit))) return unit
         return { ...unit, deps: unit.deps.map((d) => ({ ...d, private: true })) }
       })
     }
@@ -105,7 +109,20 @@ export async function readInventory(repo: string, o: { fetch?: boolean; fetchTim
   }
   if (!base) return { repo: root, baseRef: null, units: [], notes: [] }
 
-  const listing = await git(root, ['ls-tree', '-r', '-z', '--name-only', base.ref])
+  const read = await readAtRef(root, base.ref)
+  return { ...read, repo: root, notes: [...notes, ...read.notes] }
+}
+
+/** Lists and reads the lockfiles at `ref`. A listing failure (ref gone since it was resolved) is a note, not a throw. */
+export async function readAtRef(root: string, ref: string): Promise<Inventory> {
+  let listing: string
+  try {
+    listing = await git(root, ['ls-tree', '-r', '-z', '--name-only', ref])
+  } catch (e) {
+    const stderr = (e as { stderr?: string }).stderr ?? ''
+    const reason = (stderr.trim() || (e as Error).message).split('\n')[0].trim().slice(0, 160)
+    return { repo: root, baseRef: ref, units: [], notes: [`Liste des fichiers illisible : ${reason}`] }
+  }
   const byDir = new Map<string, string[]>()
   for (const path of listing.split('\0')) {
     if (!path) continue
@@ -115,6 +132,6 @@ export async function readInventory(repo: string, o: { fetch?: boolean; fetchTim
     byDir.set(dir, [...byDir.get(dir) ?? [], segments[segments.length - 1]])
   }
   const units: Unit[] = []
-  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, base.ref, dir, byDir.get(dir)!))
-  return { repo: root, baseRef: base.ref, units, notes }
+  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, ref, dir, byDir.get(dir)!))
+  return { repo: root, baseRef: ref, units, notes: [] }
 }
