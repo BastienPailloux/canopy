@@ -23,6 +23,11 @@ function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v ? v : undefined
 }
 
+function validParent(v: unknown): string | undefined {
+  const p = optStr(v)
+  return p && TICKET_ID_RE.test(p) ? p : undefined
+}
+
 /** Leading and trailing blank lines off, the indentation of the first line kept (an indented code block). */
 function trimBlank(s: string): string {
   return s.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '')
@@ -73,16 +78,19 @@ export function parseTicket(text: string, fileId: string): Ticket {
   if (branch) t.branch = branch
   if (worktree) t.worktree = worktree
   if (base) t.base = base
-  const parent = optStr(data.parent)
-  if (parent && TICKET_ID_RE.test(parent)) t.parent = parent
+  const parent = validParent(data.parent)
+  if (parent) t.parent = parent
   return t
 }
 
-/** Front-matter keys Canopy does not know, to write back untouched. Empty when the text is unreadable. */
+/**
+ * Front-matter keys Canopy does not know, to write back untouched. Empty when the text is unreadable.
+ * A hand-written parent that is not an id counts as unknown: ignored, but not lost on the next save.
+ */
 export function unknownFields(text: string): Record<string, unknown> {
   try {
     const { data } = splitFrontMatter(text)
-    return Object.fromEntries(Object.entries(data).filter(([k]) => !KNOWN.includes(k)))
+    return Object.fromEntries(Object.entries(data).filter(([k, v]) => !KNOWN.includes(k) || (k === 'parent' && v != null && !validParent(v))))
   } catch {
     return {}
   }
@@ -103,7 +111,7 @@ export function serializeTicket(t: Ticket, extra: Record<string, unknown> = {}):
   if (t.worktree) front.worktree = t.worktree
   if (t.base) front.base = t.base
   if (t.parent) front.parent = t.parent
-  for (const [k, v] of Object.entries(extra)) if (!KNOWN.includes(k)) front[k] = v
+  for (const [k, v] of Object.entries(extra)) if (!KNOWN.includes(k) || (k === 'parent' && !t.parent)) front[k] = v
   const doc = new Document(front)
   const labels = doc.get('labels', true)
   if (isSeq(labels)) labels.flow = true
