@@ -1,5 +1,5 @@
 import { posix } from 'node:path'
-import { git } from '../git/exec'
+import { git as run } from '../git/exec'
 import { resolveBaseRef } from '../git/refs'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { parsePackageLock, parsePnpmLock, parseYarnLock, type Unit } from './parse/js'
@@ -16,6 +16,12 @@ const JS_LOCKS = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']
 const PYTHON_LOCKS = ['uv.lock', 'poetry.lock', 'Pipfile.lock']
 const unreadable = (path: string, ecosystem: Unit['ecosystem']): Unit =>
   ({ dir: posix.dirname(path) === '.' ? '' : posix.dirname(path), ecosystem, deps: [], transitive: [], error: `Fichier illisible : ${path}` })
+
+/**
+ * Every git call here: a missing object in a partial clone would otherwise be fetched from the promisor
+ * remote, with the repo's own config (and its commands) in charge. A read that needs it fails instead.
+ */
+const git: typeof run = (cwd, args, opts = {}) => run(cwd, args, { ...opts, env: { GIT_NO_LAZY_FETCH: '1', ...opts.env } })
 
 /** Never prompts (credentials, host keys): an unattended fetch must fail rather than hang. */
 const FETCH_ENV = {
@@ -67,7 +73,7 @@ async function hasUnknownLocalConfig(root: string): Promise<boolean> {
 async function refresh(root: string, branch: string, timeoutMs: number): Promise<string | null> {
   try {
     if (await hasUnknownLocalConfig(root)) return 'Branche de base non rafraîchie : configuration locale non sûre'
-    await git(root, [...FETCH_PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--no-recurse-submodules', '--no-auto-maintenance', '--no-write-fetch-head', '--upload-pack=git-upload-pack', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
+    await git(root, [...FETCH_PROTOCOLS, 'fetch', '--quiet', '--no-tags', '--refmap=', '--no-recurse-submodules', '--no-auto-maintenance', '--no-write-fetch-head', '--upload-pack=git-upload-pack', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { env: FETCH_ENV, timeoutMs })
     return null
   } catch (e) {
     const stderr = (e as { stderr?: string }).stderr ?? ''

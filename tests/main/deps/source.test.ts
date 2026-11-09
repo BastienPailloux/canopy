@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { EXCLUDED_DIRS, readAtRef, readInventory } from '../../../src/main/deps/source'
@@ -180,6 +180,34 @@ describe('readInventory', () => {
       } finally {
         await subrepo.cleanup()
       }
+    })
+
+    test('reading a missing object never lazy-fetches from a promisor remote', async () => {
+      repo = await createRepo({ remote: true })
+      const marker = join(repo.path, '..', 'ran')
+      await repo.commit('d/f', 'x')
+      sh(repo.path, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+      const tree = sh(repo.path, 'rev-parse', 'HEAD:d').trim()
+      await rm(join(repo.path, '.git', 'objects', tree.slice(0, 2), tree.slice(2)))
+      sh(repo.path, 'config', 'core.repositoryformatversion', '1')
+      sh(repo.path, 'config', 'extensions.partialclone', 'evil')
+      sh(repo.path, 'config', 'remote.evil.promisor', 'true')
+      sh(repo.path, 'config', 'remote.evil.url', join(repo.path, '..', 'remote.git'))
+      sh(repo.path, 'config', 'remote.evil.uploadpack', `touch '${marker}'; git-upload-pack`)
+      const inv = await readInventory(repo.path)
+      expect(await exists(marker)).toBe(false)
+      expect(inv.units).toEqual([])
+      expect(inv.notes.length).toBeGreaterThan(0)
+    })
+
+    test('a remote.origin.fetch refspec cannot move a local branch', async () => {
+      repo = await createRepo({ remote: true })
+      await pushOther()
+      sh(repo.path, 'branch', 'keep')
+      const before = sh(repo.path, 'rev-parse', 'keep')
+      sh(repo.path, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/heads/keep')
+      await readInventory(repo.path)
+      expect(sh(repo.path, 'rev-parse', 'keep')).toBe(before)
     })
 
     test('still fetches from a plain local remote', async () => {
