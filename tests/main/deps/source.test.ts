@@ -1,0 +1,219 @@
+import { execFileSync } from 'node:child_process'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { afterEach, describe, expect, test } from 'vitest'
+import { EXCLUDED_DIRS, readInventory } from '../../../src/main/deps/source'
+import { createRepo, type TestRepo } from '../../helpers/repo'
+
+let repo: TestRepo | undefined
+afterEach(async () => { await repo?.cleanup(); repo = undefined })
+
+const ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env: ENV }).toString()
+
+const npmLock = (...names: string[]) => JSON.stringify({
+  lockfileVersion: 3,
+  packages: {
+    '': { dependencies: Object.fromEntries(names.map((n) => [n, '^1.0.0'])) },
+    ...Object.fromEntries(names.map((n) => [`node_modules/${n}`, { version: '1.0.0', resolved: `https://registry.npmjs.org/${n}/-/${n}-1.0.0.tgz` }]))
+  }
+})
+const PKG = (...names: string[]) => JSON.stringify({ dependencies: Object.fromEntries(names.map((n) => [n, '^1.0.0'])) })
+const GEMS = `GEM
+  remote: https://rubygems.org/
+  specs:
+    rake (13.0.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  rake
+
+BUNDLED WITH
+   2.5.0
+`
+const names = (u: { deps: { name: string }[] }) => u.deps.map((d) => d.name).sort()
+
+describe('readInventory', () => {
+  test('exports the excluded directories', () => {
+    expect(EXCLUDED_DIRS).toEqual(['node_modules', 'vendor', '.venv', '.worktrees'])
+  })
+
+  test('reads lockfiles committed on the base, including in subfolders, and skips excluded dirs', async () => {
+    repo = await createRepo()
+    await repo.commit('package-lock.json', npmLock('left-pad'))
+    await repo.commit('package.json', PKG('left-pad'))
+    await repo.commit('api/Gemfile.lock', GEMS)
+    await repo.commit('node_modules/x/package-lock.json', npmLock('evil'))
+    await repo.commit('.worktrees/w/package-lock.json', npmLock('evil'))
+    await repo.commit('vendor/Gemfile.lock', GEMS)
+    const inv = await readInventory(repo.path)
+    expect(inv.repo).toBe(repo.path)
+    expect(inv.baseRef).toBe('main')
+    expect(inv.notes).toEqual([])
+    expect(inv.units.map((u) => `${u.dir}|${u.ecosystem}`).sort()).toEqual(['api|RubyGems', '|npm'])
+    expect(names(inv.units.find((u) => u.ecosystem === 'npm')!)).toEqual(['left-pad'])
+  })
+
+  test('reads the base, not the checkout', async () => {
+    repo = await createRepo()
+    await repo.commit('package-lock.json', npmLock('committed'))
+    await repo.commit('package.json', PKG('committed'))
+    await writeFile(join(repo.path, 'package-lock.json'), npmLock('uncommitted'))
+    const inv = await readInventory(repo.path)
+    expect(names(inv.units[0])).toEqual(['committed'])
+  })
+
+  test('sees a commit pushed by another clone after fetching', async () => {
+    repo = await createRepo({ remote: true })
+    const other = join(repo.path, '..', 'other')
+    sh(repo.path, 'clone', '-q', join(repo.path, '..', 'remote.git'), other)
+    await mkdir(other, { recursive: true })
+    await writeFile(join(other, 'Gemfile.lock'), GEMS)
+    sh(other, 'add', '.')
+    sh(other, 'commit', '-q', '-m', 'gems')
+    sh(other, 'push', '-q', 'origin', 'main')
+    const inv = await readInventory(repo.path)
+    expect(inv.baseRef).toBe('origin/main')
+    expect(inv.units.map((u) => u.ecosystem)).toEqual(['RubyGems'])
+    expect(inv.notes).toEqual([])
+  })
+
+  test('does not fetch when fetch is false', async () => {
+    repo = await createRepo({ remote: true })
+    const other = join(repo.path, '..', 'other')
+    sh(repo.path, 'clone', '-q', join(repo.path, '..', 'remote.git'), other)
+    await writeFile(join(other, 'Gemfile.lock'), GEMS)
+    sh(other, 'add', '.')
+    sh(other, 'commit', '-q', '-m', 'gems')
+    sh(other, 'push', '-q', 'origin', 'main')
+    expect((await readInventory(repo.path, { fetch: false })).units).toEqual([])
+  })
+
+  test('skips the fetch without a remote', async () => {
+    repo = await createRepo()
+    await repo.commit('Gemfile.lock', GEMS)
+    const inv = await readInventory(repo.path)
+    expect(inv.units).toHaveLength(1)
+    expect(inv.notes).toEqual([])
+  })
+
+  test('reports a failed fetch and reads the existing ref', async () => {
+    repo = await createRepo({ remote: true })
+    await repo.commit('Gemfile.lock', GEMS)
+    sh(repo.path, 'push', '-q', 'origin', 'main')
+    sh(repo.path, 'remote', 'set-url', 'origin', join(repo.path, '..', 'nowhere.git'))
+    const inv = await readInventory(repo.path)
+    expect(inv.units).toHaveLength(1)
+    expect(inv.notes).toHaveLength(1)
+    expect(inv.notes[0]).toMatch(/^Branche de base non rafraîchie : .{1,160}$/)
+  })
+
+  test('returns no unit without a lockfile', async () => {
+    repo = await createRepo()
+    expect((await readInventory(repo.path)).units).toEqual([])
+  })
+
+  test('rejects outside a git repo', async () => {
+    await expect(readInventory('/tmp')).rejects.toThrow()
+  })
+
+  test('returns a null base when none resolves', async () => {
+    repo = await createRepo({ branch: 'topic' })
+    expect(await readInventory(repo.path)).toMatchObject({ baseRef: null, units: [], notes: [] })
+  })
+
+  test('JS priority: package-lock > pnpm > yarn', async () => {
+    repo = await createRepo()
+    await repo.commit('package.json', PKG('yarndep'))
+    await repo.commit('yarn.lock', '# yarn lockfile v1\n\n\nyarndep@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/yarndep/-/yarndep-1.0.0.tgz#x"\n')
+    let inv = await readInventory(repo.path)
+    expect(inv.units).toHaveLength(1)
+    expect(names(inv.units[0])).toEqual(['yarndep'])
+    await repo.commit('package.json', PKG('pnpmdep'))
+    await repo.commit('pnpm-lock.yaml', "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      pnpmdep:\n        specifier: ^1.0.0\n        version: 1.0.0\npackages:\n  pnpmdep@1.0.0:\n    resolution: {integrity: sha512-x}\n")
+    inv = await readInventory(repo.path)
+    expect(inv.units).toHaveLength(1)
+    expect(names(inv.units[0])).toEqual(['pnpmdep'])
+    await repo.commit('package.json', PKG('npmdep'))
+    await repo.commit('package-lock.json', npmLock('npmdep'))
+    inv = await readInventory(repo.path)
+    expect(inv.units).toHaveLength(1)
+    expect(names(inv.units[0])).toEqual(['npmdep'])
+  })
+
+  test('Python priority: uv > poetry > Pipfile.lock > requirements', async () => {
+    repo = await createRepo()
+    const only = async (name: string) => {
+      const inv = await readInventory(repo!.path)
+      expect(inv.units).toHaveLength(1)
+      expect(JSON.stringify(inv.units[0])).toContain(name)
+      expect(inv.units[0].error).toBeUndefined()
+    }
+    await repo.commit('requirements.txt', 'reqdep==2.0.0\n')
+    await only('reqdep')
+    await repo.commit('requirements-dev.txt', 'devdep==8.0.0\n')
+    const both = await readInventory(repo.path)
+    expect(both.units.map((u) => names(u)[0]).sort()).toEqual(['devdep', 'reqdep'])
+    await repo.commit('Pipfile.lock', JSON.stringify({ default: { pipdep: { version: '==1.0.0', index: 'pypi' } }, develop: {} }))
+    await only('pipdep')
+    await repo.commit('pyproject.toml', '[tool.poetry]\nname = "x"\n[tool.poetry.dependencies]\npoetrydep = "^1.0"\n')
+    await repo.commit('poetry.lock', '[[package]]\nname = "poetrydep"\nversion = "1.0.0"\n\n[package.source]\ntype = "legacy"\n')
+    await only('poetrydep')
+    await repo.commit('uv.lock', 'version = 1\n\n[[package]]\nname = "app"\nversion = "0.1.0"\nsource = { virtual = "." }\ndependencies = [{ name = "uvdep" }]\n\n[[package]]\nname = "uvdep"\nversion = "1.0.0"\nsource = { registry = "https://pypi.org/simple" }\n')
+    await only('uvdep')
+  })
+
+  test('an unparsable lockfile becomes an error unit and the rest is still read', async () => {
+    repo = await createRepo()
+    await repo.commit('web/package-lock.json', '{not json')
+    await repo.commit('Gemfile.lock', GEMS)
+    const inv = await readInventory(repo.path)
+    expect(inv.units.find((u) => u.dir === 'web')?.error).toBe('Fichier illisible : web/package-lock.json')
+    expect(inv.units.find((u) => u.ecosystem === 'RubyGems')?.error).toBeUndefined()
+  })
+
+  describe('requirements includes', () => {
+    const priv = (u: { deps: { private: boolean }[] }) => u.deps.map((d) => d.private)
+    const dev = (inv: { units: any[] }) => inv.units.find((u) => u.deps.some((d: any) => d.manifest === 'requirements-dev.txt'))
+
+    test('a private index in an included file makes the including file private', async () => {
+      repo = await createRepo()
+      await repo.commit('requirements.txt', '--index-url https://corp/simple\nfoo==1.0\n')
+      await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      expect(priv(dev(await readInventory(repo.path)))).toEqual([true])
+    })
+
+    test('a missing include makes the including file private', async () => {
+      repo = await createRepo()
+      await repo.commit('requirements-dev.txt', '-r requirements-base.txt\npytest==8.0\n')
+      expect(priv(dev(await readInventory(repo.path)))).toEqual([true])
+    })
+
+    test('a clean include leaves the file public', async () => {
+      repo = await createRepo()
+      await repo.commit('requirements.txt', 'foo==1.0\n')
+      await repo.commit('requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      expect(priv(dev(await readInventory(repo.path)))).toEqual([false])
+    })
+
+    test('taint is followed transitively and cycles terminate', async () => {
+      repo = await createRepo()
+      await repo.commit('requirements-a.txt', '-r requirements-b.txt\nfoo==1.0\n')
+      await repo.commit('requirements-b.txt', '-r requirements-a.txt\n-r requirements-c.txt\nbar==1.0\n')
+      await repo.commit('requirements-c.txt', '--extra-index-url https://corp/simple\nbaz==1.0\n')
+      await repo.commit('requirements-dev.txt', '-r requirements-a.txt\npytest==8.0\n')
+      const inv = await readInventory(repo.path)
+      expect(inv.units.every((u) => u.deps.every((d) => d.private))).toBe(true)
+    })
+
+    test('an include in a subdirectory is resolved repo-relative', async () => {
+      repo = await createRepo()
+      await repo.commit('py/requirements.txt', '--index-url https://corp/simple\nfoo==1.0\n')
+      await repo.commit('py/requirements-dev.txt', '-r requirements.txt\npytest==8.0\n')
+      const inv = await readInventory(repo.path)
+      expect(inv.units.find((u) => u.deps.some((d) => d.manifest === 'py/requirements-dev.txt'))!.deps.every((d) => d.private)).toBe(true)
+    })
+  })
+})

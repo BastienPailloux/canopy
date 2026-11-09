@@ -24,6 +24,10 @@ interface GitOptions {
    * Otherwise both are suppressed.
    */
   trusted?: boolean
+  /** Merged after the default environment, so it overrides it. */
+  env?: NodeJS.ProcessEnv
+  /** The command is killed past this delay. */
+  timeoutMs?: number
 }
 
 /** No hook can be found under it: git looks for `/dev/null/<hook>` and finds nothing. */
@@ -34,7 +38,9 @@ function run(cwd: string, args: string[], opts: GitOptions, extraEnv: NodeJS.Pro
     const child = execFile(
       'git',
       [...SAFE_CONFIG, ...config, ...args],
-      { cwd, env: { ...currentEnv(), GIT_OPTIONAL_LOCKS: '0', ...extraEnv }, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024 },
+      { cwd, env: { ...currentEnv(), GIT_OPTIONAL_LOCKS: '0', ...extraEnv, ...opts.env },
+        maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024,
+        ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: 'SIGKILL' as const } : {}) },
       (err, stdout, stderr) => {
         if (err) {
           const e = err as NodeJS.ErrnoException

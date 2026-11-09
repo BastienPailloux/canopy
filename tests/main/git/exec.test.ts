@@ -227,3 +227,21 @@ describe('filters a repo sets for itself', () => {
     expect(await ran('wt-ran')).toBe(false)
   })
 })
+
+describe('env and timeoutMs options', () => {
+  test('env overrides the default environment', async () => {
+    repo = await createRepo()
+    const out = await git(repo.path, ['var', 'GIT_AUTHOR_IDENT'], { env: { GIT_AUTHOR_NAME: 'Override Name', GIT_AUTHOR_EMAIL: 'o@x.y' } })
+    expect(out).toContain('Override Name')
+  })
+
+  test('timeoutMs kills a command that runs too long', async () => {
+    repo = await createRepo()
+    const hook = join(repo.path, '..', 'slow.sh')
+    await writeFile(hook, '#!/bin/sh\nsleep 5\n')
+    await chmod(hook, 0o755)
+    const started = Date.now()
+    await expect(git(repo.path, ['-c', `alias.slow=!${hook}`, 'slow'], { timeoutMs: 200 })).rejects.toThrow()
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+})
