@@ -11,6 +11,7 @@ import { AccountFooter } from './shell/AccountFooter'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
 import { NewWorktreeDialog } from './shell/NewWorktreeDialog'
+import { ShortcutHelp } from './shell/ShortcutHelp'
 import { useLayout } from './shell/layoutStore'
 import { dragLeft, dragRight, LEFT_DEFAULT, RAIL_WIDTH, RIGHT_DEFAULT, stepLeft } from './shell/panelWidths'
 import { Resizer } from './shell/Resizer'
@@ -147,6 +148,7 @@ export function App(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const openTicket = useApp((s) => s.openTicket)
   const openMockup = useApp((s) => s.openMockup)
+  const help = useApp((s) => s.dialog === 'shortcuts')
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
@@ -201,6 +203,7 @@ export function App(): React.JSX.Element {
       <RestoredChip />
       <WhatsNew />
       <Header />
+      {help && <ShortcutHelp />}
       {repo && workspace && <ShortcutDialogs repo={repo} sidebar={view !== 'tickets' && view !== 'mockups'} />}
       <div className="body">
         {repo && workspace && view === 'tickets' ? (

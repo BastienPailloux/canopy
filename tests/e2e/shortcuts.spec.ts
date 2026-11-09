@@ -100,3 +100,14 @@ test('⌘⇧T creates a local ticket without leaving the screen', async () => {
   await expect(nav('Tickets')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByLabel('Titre', { exact: true })).toHaveValue('Idée rapide')
 })
+
+test('⌘⇧H lists every shortcut', async () => {
+  await press('help')
+  const help = page.getByRole('dialog', { name: 'Raccourcis clavier' })
+  await expect(help).toBeVisible()
+  for (const [keys, label] of [['⌘1', 'Sessions'], ['⌃⇥', 'Worktree suivant'], ['⇧⌘N', 'Nouveau worktree…'], ['⌘T', 'Nouvelle session'], ['⇧⌘T', 'Nouveau ticket…'], ['⇧⌘D', 'Dicter un message'], ['⇧⌘H', 'Raccourcis clavier'], ['⌘K', 'Rechercher'], ['⌘W', "Fermer l'onglet"], ['⌃`', 'Terminal']]) {
+    await expect(help.getByRole('row').filter({ hasText: keys }).filter({ hasText: label })).toHaveCount(1)
+  }
+  await page.keyboard.press('Escape')
+  await expect(help).toBeHidden()
+})
