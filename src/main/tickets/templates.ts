@@ -1,5 +1,5 @@
 import { Document, isSeq } from 'yaml'
-import { PRIORITIES, type TemplateFields, type TicketPriority, type TicketTemplate } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TEMPLATE_NAME, MAX_TITLE, PRIORITIES, TEMPLATE_SLUG_RE, type TemplateFields, type TicketPriority, type TicketTemplate } from '../../shared/tickets'
 import { splitBody, splitFrontMatter } from './format'
 
 const SUBTASKS_HEADING = '## Sous-tâches'
@@ -132,3 +132,31 @@ export const BUILTIN_TEMPLATES: { slug: string; fields: TemplateFields }[] = [
     },
   },
 ]
+
+const FIELD_KEYS = ['name', 'order', 'description', 'priority', 'labels', 'subtasks']
+const invalid = (what: string): Error => new Error(`${what} invalide`)
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+export function assertTemplateSlug(s: unknown): asserts s is string {
+  if (typeof s !== 'string' || !TEMPLATE_SLUG_RE.test(s)) throw invalid('Modèle')
+}
+
+/** Validates template fields received over IPC; unknown keys are refused and the result is a clean copy. */
+export function parseTemplateFields(raw: unknown): TemplateFields {
+  if (!isObject(raw)) throw invalid('Modèle')
+  for (const k of Object.keys(raw)) if (!FIELD_KEYS.includes(k)) throw invalid(`Champ ${k}`)
+  const { name, order, description, priority, labels, subtasks } = raw
+  if (typeof name !== 'string' || name.trim() === '' || name.length > MAX_TEMPLATE_NAME) throw invalid('Nom')
+  if (order !== undefined && !Number.isInteger(order)) throw invalid('Ordre')
+  if (typeof description !== 'string' || description.length > MAX_DESCRIPTION) throw invalid('Description')
+  if (!PRIORITIES.includes(priority as TicketPriority)) throw invalid('Priorité')
+  if (!Array.isArray(labels) || labels.length > MAX_LABELS || labels.some((l) => typeof l !== 'string' || l === '' || l.length > MAX_LABEL)) throw invalid('Étiquette')
+  if (!Array.isArray(subtasks) || subtasks.length > MAX_SUBTASKS ||
+    subtasks.some((s) => !isObject(s) || typeof s.title !== 'string' || s.title.length > MAX_TITLE || typeof s.done !== 'boolean')) throw invalid('Sous-tâche')
+  const out: TemplateFields = {
+    name, description, priority: priority as TicketPriority, labels: [...(labels as string[])],
+    subtasks: (subtasks as { title: string; done: boolean }[]).map((s) => ({ title: s.title, done: s.done }))
+  }
+  if (order !== undefined) out.order = order as number
+  return out
+}

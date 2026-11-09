@@ -27,6 +27,16 @@ describe('watchTickets', () => {
     expect(calls).toBe(1)
   })
 
+  it('fires when a template is written', async () => {
+    await mkdir(join(root, '.tickets', 'templates'), { recursive: true })
+    let calls = 0
+    stop = watchTickets(root, () => { calls++ })
+    await sleep(500)
+    await writeFile(join(root, '.tickets', 'templates', 'bug.md'), 'x')
+    await vi_waitFor(() => calls >= 1)
+    expect(calls).toBeGreaterThanOrEqual(1)
+  })
+
   it('fires when an existing ticket is edited in place or replaced by rename', async () => {
     await mkdir(join(root, '.tickets'))
     const file = join(root, '.tickets', 'T-1.md')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_TEMPLATES, parseTemplate, serializeTemplate } from '../../../src/main/tickets/templates'
+import { BUILTIN_TEMPLATES, assertTemplateSlug, parseTemplate, parseTemplateFields, serializeTemplate } from '../../../src/main/tickets/templates'
 import { TEMPLATE_SLUG_RE, sortTemplates, templateSlug, type TemplateFields, type TicketTemplate } from '../../../src/shared/tickets'
 
 describe('template format', () => {
@@ -66,5 +66,27 @@ describe('built-in templates', () => {
     expect(by.contexte.description).toContain("### Critères d'acceptation")
     expect(by.bug.labels).toEqual(['bug'])
     expect(by.bug.subtasks).toHaveLength(1)
+  })
+})
+
+describe('template IPC validation', () => {
+  it('refuses a slug that is not a-z0-9-', () => {
+    for (const s of ['../x', 'Bug', '', 'a'.repeat(51), 3]) expect(() => assertTemplateSlug(s)).toThrow('Modèle invalide')
+    expect(() => assertTemplateSlug('bug-2')).not.toThrow()
+  })
+
+  it('refuses invalid template fields', () => {
+    const ok = { name: 'Bug', description: '', priority: 'none', labels: [], subtasks: [] }
+    for (const bad of [
+      { ...ok, name: '' }, { ...ok, name: 'x'.repeat(51) }, { ...ok, slug: 'bug' },
+      { ...ok, priority: 'x' }, { ...ok, order: 1.5 }, { ...ok, labels: Array.from({ length: 21 }, (_, i) => `l${i}`) }
+    ]) expect(() => parseTemplateFields(bad)).toThrow(/invalide/)
+  })
+
+  it('returns a clean copy of valid fields', () => {
+    const raw = { name: 'Bug', order: 2, description: 'd', priority: 'high', labels: ['a'], subtasks: [{ title: 't', done: true, extra: 1 }] }
+    const out = parseTemplateFields(raw)
+    expect(out).toEqual({ ...raw, subtasks: [{ title: 't', done: true }] })
+    expect(out.subtasks).not.toBe(raw.subtasks)
   })
 })

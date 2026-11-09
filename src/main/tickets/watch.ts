@@ -3,7 +3,7 @@ import { relative, sep } from 'node:path'
 
 const DEBOUNCE_MS = 150
 
-/** Calls `onChange` once per burst of changes in `<root>/.tickets` (its direct entries, archive folder included). */
+/** Calls `onChange` once per burst of changes in `<root>/.tickets` (its entries, archive and templates folders included). */
 export function watchTickets(root: string, onChange: () => void): () => void {
   return watchFolder(root, '.tickets', onChange)
 }
@@ -21,7 +21,7 @@ export function watchFolder(root: string, dir: string, onChange: () => void): ()
   }
   const watcher = chokidar.watch(root, {
     ignoreInitial: true,
-    depth: 1,
+    depth: 2,
     ignored: (p) => {
       const rel = relative(root, p)
       if (rel === '') return false
