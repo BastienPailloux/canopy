@@ -46,11 +46,13 @@ const press = async (id: string): Promise<void> => {
 // Tickets carries a count once one is open: its name starts with the label.
 const nav = (name: string): Locator => page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: new RegExp(`^${name}`) })
 
-test('⌘1 to ⌘3 switch screens', async () => {
+test('⌘1 to ⌘4 switch screens', async () => {
   await press('view-code')
   await expect(nav('Code')).toHaveAttribute('aria-current', 'page')
   await press('view-tickets')
   await expect(nav('Tickets')).toHaveAttribute('aria-current', 'page')
+  await press('view-mockups')
+  await expect(nav('Maquettes')).toHaveAttribute('aria-current', 'page')
   await press('view-sessions')
   await expect(nav('Sessions')).toHaveAttribute('aria-current', 'page')
 })
@@ -109,6 +111,10 @@ test('⌘⇧H lists every shortcut', async () => {
     await expect(help.getByRole('row').filter({ hasText: keys }).filter({ hasText: label })).toHaveCount(1)
   }
   await page.keyboard.press('Escape')
+  await expect(help).toBeHidden()
+  await press('help')
+  await expect(help).toBeVisible()
+  await press('help')
   await expect(help).toBeHidden()
 })
 

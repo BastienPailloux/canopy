@@ -109,3 +109,13 @@ it('worktreeCycle follows the sidebar order of the active repo, without the spac
   expect(worktreeCycle(workspace, '/a', live)).toEqual(['/a', '/a/alpha', '/a/zed', '/a/new'])
   expect(worktreeCycle(null, '/a', live)).toEqual(['/a', '/a/zed', '/a/alpha', '/a/new'])
 })
+
+it('⇧⌘H closes the help it opened, and only that dialog', () => {
+  open()
+  useApp.setState({ dialog: 'shortcuts' })
+  runShortcut('help', deps({ modalOpen: () => true }))
+  expect(useApp.getState().dialog).toBeNull()
+  useApp.setState({ dialog: 'new-ticket' })
+  runShortcut('help', deps({ modalOpen: () => true }))
+  expect(useApp.getState().dialog).toBe('new-ticket')
+})

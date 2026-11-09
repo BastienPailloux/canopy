@@ -50,8 +50,10 @@ const DIALOGS: Partial<Record<ShortcutId, AppDialog>> = { 'new-worktree': 'new-w
 
 /** Carries out a shortcut from the app menu on what the page shows. */
 export function runShortcut(id: ShortcutId, deps: ShortcutDeps): void {
-  if (deps.modalOpen()) return
   const app = useApp.getState()
+  // The one exception to the modal rule: the help shortcut closes the help it opened.
+  if (id === 'help' && app.dialog === 'shortcuts') { app.setDialog(null); return }
+  if (deps.modalOpen()) return
   const shortcut = SHORTCUTS.find((s) => s.id === id)
   // The menu greys these, but an accelerator can still arrive before the page has said what is active.
   if (!shortcut || !shortcutEnabled(shortcut, { repo: app.repo !== null, worktree: app.worktree !== null })) return

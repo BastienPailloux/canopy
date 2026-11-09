@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { Workspace } from '../shared/types'
 import type { Stash } from '../shared/update'
 import { CodeScreen } from './code/CodeScreen'
@@ -129,7 +129,8 @@ function ShortcutDialogs({ repo, sidebar }: { repo: string; sidebar: boolean }):
   const dialog = useApp((s) => s.dialog)
   const setDialog = useApp((s) => s.setDialog)
   const setWorktree = useApp((s) => s.setWorktree)
-  const [created, setCreated] = useState<string | null>(null)
+  const created = useApp((s) => s.createdTicket)
+  const setCreated = useApp((s) => s.setCreatedTicket)
   return (
     <>
       {dialog === 'new-worktree' && !sidebar && (

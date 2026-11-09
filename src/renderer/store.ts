@@ -28,6 +28,8 @@ interface AppState {
   orphans: OrphanedWorktree[]
   view: View
   dialog: AppDialog | null
+  /** The ticket the quick dialog just made, while its notice shows; another repo has other tickets and drops it. */
+  createdTicket: string | null
   /** Ticket open in the editor of the Tickets view; null: the list. */
   openTicket: TicketKey | 'new' | null
   /** Ticket highlighted in the list. */
@@ -64,6 +66,7 @@ interface AppState {
   setWorktree: (path: string | null) => void
   setView: (view: View) => void
   setDialog: (dialog: AppDialog | null) => void
+  setCreatedTicket: (id: string | null) => void
   setOpenTicket: (key: TicketKey | 'new' | null) => void
   setSelectedTicket: (key: TicketKey | null) => void
   setOpenMockup: (id: string | null) => void
@@ -77,7 +80,7 @@ let requestCount = 0
 const noRepoMessage = (root: string): string => `Aucun repo git dans ${root}`
 
 type Selection = Pick<AppState,
-  'repo' | 'worktree' | 'worktrees' | 'openTicket' | 'selectedTicket' | 'openMockup' | 'selectedMockup' | 'pendingMockupTicket'>
+  'repo' | 'worktree' | 'worktrees' | 'openTicket' | 'selectedTicket' | 'openMockup' | 'selectedMockup' | 'pendingMockupTicket' | 'createdTicket'>
 
 /** Another repo has other tickets and mockups: the ones open or selected would point at the repo left. */
 function selection(s: Selection, workspace: Workspace, repo: string, worktree: string): Partial<Selection> {
@@ -85,7 +88,7 @@ function selection(s: Selection, workspace: Workspace, repo: string, worktree: s
     ? { worktree }
     : {
         repo, worktree, worktrees: repoWorktrees(workspace, repo), openTicket: null, selectedTicket: null,
-        openMockup: null, selectedMockup: null, pendingMockupTicket: null
+        openMockup: null, selectedMockup: null, pendingMockupTicket: null, createdTicket: null
       }
 }
 
@@ -98,6 +101,7 @@ export const useApp = create<AppState>((set) => ({
   orphans: [],
   view: 'sessions',
   dialog: null,
+  createdTicket: null,
   openTicket: null,
   selectedTicket: null,
   openMockup: null,
@@ -139,6 +143,7 @@ export const useApp = create<AppState>((set) => ({
   setWorktree: (worktree) => set({ worktree }),
   setView: (view) => set({ view }),
   setDialog: (dialog) => set({ dialog }),
+  setCreatedTicket: (createdTicket) => set({ createdTicket }),
   setOpenTicket: (openTicket) => set({ openTicket }),
   setSelectedTicket: (selectedTicket) => set({ selectedTicket }),
   setOpenMockup: (openMockup) => set({ openMockup }),
