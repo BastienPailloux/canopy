@@ -144,7 +144,8 @@ export function WorktreeList({ repo, workspace, rail }: { repo: string; workspac
   const selectEntry = useApp((s) => s.selectEntry)
   const { entries, ports, listError, sync } = useWorktrees(repo, workspace.root)
   const statuses = useStatuses()
-  const [creating, setCreating] = useState(false)
+  const creating = useApp((s) => s.dialog === 'new-worktree')
+  const setDialog = useApp((s) => s.setDialog)
   const [removing, setRemoving] = useState<WorkspaceEntry | null>(null)
   const [switching, setSwitching] = useState<WorkspaceEntry | null>(null)
   const ticketEntries = useTickets((s) => s.entries)
@@ -162,7 +163,7 @@ export function WorktreeList({ repo, workspace, rail }: { repo: string; workspac
     <>
       <div className="sidebar-head">
         <span className="title">Worktrees · {workspace.entries.length}</span>
-        <button className="icon-btn" aria-label="Nouveau worktree" onClick={() => setCreating(true)}>{plusIcon}</button>
+        <button className="icon-btn" aria-label="Nouveau worktree" onClick={() => setDialog('new-worktree')}>{plusIcon}</button>
       </div>
       {openError && <p className="list-error" role="alert">{openError}</p>}
       {listError && <p className="list-error" role="alert">Liste indisponible : {listError}</p>}
@@ -191,9 +192,9 @@ export function WorktreeList({ repo, workspace, rail }: { repo: string; workspac
         <Orphans active={active} single={single} rail={rail} />
       </div>
       {creating && (
-        <NewWorktreeDialog repo={repo} onClose={() => setCreating(false)}
+        <NewWorktreeDialog repo={repo} onClose={() => setDialog(null)}
           onCreated={(path) => {
-            setCreating(false)
+            setDialog(null)
             void sync().then(() => setWorktree(path))
           }} />
       )}

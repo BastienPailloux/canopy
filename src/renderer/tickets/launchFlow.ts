@@ -1,6 +1,7 @@
+import { depsLaunchPrompt, type DepEntry } from '../../shared/deps'
 import { linearLaunchPrompt, type LinearLaunchRequest } from '../../shared/linear'
 import { launchMockupsSection, type Mockup } from '../../shared/mockups'
-import { branchSlug, launchPrompt, type LaunchRequest, type Ticket } from '../../shared/tickets'
+import { branchSlug, launchPrompt, type LaunchRequest, type LaunchTarget, type Ticket } from '../../shared/tickets'
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { reloadLinearLinks } from './linearStore'
@@ -62,7 +63,18 @@ export async function runLinearLaunch(repo: string, req: LinearLaunchRequest, o:
   if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue))
 }
 
-async function showLaunched(repo: string, before: string | null, worktree: string): Promise<void> {
+/** Like `runLaunch` for a selection of dependencies: nothing is written in the repo, the prompt lists `entries`. */
+export async function runDepsLaunch(
+  repo: string, req: { branch: string; target: LaunchTarget }, entries: DepEntry[], o: { startClaude: boolean }
+): Promise<void> {
+  const before = useApp.getState().repo
+  const result = await window.canopy.depsLaunch(repo, req)
+  await showLaunched(repo, before, result.worktree)
+  if (o.startClaude) askClaude(result.worktree, depsLaunchPrompt(entries))
+}
+
+/** Shows Sessions on the launched `worktree`, unless the open repo changed since `before` (the repo when the launch began). */
+export async function showLaunched(repo: string, before: string | null, worktree: string): Promise<void> {
   await rescan(repo)
   if (useApp.getState().repo === before) {
     const app = useApp.getState()

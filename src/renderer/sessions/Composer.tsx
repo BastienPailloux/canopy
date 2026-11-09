@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { SESSION_MODES } from '../../shared/sessionOptions'
 import { ACCEPTED_TYPES, readDocument, readImage, sortFiles } from './attachments'
 import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
-import { interrupt, setDraftDocuments, setDraftImages, setDraftText, setMode, setModel, submit, warmUp, type SessionTab } from './sessionStore'
+import { interrupt, setDraftDocuments, setDraftImages, setDraftText, setMode, setModel, submit, useSessions, warmUp, type SessionTab } from './sessionStore'
 
 /** Until a session can list its own models. */
 const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
@@ -17,6 +17,15 @@ const clipIcon = (
     <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10.2 17.7a1.7 1.7 0 0 1-2.4-2.4L15.5 7.6" />
   </svg>
 )
+
+const micIcon = (
+  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+  </svg>
+)
+
+/** The last focus request carried out, across mounts: the composer mounts again on every return to Sessions. */
+let handledFocus = 0
 
 interface Suggestion { value: string; label: string; detail?: string }
 
@@ -53,6 +62,25 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const [dragging, setDragging] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   const documents = draft.documents ?? []
+
+  const focusRequest = useSessions((s) => s.focusRequest)
+  const dictate = (): void => {
+    const el = input.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+    // macOS types into the field that holds the focus; the text is only inserted, never sent.
+    void window.canopy.startDictation().catch(() => undefined)
+  }
+  useEffect(() => {
+    if (!focusRequest || focusRequest.cwd !== tab.cwd || focusRequest.seq <= handledFocus) return
+    handledFocus = focusRequest.seq
+    const el = input.current
+    if (!el) return
+    if (focusRequest.dictate) { dictate(); return }
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  })
 
   const trigger = useMemo(() => (dismissed ? null : findTrigger(draft.text, caret)), [dismissed, draft.text, caret])
   const files = useFiles(tab.cwd, trigger?.kind === 'file')
@@ -186,6 +214,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
         <div className="composer-bar">
           <button type="button" className="icon-btn" aria-label="Joindre un fichier" title="Joindre une image ou un PDF"
             onClick={() => picker.current?.click()}>{clipIcon}</button>
+          <button type="button" className="icon-btn" aria-label="Dicter" title="Dicter (⇧⌘D)" onClick={dictate}>{micIcon}</button>
           <input ref={picker} type="file" multiple hidden accept={ACCEPTED_TYPES} data-testid="attach-input"
             onChange={(e) => { attach([...(e.target.files ?? [])]); e.target.value = '' }} />
           <select aria-label="Mode" value={tab.mode} onChange={(e) => setMode(tab.id, e.target.value as PermissionMode)}>

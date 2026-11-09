@@ -64,19 +64,24 @@ export function parseNewTicket(raw: unknown): TicketFields {
 
 const isRefArg = (v: unknown): v is string => typeof v === 'string' && v !== '' && !v.startsWith('-')
 
+/** Checks a `LaunchTarget`: a base ref, and for an existing worktree its absolute path. */
+export function parseLaunchTarget(target: unknown): LaunchTarget {
+  if (!isObject(target) || !isRefArg(target.base)) throw bad('Base')
+  if (target.kind === 'new') return { kind: 'new', base: target.base }
+  if (target.kind === 'existing') {
+    if (typeof target.worktree !== 'string' || !isAbsolute(target.worktree)) throw bad('Worktree')
+    return { kind: 'existing', worktree: target.worktree, base: target.base }
+  }
+  throw bad('Cible')
+}
+
 function parseLaunch(raw: unknown): LaunchRequest {
   if (!isObject(raw)) throw bad('Lancement')
   const { id, branch, target, setInProgress } = raw
   assertId(id)
   if (!isRefArg(branch)) throw bad('Branche')
   if (typeof setInProgress !== 'boolean') throw bad('Statut')
-  if (!isObject(target) || !isRefArg(target.base)) throw bad('Base')
-  let t: LaunchTarget
-  if (target.kind === 'new') t = { kind: 'new', base: target.base }
-  else if (target.kind === 'existing') {
-    if (typeof target.worktree !== 'string' || !isAbsolute(target.worktree)) throw bad('Worktree')
-    t = { kind: 'existing', worktree: target.worktree, base: target.base }
-  } else throw bad('Cible')
+  const t = parseLaunchTarget(target)
   return { id, branch, target: t, setInProgress }
 }
 

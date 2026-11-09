@@ -4,6 +4,7 @@ import { App } from './App'
 import './theme.css'
 import './tickets/tickets.css'
 import './mockups/mockups.css'
+import './deps/deps.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

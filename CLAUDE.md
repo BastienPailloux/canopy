@@ -21,7 +21,7 @@ npm run build        # build electron-vite vers out/
 
 Un seul test : `npx vitest run tests/main/quit.test.ts` ou `npx playwright test tests/e2e/sessions.spec.ts`.
 
-Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude ; le message `canopy <outil> <json>` fait appeler par la fausse session un outil du serveur `canopy`. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E.
+Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude ; le message `canopy <outil> <json>` fait appeler par la fausse session un outil du serveur `canopy`. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E. `CANOPY_FAKE_DEPS=tests/fixtures/deps` rejoue de même les réponses OSV/registres (`src/main/deps/replay.ts`, ignoré en build packagé, aucune requête réseau).
 
 `.npmrc` impose `legacy-peer-deps=true` : ne pas le retirer.
 
@@ -30,19 +30,23 @@ Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, 
 ```
 src/
   main/       process principal Electron (Node) : git, sessions Claude, terminaux (node-pty),
-              LSP TypeScript, recherche (ripgrep), tickets, mises à jour, menu, CLI
+              LSP TypeScript, recherche (ripgrep), tickets, dépendances, mises à jour, menu, CLI
   preload/    pont contextBridge : expose `window.canopy` (type CanopyApi)
-  renderer/   UI React 19 + Zustand, organisée par écran (sessions, code, terminal, tickets, shell, update)
+  renderer/   UI React 19 + Zustand, organisée par écran (sessions, code, terminal, tickets, deps, shell, update)
   shared/     types et contrats partagés main/renderer (aucune dépendance Electron ni DOM)
 tests/        miroir de src : main/, renderer/, scripts/, e2e/, helpers/
 scripts/release/  calcul de version et notes de release (exécuté en CI)
+scripts/ci/       vérifications de CI (titre de PR conventionnel)
+.github/          workflows ci, pr-title, codeql, release ; dependabot
 build/        icônes, entitlements, CLI `canopy` (shell script copié dans le bundle)
 ```
 
 - **IPC** : le contrat est dans `src/shared/api.ts` (`CanopyApi`). Ajouter une méthode = la déclarer dans `api.ts`, l'exposer dans `src/preload/index.ts` (`ipcRenderer.invoke('domaine:action', …)`), la gérer dans `src/main/ipc.ts` (ou dans le module `*Ipc.ts` du domaine, comme `tickets/ticketIpc.ts` et `linear/linearIpc.ts`). Les événements main → renderer passent par le canal unique `canopy:event` (`broadcast`).
+- **Raccourcis clavier** : une seule table dans `src/shared/shortcuts.ts` alimente le menu de l'app (accélérateurs, entrées grisées) et l'aide ⇧⌘H. Un raccourci est une entrée de menu (prioritaire sur Monaco et xterm), diffusée en `menu:shortcut` et exécutée par `runShortcut` (`renderer/shell/shortcuts.ts`). En E2E, les touches Playwright n'atteignent pas le menu macOS : cliquer l'entrée via `app.evaluate` (cf. `tests/e2e/shortcuts.spec.ts`).
 - **Renderer** : jamais d'accès Node direct, tout passe par `window.canopy`. L'état vit dans des stores Zustand par domaine (`sessionStore`, `terminalStore`, `ticketStore`…).
 - **Binaires natifs** (SDK Claude, node-pty, ripgrep, serveur LSP) sont en `asarUnpack` dans `electron-builder.yml`. Toute nouvelle dépendance qui spawn un binaire doit y être ajoutée, sinon elle casse uniquement en build packagé.
 - **Worktrees** : créés par défaut sous `<repo>/.worktrees/` (ignoré par git). `.canopy/config.json` décrit le setup et les services lancés par « Tester la PR » ; le port est fourni via `PORT`.
+- **Dépendances** : `src/main/deps/` lit les lockfiles (npm, pnpm, yarn, Python, Gemfile) sur la branche de base après un `fetch` durci (config git locale en liste blanche, clones partiels ignorés, `GIT_SSH_COMMAND='ssh -o BatchMode=yes'` : une config ssh qui demande une saisie donne « non rafraîchie »), interroge OSV (`api.osv.dev`) et les registres (`registry.npmjs.org`, `rubygems.org`, `pypi.org`), et tourne en service d'arrière-plan (30 s après le lancement, puis toutes les 6 h ; au réveil, seulement les dépôts en retard). HTTP (`http.ts`) : hôtes en liste blanche, redirections refusées, réponses plafonnées (32 Mo OSV, 64 Mo registres). Caches : lockfiles analysés par blob git (en mémoire, une table par dépôt, libérée quand il quitte la liste), détails des avis OSV (en mémoire, tant que leur `modified` ne change pas), infos de registre dans `userData/deps-registry-cache.json` (6 h, revalidées par ETag), rapports dans `userData/deps-reports.json`. Confidentialité : les dépendances privées ne sont jamais envoyées (sources non-registre, scopes et registres déclarés dans `.npmrc` / `.yarnrc.yml` de la base, du checkout principal même non suivis, de `~`, du rc global pnpm et de `$PREFIX/etc/npmrc`, variables `npm_config_*registry` ; hors base, ces sources ne peuvent que rendre privé ; fichier illisible, lien symbolique ou de plus de 1 Mo = privé). Écran `src/renderer/deps/` (onglet « Dépendances », bandeau, pastille du sélecteur de dépôt). Spec : `docs/superpowers/specs/2026-11-09-dependency-check-design.md`.
 - **Tickets** : fichiers Markdown dans `.tickets/` du checkout principal, hors git. Un ticket local peut avoir un `parent` (sous-ticket).
 - **MCP `canopy`** (`src/main/mcp/`) : serveur MCP en process (SDK) donné à chaque session : tickets locaux et Linear, sous-tickets, maquettes. Tous ses outils sont autorisés sans demande, la confiance reposant sur l'origine du serveur (`mcpServer.source === 'sdk'`), jamais sur le préfixe du nom d'outil ; les outils d'écriture sont refusés en mode plan (vérifié dans l'outil, le mode étant relu à chaque appel). `update_ticket` ne modifie que les tickets Linear assignés à l'utilisateur et ceux créés dans la même session.
 - **Linear** : connecteur dans `src/main/linear/`, uniquement via le serveur MCP officiel (`https://mcp.linear.app/mcp`, OAuth avec enregistrement dynamique, jeton chiffré par `safeStorage`). Les modifications passent par une file sur disque (`linear-pending.json`) et la description part en `patch` : ne jamais envoyer une description complète. Comportement réel du serveur : `tests/fixtures/linear/README.md`.
@@ -62,6 +66,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 - Toute logique dans `main/`, `shared/` ou `scripts/` a son test Vitest dans le dossier miroir de `tests/`. Les tests git créent de vrais repos temporaires (`tests/helpers/repo.ts`).
 - Un parcours utilisateur visible ajoute ou adapte un spec Playwright dans `tests/e2e/` (un worker, timeout 60 s).
 - Avant de déclarer un travail terminé : `npm run typecheck && npm test` doivent passer, et `npm run test:e2e` si l'UI ou le main ont changé.
+- La CI (`.github/workflows/ci.yml`, `pr-title.yml`, `codeql.yml`) rejoue tout cela sur chaque PR vers `develop`, plus `npm audit --omit=dev --audit-level=high`, la validation du titre de PR et CodeQL. Une dépendance livrée vulnérable bloque le merge : la corriger (mise à jour ou `overrides` dans `package.json`), pas contourner le check. Détails : `docs/release.md`, section 4 ter.
 
 ## Git et branches
 

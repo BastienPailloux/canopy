@@ -1,4 +1,4 @@
-import type { TicketFields, TicketPatch } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields, type TicketPatch } from '../../shared/tickets'
 
 type Changes = TicketPatch
 
@@ -129,6 +129,14 @@ export function draftToCreate(local: TicketFields): TicketFields | null {
   if (local.title.trim() === '') return null
   const { title, description, status, priority, labels, subtasks } = local
   return { title, description, status, priority, labels, subtasks }
+}
+
+/** A ticket from the quick dialog (⇧⌘T): the editor's defaults for all but the title and description. */
+export function quickTicketFields(title: string, description: string): TicketFields | null {
+  const t = title.trim()
+  // The same limits the main process checks: past them it would refuse the ticket.
+  if (t === '' || t.length > MAX_TITLE || description.length > MAX_DESCRIPTION) return null
+  return { title: t, description, status: 'backlog', priority: 'none', labels: [], subtasks: [] }
 }
 
 /** The fields the editor changes; the others (id, dates, branch, worktree, base) always come from disk. */

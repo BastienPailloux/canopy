@@ -1,9 +1,13 @@
+import { SHORTCUTS, type Shortcut, type ShortcutId } from '../shared/shortcuts'
+
 export interface MenuOptions {
   isPackaged: boolean
   /** ⌘W: what it does is the page's call, since only the page knows what a tab holds. */
   onCloseTab: () => void
   /** « Installer la commande canopy »: only offered by a packaged build, the only one that ships the script. */
   onInstallCli: () => void
+  /** A global shortcut: the page carries it out, since it holds the state it acts on. */
+  onShortcut: (id: ShortcutId) => void
 }
 
 /**
@@ -14,6 +18,8 @@ export function menuTemplate(o: MenuOptions): Electron.MenuItemConstructorOption
   const development: Electron.MenuItemConstructorOptions[] = o.isPackaged
     ? []
     : [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }, { type: 'separator' }]
+  const shortcuts = (menu: Shortcut['menu']): Electron.MenuItemConstructorOptions[] =>
+    SHORTCUTS.filter((s) => s.menu === menu).map((s) => ({ id: `shortcut:${s.id}`, label: s.label, accelerator: s.accelerator, click: () => o.onShortcut(s.id) }))
   return [
     {
       label: 'Canopy',
@@ -29,7 +35,11 @@ export function menuTemplate(o: MenuOptions): Electron.MenuItemConstructorOption
     },
     {
       label: 'Fichier',
-      submenu: [{ id: 'close-tab', label: "Fermer l'onglet", accelerator: 'CmdOrCtrl+W', click: () => o.onCloseTab() }]
+      submenu: [
+        ...shortcuts('file'),
+        { type: 'separator' },
+        { id: 'close-tab', label: "Fermer l'onglet", accelerator: 'CmdOrCtrl+W', click: () => o.onCloseTab() }
+      ]
     },
     {
       label: 'Édition',
@@ -54,9 +64,12 @@ export function menuTemplate(o: MenuOptions): Electron.MenuItemConstructorOption
         { role: 'togglefullscreen', label: 'Plein écran' }
       ]
     },
+    { label: 'Aller', submenu: shortcuts('go') },
     {
       label: 'Fenêtre',
       submenu: [{ role: 'minimize', label: 'Réduire' }, { role: 'zoom', label: 'Agrandir' }]
-    }
+    },
+    // The help role lets macOS add its menu search field.
+    { role: 'help', label: 'Aide', submenu: shortcuts('help') }
   ]
 }
