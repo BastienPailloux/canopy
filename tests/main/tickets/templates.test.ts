@@ -47,6 +47,7 @@ describe('sortTemplates', () => {
   it('puts ordered templates first, then alphabetical', () => {
     const mk = (name: string, order?: number) => ({ slug: name, name, order, description: '', priority: 'none', labels: [], subtasks: [] }) as TicketTemplate
     expect(sortTemplates([mk('B'), mk('a', 2), mk('C', 1)]).map((t) => t.name)).toEqual(['C', 'a', 'B'])
+    expect(sortTemplates([mk('Ezra'), mk('Été'), mk('Zoé')]).map((t) => t.name)).toEqual(['Été', 'Ezra', 'Zoé'])
   })
 })
 
