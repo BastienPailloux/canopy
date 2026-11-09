@@ -122,6 +122,11 @@ DEPENDENCIES
     expect(u.deps).toEqual([expect.objectContaining({ name: 'ghost', version: null, private: false })])
   })
 
+  it('marks a bang dependency without spec private (fail closed)', () => {
+    const u = parseGemfileLock('', 'DEPENDENCIES\n  ghost!\n  plain\n')
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['ghost', true], ['plain', false]])
+  })
+
   it('returns an error unit for a corrupt lockfile', () => {
     const u = parseGemfileLock('api', 'this is not a lockfile\n')
     expect(u).toEqual({ dir: 'api', ecosystem: 'RubyGems', deps: [], transitive: [], error: 'Fichier illisible : api/Gemfile.lock' })

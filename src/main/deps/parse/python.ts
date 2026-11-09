@@ -49,7 +49,7 @@ export function parseUvLock(dir: string, lockText: string): Unit {
         const name = normalize(ref.name)
         if (deps.has(name)) continue
         const p = byName.get(name)
-        deps.set(name, dep(name, typeof p?.version === 'string' ? p.version : null, manifest, p ? uvSourcePrivate(p.source) : false))
+        deps.set(name, dep(name, typeof p?.version === 'string' ? p.version : null, manifest, p ? uvSourcePrivate(p.source) : true))
       }
     }
     return { dir, ecosystem: 'PyPI', deps: [...deps.values()], transitive: [] }
@@ -71,7 +71,14 @@ export function parsePoetryLock(dir: string, pyproject: string | null, lockText:
     const byName = new Map<string, Obj>()
     for (const p of (Array.isArray(lock.package) ? lock.package : []) as unknown[]) if (isObj(p) && typeof p.name === 'string') byName.set(normalize(p.name), p)
 
-    // name -> declared as git/path/url in pyproject
+    // Named sources of pyproject; 'pypi' is implicit unless declared.
+    const poetrySources = new Map<string, boolean>([['pypi', true]])
+    const srcList = isObj(project.tool) && isObj(project.tool.poetry) ? project.tool.poetry.source : undefined
+    if (Array.isArray(srcList)) {
+      for (const s of srcList) if (isObj(s) && typeof s.name === 'string') poetrySources.set(s.name.toLowerCase(), isPublicIndex(s.url))
+      if (!srcList.some((s) => isObj(s) && typeof s.name === 'string' && s.name.toLowerCase() === 'pypi')) poetrySources.set('pypi', true)
+    }
+    // name -> declared as git/path/url, or from a non-public named source, in pyproject
     const declared = new Map<string, boolean>()
     const add = (name: string, direct: boolean) => { if (!declared.has(name)) declared.set(name, direct) }
     const poetry = isObj(project.tool) && isObj(project.tool.poetry) ? project.tool.poetry : {}
@@ -82,7 +89,7 @@ export function parsePoetryLock(dir: string, pyproject: string | null, lockText:
       for (const [name, spec] of Object.entries(t)) {
         if (name.toLowerCase() === 'python') continue
         const specs = Array.isArray(spec) ? spec : [spec]
-        add(normalize(name), specs.some((s) => isObj(s) && (s.git || s.path || s.url)))
+        add(normalize(name), specs.some((s) => isObj(s) && (s.git || s.path || s.url || (s.source !== undefined && poetrySources.get(String(s.source).toLowerCase()) !== true))))
       }
     }
     const list = isObj(project.project) ? project.project.dependencies : undefined
@@ -98,7 +105,7 @@ export function parsePoetryLock(dir: string, pyproject: string | null, lockText:
     for (const [name, localSpec] of declared) {
       const p = byName.get(name)
       const src = p?.source
-      const priv = localSpec || (isObj(src) && !(src.type === 'legacy' && isPublicIndex(src.url)))
+      const priv = localSpec || !p || (isObj(src) && !(src.type === 'legacy' && isPublicIndex(src.url)))
       deps.push(dep(name, typeof p?.version === 'string' ? p.version : null, manifest, priv))
     }
     return { dir, ecosystem: 'PyPI', deps, transitive: [] }
@@ -113,7 +120,8 @@ export function parsePipfileLock(dir: string, lockText: string): Unit {
     if (!isObj(lock)) return fail(dir, 'Pipfile.lock')
     const sources: Obj[] = Array.isArray(lock._meta?.sources) ? lock._meta.sources.filter(isObj) : []
     const publicSources = new Set(sources.filter((s) => isPublicIndex(s.url)).map((s) => s.name))
-    publicSources.add('pypi')
+    // Pipfile adds an implicit 'pypi' source only when none is declared under that name.
+    if (!sources.some((s) => s.name === 'pypi')) publicSources.add('pypi')
     const manifest = join(dir, 'Pipfile')
     const deps = new Map<string, Dep>()
     for (const group of ['default', 'develop']) {
@@ -132,6 +140,9 @@ export function parsePipfileLock(dir: string, lockText: string): Unit {
     return fail(dir, 'Pipfile.lock')
   }
 }
+
+/** Options that cannot change where packages come from. */
+const SAFE_OPTION = /^(?:-[rc]|--requirement\b|--constraint\b|--hash\b|--require-hashes\b|--pre\b|--prefer-binary\b|--only-binary\b|--no-binary\b)/
 
 /** Drops hashes and inline comments; backslash-continued lines are joined first. */
 function logicalLines(text: string): string[] {
@@ -153,13 +164,17 @@ export function parseRequirements(dir: string, file: string, text: string): Unit
     let allPrivate = false
     const found = new Map<string, Dep>()
     for (const line of logicalLines(text)) {
-      const index = /^(?:--index-url|--extra-index-url|-i)(?:[=\s]\s*)(\S+)/.exec(line)
-      if (index) { if (!isPublicIndex(index[1])) allPrivate = true; continue }
       let editable = false
       let body = line
       if (/^(?:-e|--editable)\s/.test(body)) { editable = true; body = body.replace(/^\S+\s+/, '') }
-      else if (body.startsWith('-')) continue
-      body = body.replace(/\s;.*$/, '').trim()
+      else if (body.startsWith('-')) {
+        // Fail closed: any option we do not know could redirect resolution away from PyPI.
+        const index = /^(?:(?:--index-url|--extra-index-url)(?:=|\s+)|-i\s*)(\S+)/.exec(body)
+        if (index) { if (!isPublicIndex(index[1])) allPrivate = true }
+        else if (!SAFE_OPTION.test(body)) allPrivate = true
+        continue
+      }
+      body = body.replace(/\s*;.*$/, '').trim()
 
       let name: string | null = null
       let version: string | null = null

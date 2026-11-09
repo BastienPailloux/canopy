@@ -60,6 +60,16 @@ source = { registry = "https://pypi.org/simple" }
     expect(u.deps.find((d) => d.name === 'forked')?.private).toBe(true)
   })
 
+  it('marks a root dependency without lock entry private (fail closed)', () => {
+    const u = parseUvLock('', `[[package]]
+name = "app"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [{ name = "ghost" }]
+`)
+    expect(u.deps).toEqual([expect.objectContaining({ name: 'ghost', version: null, private: true })])
+  })
+
   it('accepts a virtual root', () => {
     const u = parseUvLock('', `[[package]]
 name = "app"
@@ -151,6 +161,31 @@ url = "https://github.com/acme/gitdep"
     expect(u.deps.map((d) => [d.name, d.private])).toEqual([['a', false], ['gitdep', true]])
   })
 
+  it('marks a declared dep missing from the lock private (fail closed)', () => {
+    const u = parsePoetryLock('', '[tool.poetry.dependencies]\nghost = "1"\n', '')
+    expect(u.deps).toEqual([expect.objectContaining({ name: 'ghost', version: null, private: true })])
+  })
+
+  it('marks a dep with a source key private unless the source resolves to public PyPI', () => {
+    const pyproject = `[tool.poetry.dependencies]
+a = { version = "1", source = "corp" }
+b = { version = "1", source = "mirror" }
+c = { version = "1", source = "unknown" }
+d = { version = "1", source = "pypi" }
+
+[[tool.poetry.source]]
+name = "corp"
+url = "https://corp.example/simple"
+
+[[tool.poetry.source]]
+name = "mirror"
+url = "https://pypi.org/simple/"
+`
+    const lock = ['a', 'b', 'c', 'd'].map((n) => `[[package]]\nname = "${n}"\nversion = "1.0.0"\n`).join('\n')
+    const u = parsePoetryLock('', pyproject, lock)
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['a', true], ['b', false], ['c', true], ['d', false]])
+  })
+
   it('reads PEP 621 project.dependencies', () => {
     const u = parsePoetryLock('', '[project]\ndependencies = ["Flask>=2.0", "requests[socks]==2.31.0 ; python_version > \'3.8\'"]\n', `[[package]]
 name = "flask"
@@ -194,6 +229,12 @@ describe('parsePipfileLock', () => {
     const u = parsePipfileLock('app', LOCK)
     expect(u.deps.filter((d) => d.private).map((d) => d.name).sort()).toEqual(['forked', 'internal', 'local'])
     expect(u.deps[0].manifest).toBe('app/Pipfile')
+  })
+  it('decides by URL when a source is named pypi, implicit pypi is public otherwise', () => {
+    const lock = (sources: unknown[]) => JSON.stringify({ _meta: { sources }, default: { a: { version: '==1.0', index: 'pypi' } } })
+    expect(parsePipfileLock('', lock([{ name: 'pypi', url: 'https://corp.example/simple' }])).deps[0].private).toBe(true)
+    expect(parsePipfileLock('', lock([{ name: 'pypi', url: 'https://pypi.org/simple' }])).deps[0].private).toBe(false)
+    expect(parsePipfileLock('', lock([{ name: 'corp', url: 'https://corp.example/simple' }])).deps[0].private).toBe(false)
   })
   it('returns an error unit for a corrupt lockfile', () => {
     expect(parsePipfileLock('', '{nope')).toEqual({ dir: '', ecosystem: 'PyPI', deps: [], transitive: [], error: 'Fichier illisible : Pipfile.lock' })
@@ -252,6 +293,22 @@ long==3.0 \\
     for (const url of ['https://pypi.org/simple', 'https://pypi.org/simple/', 'https://pypi.python.org/simple']) {
       const u = parseRequirements('', 'requirements.txt', `--index-url ${url}\na==1\n`)
       expect(u.deps.map((d) => d.private)).toEqual([false])
+    }
+  })
+  it('strips markers without surrounding spaces', () => {
+    const u = parseRequirements('', 'requirements.txt', 'a==1.0;python_version<"3.9"\n')
+    expect(u.deps).toEqual([pypi('a', '1.0', 'requirements.txt')])
+  })
+  it('taints the whole file for non-allowlisted or unknown options', () => {
+    for (const line of ['-ihttps://corp/simple', '--find-links ./wheels', '-f ./wheels', '--no-index', '--trusted-host corp', '--unknown-flag', '--index-url', '--extra-index-url=https://corp/simple']) {
+      const u = parseRequirements('', 'requirements.txt', `${line}\na==1\n`)
+      expect(u.deps.map((d) => d.private), line).toEqual([true])
+    }
+  })
+  it('keeps allowlisted options and public indexes public', () => {
+    for (const line of ['-i https://pypi.org/simple', '-ihttps://pypi.org/simple', '--extra-index-url https://pypi.org/simple', '-r other.txt', '--requirement other.txt', '-c c.txt', '--constraint=c.txt', '--require-hashes', '--pre', '--prefer-binary', '--only-binary :all:', '--no-binary :none:', '--hash=sha256:abc']) {
+      const u = parseRequirements('', 'requirements.txt', `${line}\na==1 --hash=sha256:abc\n`)
+      expect(u.deps.map((d) => d.private), line).toEqual([false])
     }
   })
   it('dedupes by name', () => {
