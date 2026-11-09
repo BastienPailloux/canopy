@@ -14,6 +14,7 @@ vi.mock('../../src/renderer/tickets/linearStore', () => ({ reloadLinearLinks }))
 
 const { defaultBranchName, launchText, runLaunch, runLinearLaunch } = await import('../../src/renderer/tickets/launchFlow')
 const { useApp } = await import('../../src/renderer/store')
+const { useTickets } = await import('../../src/renderer/tickets/ticketStore')
 
 const ticket = (title: string): Ticket => ({
   id: 'CAN-1', title, description: '', status: 'todo', priority: 'none', labels: [], subtasks: [], created: '', updated: '', archived: false
@@ -100,6 +101,38 @@ describe('runLaunch', () => {
   it('an empty list of mockups leaves the prompt as it was', async () => {
     await runLaunch('/r', REQ, { startClaude: true, mockups: [] })
     expect(calls).toContain(`askClaude ${NEW.path} ${launchPrompt(ticket('x'))}`)
+  })
+})
+
+describe('launchPrompt with a parent', () => {
+  it('adds the parent as the second paragraph', () => {
+    const t = { ...ticket('Export CSV'), description: 'Détails', parent: 'CAN-3' }
+    const parts = launchPrompt(t, { id: 'CAN-3', title: 'Export' }).split('\n\n')
+    expect(parts.slice(0, 3)).toEqual(['Ticket CAN-1 : Export CSV', 'Ticket parent : CAN-3 : Export', 'Détails'])
+  })
+  it('is unchanged without a parent', () => {
+    expect(launchPrompt(ticket('T'))).toBe('Ticket CAN-1 : T')
+  })
+})
+
+describe('runLaunch parent', () => {
+  afterEach(() => { vi.unstubAllGlobals(); useTickets.setState({ entries: [] }) })
+  it('passes the parent found in the ticket list to the prompt', async () => {
+    calls.length = 0
+    useApp.setState({ repo: '/r', worktree: '/r', worktrees: [MAIN], orphans: [], workspace: null, view: 'tickets' })
+    const child = { ...ticket('Export CSV'), parent: 'CAN-3' }
+    const parent = { ...ticket('Export'), id: 'CAN-3' }
+    useTickets.setState({ entries: [{ kind: 'ticket', ticket: parent }] })
+    vi.stubGlobal('window', {
+      canopy: {
+        launchTicket: vi.fn(async () => ({ worktree: NEW.path, ticket: child })),
+        listWorktrees: vi.fn(async () => [MAIN, NEW]),
+        scanWorkspace: vi.fn(async () => { throw new Error('unused') })
+      }
+    })
+    await runLaunch('/r', REQ, { startClaude: true })
+    expect(calls).toContain(`askClaude ${NEW.path} ${launchPrompt(child, { id: 'CAN-3', title: 'Export' })}`)
+    expect(calls.find((c) => c.startsWith('askClaude'))).toContain('Ticket parent : CAN-3 : Export')
   })
 })
 

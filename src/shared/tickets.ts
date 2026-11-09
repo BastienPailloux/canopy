@@ -88,9 +88,13 @@ export function defaultPrefix(repoName: string): string {
   return letters.length === 3 ? letters.toUpperCase() : 'TKT'
 }
 
+/** Changes to a ticket: `parent: null` removes the parent (a missing key leaves it). */
+export type TicketPatch = Partial<Omit<TicketFields, 'parent'>> & { parent?: string | null }
+
 /** First message sent to Claude when a ticket is launched. */
-export function launchPrompt(t: Ticket): string {
+export function launchPrompt(t: Ticket, parent?: Pick<Ticket, 'id' | 'title'>): string {
   const parts = [`Ticket ${t.id} : ${t.title}`]
+  if (parent) parts.push(`Ticket parent : ${parent.id} : ${parent.title}`)
   if (t.description.trim()) parts.push(t.description.trim())
   const todo = t.subtasks.filter((s) => !s.done)
   if (todo.length) parts.push(['Sous-tâches restantes :', ...todo.map((s) => `- [ ] ${s.title}`)].join('\n'))

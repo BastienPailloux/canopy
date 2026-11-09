@@ -2,7 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
-import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
+import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry, TicketPatch } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
@@ -223,7 +223,7 @@ export interface CanopyApi {
   listTickets(repo: string): Promise<TicketListEntry[]>
   getTicket(repo: string, id: string): Promise<Ticket>
   createTicket(repo: string, fields: TicketFields): Promise<Ticket>
-  patchTicket(repo: string, id: string, changes: Partial<TicketFields>): Promise<Ticket>
+  patchTicket(repo: string, id: string, changes: TicketPatch): Promise<Ticket>
   duplicateTicket(repo: string, id: string): Promise<Ticket>
   archiveTicket(repo: string, id: string): Promise<void>
   ticketConfig(repo: string): Promise<{ prefix: string; next: number }>

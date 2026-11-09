@@ -1,6 +1,6 @@
-import type { TicketFields } from '../../shared/tickets'
+import type { TicketFields, TicketPatch } from '../../shared/tickets'
 
-type Changes = Partial<TicketFields>
+type Changes = TicketPatch
 
 export interface Saver {
   /** Merges `c` into the pending changes, key by key, and saves them after a pause of `delayMs` without change. */
@@ -132,7 +132,7 @@ export function draftToCreate(local: TicketFields): TicketFields | null {
 }
 
 /** The fields the editor changes; the others (id, dates, branch, worktree, base) always come from disk. */
-export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks'] as const
+export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'parent'] as const
 
 /** A newer version from disk over what the editor shows: `keep` (pending or focused) keeps the editor's value. */
 export function mergeDisk<T extends TicketFields>(local: T, disk: T, keep: ReadonlySet<keyof TicketFields>): T {
