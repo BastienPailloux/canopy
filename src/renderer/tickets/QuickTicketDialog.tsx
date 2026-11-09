@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ticketKey } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, ticketKey } from '../../shared/tickets'
 import { useModal } from '../shell/useModal'
 import { useApp } from '../store'
 import { quickTicketFields } from './editorSave'
@@ -43,11 +43,11 @@ export function QuickTicketDialog({ repo, onCreated }: { repo: string; onCreated
         <h2>Nouveau ticket</h2>
         <label>
           Titre
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={onKeyDown} spellCheck={false} />
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={onKeyDown} spellCheck={false} maxLength={MAX_TITLE} />
         </label>
         <label>
           Description
-          <textarea className="quick-ticket-description" rows={5} value={description} onChange={(e) => setDescription(e.target.value)} onKeyDown={onKeyDown} />
+          <textarea className="quick-ticket-description" rows={5} maxLength={MAX_DESCRIPTION} value={description} onChange={(e) => setDescription(e.target.value)} onKeyDown={onKeyDown} />
         </label>
         {error && <p className="error" role="alert">{error}</p>}
         <div className="actions">

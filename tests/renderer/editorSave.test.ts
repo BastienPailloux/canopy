@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TicketFields } from '../../src/shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields } from '../../src/shared/tickets'
 import { closeSaver, createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, quickTicketFields, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
 
 type Changes = Partial<TicketFields>
@@ -265,6 +265,12 @@ describe('closeSaver', () => {
 describe('quickTicketFields', () => {
   it('creates nothing without a title', () => {
     expect(quickTicketFields('  ', 'x')).toBeNull()
+  })
+
+  it('creates nothing past the limits the main process enforces', () => {
+    expect(quickTicketFields('a'.repeat(MAX_TITLE + 1), '')).toBeNull()
+    expect(quickTicketFields('Bug', 'd'.repeat(MAX_DESCRIPTION + 1))).toBeNull()
+    expect(quickTicketFields('a'.repeat(MAX_TITLE), 'd'.repeat(MAX_DESCRIPTION))).not.toBeNull()
   })
 
   it('takes the trimmed title and the editor defaults', () => {
