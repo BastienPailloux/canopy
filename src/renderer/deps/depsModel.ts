@@ -41,24 +41,30 @@ export function selectableKeys(entries: DepEntry[]): string[] {
   return entries.filter((e) => e.level !== 'private' && e.level !== 'pinless').map((e) => e.key)
 }
 
+/** A run of banner text; `bold` for a package name. */
+export interface BannerPart { text: string; bold: boolean }
+const plain = (text: string): BannerPart => ({ text, bold: false })
+const name = (text: string): BannerPart => ({ text, bold: true })
+
 /** Built from the cause, never from `reason`: that text may be long and partly author-controlled. */
-function problem(e: DepEntry): string {
+function problem(e: DepEntry): BannerPart[] {
   if (e.cause === 'advisory') {
     const top = [...e.advisories].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])[0]
-    return `faille ${SEVERITY_WORD[top?.severity ?? 'unknown']} dans ${e.name}`
+    return [plain(`faille ${SEVERITY_WORD[top?.severity ?? 'unknown']} dans `), name(e.name)]
   }
-  if (e.cause === 'yanked') return `version de ${e.name} retirée`
-  return `${e.name} n'est plus maintenu`
+  if (e.cause === 'yanked') return [plain('version de '), name(e.name), plain(' retirée')]
+  return [name(e.name), plain(' n\'est plus maintenu')]
 }
 
-/** « 2 dépendances critiques dans canopy : faille critique dans tar, request n'est plus maintenu ». */
-export function bannerText(entries: DepEntry[], repoName: string): string {
+/** « 2 dépendances critiques dans canopy : faille critique dans **tar**, **request** n'est plus maintenu ». */
+export function bannerParts(entries: DepEntry[], repoName: string): BannerPart[] {
   const critical = entries.filter((e) => e.level === 'critical')
   const n = critical.length
-  const head = `${n} ${n > 1 ? 'dépendances critiques' : 'dépendance critique'} dans ${repoName}`
-  const names = critical.slice(0, BANNER_NAMES).map(problem).join(', ')
+  const parts = [plain(`${n} ${n > 1 ? 'dépendances critiques' : 'dépendance critique'} dans ${repoName} : `)]
+  critical.slice(0, BANNER_NAMES).forEach((e, i) => { if (i > 0) parts.push(plain(', ')); parts.push(...problem(e)) })
   const rest = n - BANNER_NAMES
-  return `${head} : ${names}${rest > 0 ? ` … et ${rest} ${rest > 1 ? 'autres' : 'autre'}` : ''}`
+  if (rest > 0) parts.push(plain(` … et ${rest} ${rest > 1 ? 'autres' : 'autre'}`))
+  return parts
 }
 
 const MINUTE = 60_000

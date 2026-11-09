@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Advisory, DepEntry, DepsReport } from '../../../src/shared/deps'
 import {
-  bannerText, canSelect, emptyNotes, initialSelection, nextSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
+  bannerParts, canSelect, emptyNotes, initialSelection, nextSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
 } from '../../../src/renderer/deps/depsModel'
 
 const adv = (severity: Advisory['severity'], id = 'GHSA-xxxx-yyyy-zzzz'): Advisory =>
@@ -13,30 +13,33 @@ const entry = (name: string, o: Partial<DepEntry> = {}): DepEntry => ({
   advisories: [], registryUrl: `https://www.npmjs.com/package/${name}`, ...o
 })
 
+/** The banner as plain text, names in **bold**. */
+const bannerText = (entries: DepEntry[], repo: string): string => bannerParts(entries, repo).map((p) => (p.bold ? `**${p.text}**` : p.text)).join('')
+
 const tar = entry('tar', { level: 'critical', cause: 'advisory', advisories: [adv('critical')] })
 const request = entry('request', { level: 'critical', cause: 'deprecated', target: null })
 
-describe('bannerText', () => {
+describe('bannerParts', () => {
   it('names each critical dependency with what is wrong', () => {
     expect(bannerText([tar, request, entry('zustand')], 'canopy'))
-      .toBe('2 dépendances critiques dans canopy : faille critique dans tar, request n\'est plus maintenu')
+      .toBe('2 dépendances critiques dans canopy : faille critique dans **tar**, **request** n\'est plus maintenu')
   })
 
   it('is singular for one critical dependency', () => {
-    expect(bannerText([tar], 'canopy')).toBe('1 dépendance critique dans canopy : faille critique dans tar')
+    expect(bannerText([tar], 'canopy')).toBe('1 dépendance critique dans canopy : faille critique dans **tar**')
   })
 
   it('summarizes past three names', () => {
     const many = ['a', 'b', 'c', 'd', 'e'].map((n) => entry(n, { level: 'critical', cause: 'inactive' }))
     expect(bannerText(many, 'canopy'))
-      .toBe('5 dépendances critiques dans canopy : a n\'est plus maintenu, b n\'est plus maintenu, c n\'est plus maintenu … et 2 autres')
-    expect(bannerText(many.slice(0, 4), 'canopy')).toMatch(/c n'est plus maintenu … et 1 autre$/)
+      .toBe('5 dépendances critiques dans canopy : **a** n\'est plus maintenu, **b** n\'est plus maintenu, **c** n\'est plus maintenu … et 2 autres')
+    expect(bannerText(many.slice(0, 4), 'canopy')).toMatch(/\*\*c\*\* n'est plus maintenu … et 1 autre$/)
   })
 
   it('words a high advisory and a yanked version', () => {
     const high = entry('lodash', { level: 'critical', cause: 'advisory', advisories: [adv('moderate'), adv('high')] })
     const yanked = entry('rack', { level: 'critical', cause: 'yanked' })
-    expect(bannerText([high, yanked], 'r')).toBe('2 dépendances critiques dans r : faille haute dans lodash, version de rack retirée')
+    expect(bannerText([high, yanked], 'r')).toBe('2 dépendances critiques dans r : faille haute dans **lodash**, version de **rack** retirée')
   })
 })
 

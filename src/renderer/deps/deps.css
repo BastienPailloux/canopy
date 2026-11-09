@@ -12,12 +12,13 @@
   align-items: center;
   gap: 10px;
   padding: 7px 14px;
-  background: #3a1416;
+  background: var(--del-bg);
   border-bottom: 1px solid var(--del);
-  color: #ffb4ae;
+  color: var(--del-fg);
   font-size: 13px;
 }
 .deps-banner-icon { color: var(--del); }
+.deps-banner-text strong { color: var(--fg); font-weight: 600; }
 .deps-banner-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deps-banner-see {
   flex: none;
@@ -36,11 +37,11 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #ffb4ae;
+  color: var(--del-fg);
   font-size: 16px;
   line-height: 1;
 }
-.deps-banner-close:hover { background: rgba(248, 81, 73, 0.2); }
+.deps-banner-close:hover { background: color-mix(in srgb, var(--del) 20%, transparent); }
 
 /* The « Dépendances » view */
 .deps-view {
