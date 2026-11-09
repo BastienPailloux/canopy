@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { displayKeys, SHORTCUTS, shortcutEnabled, type Shortcut } from '../../src/shared/shortcuts'
+import { displayKeys, leftToMenu, SHORTCUTS, shortcutEnabled, type Shortcut } from '../../src/shared/shortcuts'
 
 test('every accelerator is unique', () => {
   expect(new Set(SHORTCUTS.map((s) => s.accelerator)).size).toBe(SHORTCUTS.length)
@@ -24,4 +24,14 @@ test('shortcutEnabled follows what the shortcut needs', () => {
   expect(shortcutEnabled(s('repo'), { repo: false, worktree: false })).toBe(false)
   expect(shortcutEnabled(s('worktree'), { repo: true, worktree: false })).toBe(false)
   expect(shortcutEnabled(s('worktree'), { repo: true, worktree: true })).toBe(true)
+})
+
+test('the terminal leaves ⌃⇥ and ⌃⇧⇥ to the menu, and keeps other control keys', () => {
+  const key = (k: string, mods: { ctrlKey?: boolean; shiftKey?: boolean; metaKey?: boolean; altKey?: boolean } = {}) =>
+    ({ key: k, ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, ...mods })
+  expect(leftToMenu(key('Tab', { ctrlKey: true }))).toBe(true)
+  expect(leftToMenu(key('Tab', { ctrlKey: true, shiftKey: true }))).toBe(true)
+  expect(leftToMenu(key('Tab'))).toBe(false)
+  expect(leftToMenu(key('c', { ctrlKey: true }))).toBe(false)
+  expect(leftToMenu(key('Tab', { ctrlKey: true, altKey: true }))).toBe(false)
 })

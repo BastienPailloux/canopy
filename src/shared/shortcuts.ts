@@ -49,3 +49,11 @@ export interface ShortcutContext { repo: boolean; worktree: boolean }
 export function shortcutEnabled(s: Shortcut, ctx: ShortcutContext): boolean {
   return s.needs === null || ctx[s.needs]
 }
+
+/**
+ * ⌃⇥ and ⌃⇧⇥ in the terminal: xterm would send them to the shell and cancel the event, and then the menu never sees
+ * them. The ⌘ shortcuts need nothing: xterm lets ⌘ combinations through.
+ */
+export function leftToMenu(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): boolean {
+  return e.key === 'Tab' && e.ctrlKey && !e.metaKey && !e.altKey
+}

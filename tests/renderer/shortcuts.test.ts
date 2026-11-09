@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { useApp } from '../../src/renderer/store'
-import { connectShortcutContext, nextWorktree, runShortcut, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
+import { connectShortcutContext, nextWorktree, runShortcut, worktreeCycle, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
 import { SHORTCUTS } from '../../src/shared/shortcuts'
-import type { Worktree } from '../../src/shared/types'
+import type { Workspace, WorkspaceEntry, Worktree } from '../../src/shared/types'
 
 beforeEach(() => { useSessions.setState({ focusRequest: null }); useApp.setState({ view: 'sessions', repo: null, worktree: null, worktrees: [], orphans: [], workspace: null, dialog: null }) })
 afterEach(() => { vi.unstubAllGlobals() })
@@ -95,4 +95,17 @@ it('dictation shows Sessions and asks the composer for the focus and the dictati
   runShortcut('dictation', deps())
   expect(useApp.getState().view).toBe('sessions')
   expect(useSessions.getState().focusRequest).toMatchObject({ cwd: '/a', dictate: true })
+})
+
+it('worktreeCycle follows the sidebar order of the active repo, without the space, then what only git lists', () => {
+  const e = (repo: string, path: string, group: WorkspaceEntry['group'], feature?: string): WorkspaceEntry =>
+    ({ repo, repoName: repo.slice(1), worktree: wt(path), group, feature })
+  const workspace: Workspace = {
+    root: '/ws', truncated: false, failed: [],
+    entries: [e('/ws', '/ws', 'space'), e('/a', '/a', 'main'), e('/a', '/a/zed', 'feature', 'zed'), e('/a', '/a/alpha', 'feature', 'alpha'), e('/b', '/b', 'main')]
+  }
+  // git lists them in another order, and knows one the scan has not seen yet.
+  const live = [wt('/a'), wt('/a/zed'), wt('/a/alpha'), wt('/a/new')]
+  expect(worktreeCycle(workspace, '/a', live)).toEqual(['/a', '/a/alpha', '/a/zed', '/a/new'])
+  expect(worktreeCycle(null, '/a', live)).toEqual(['/a', '/a/zed', '/a/alpha', '/a/new'])
 })

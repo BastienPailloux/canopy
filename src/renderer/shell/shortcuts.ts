@@ -1,6 +1,8 @@
 import { SHORTCUTS, shortcutEnabled, type ShortcutId } from '../../shared/shortcuts'
 import { newTab, requestComposerFocus } from '../sessions/sessionStore'
+import type { Workspace, Worktree } from '../../shared/types'
 import { useApp, type AppDialog, type View } from '../store'
+import { groupEntries } from './workspaceList'
 
 /** Keeps the main process told of what is active, so that it greys the menu entries that would do nothing. */
 export function connectShortcutContext(): () => void {
@@ -23,6 +25,18 @@ export function nextWorktree(paths: string[], current: string | null, step: 1 | 
   const at = current === null ? -1 : paths.indexOf(current)
   if (at === -1) return paths[0]
   return paths[(at + step + paths.length) % paths.length]
+}
+
+/**
+ * The worktrees ⌃⇥ walks: those of `repo` in the sidebar's order, without the space entry. The live list says what
+ * exists; what it has that the last scan has not seen yet comes last.
+ */
+export function worktreeCycle(workspace: Workspace | null, repo: string, live: Worktree[]): string[] {
+  const exists = new Set(live.map((w) => w.path))
+  const shown = (workspace ? groupEntries(workspace) : []).flatMap((s) => s.entries)
+    .filter((e) => e.repo === repo && e.group !== 'space' && exists.has(e.worktree.path))
+    .map((e) => e.worktree.path)
+  return [...new Set([...shown, ...live.map((w) => w.path)])]
 }
 
 export interface ShortcutDeps {
@@ -48,7 +62,7 @@ export function runShortcut(id: ShortcutId, deps: ShortcutDeps): void {
   const worktree = app.worktree
   if (worktree === null) return
   if (id === 'worktree-next' || id === 'worktree-previous') {
-    const next = nextWorktree(app.worktrees.map((w) => w.path), worktree, id === 'worktree-next' ? 1 : -1)
+    const next = nextWorktree(app.repo === null ? [] : worktreeCycle(app.workspace, app.repo, app.worktrees), worktree, id === 'worktree-next' ? 1 : -1)
     if (next) app.setWorktree(next)
   } else if (id === 'new-session') {
     deps.newTab(worktree)
