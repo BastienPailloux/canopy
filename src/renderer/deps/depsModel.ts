@@ -17,6 +17,11 @@ export function initialSelection(entries: DepEntry[]): Set<string> {
   return new Set(entries.filter((e) => e.level === 'critical').map((e) => e.key))
 }
 
+/** A private or local source is never checked, so it cannot be handed to Claude either. */
+export function canSelect(e: DepEntry): boolean {
+  return e.level !== 'private'
+}
+
 /** What « tout cocher » checks: a private or unpinned entry has no target to update to. */
 export function selectableKeys(entries: DepEntry[]): string[] {
   return entries.filter((e) => e.level !== 'private' && e.level !== 'pinless').map((e) => e.key)
@@ -55,6 +60,12 @@ export function lastCheckText(r: DepsReport, now: number): string {
       : diff < DAY ? `il y a ${Math.floor(diff / HOUR)} h`
         : `il y a ${Math.floor(diff / DAY)} j`
   return `Dernière vérification : ${ago}`
+}
+
+/** The last-check line, with the first error when the check had any (the full list is shown under the table). */
+export function statusLine(r: DepsReport, now: number): string {
+  const line = lastCheckText(r, now)
+  return r.errors.length ? `${line} · échec : ${r.errors[0]}` : line
 }
 
 /** The entries `depsLaunchPrompt` keeps, and the ones it drops for an unusual name or path (shown to the user). */

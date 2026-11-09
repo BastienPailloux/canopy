@@ -60,7 +60,11 @@ export async function recheckDeps(): Promise<void> {
   useDeps.setState({ checking: true, error: null })
   try {
     const report = await window.canopy.depsRecheck(repo)
-    if (useDeps.getState().repo === repo) useDeps.setState({ report, loaded: true })
+    if (useDeps.getState().repo !== repo) return
+    // A read started earlier would bring back the report this check replaced.
+    seq++
+    useDeps.setState({ report, loaded: true })
+    window.canopy.depsBanner(repo).then((banner) => { if (useDeps.getState().repo === repo) useDeps.setState({ banner }) }, () => undefined)
   } catch (e) {
     if (useDeps.getState().repo === repo) useDeps.setState({ error: message(e) })
   } finally {

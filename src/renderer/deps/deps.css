@@ -163,3 +163,5 @@
 .deps-versions { color: var(--fg-2); }
 .deps-summary .deps-level { margin-left: auto; }
 .deps-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.deps-table tr[data-disabled] td { color: var(--fg-3); }
+.deps-table tr[data-disabled] input[type='checkbox'] { opacity: 0.4; }

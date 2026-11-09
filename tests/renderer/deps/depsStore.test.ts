@@ -69,4 +69,15 @@ describe('depsStore', () => {
     await p
     expect(useDeps.getState()).toMatchObject({ checking: false, report: { checkedAt: 2 } })
   })
+
+  it('keeps the recheck result over an older read still in flight', async () => {
+    await flush()
+    let release: (r: DepsReport) => void = () => {}
+    vi.mocked(window.canopy.depsReport).mockImplementationOnce(() => new Promise((r) => { release = r }))
+    changed?.({ repo: '/a' })
+    await recheckDeps()
+    release(report('/a', 1))
+    await flush()
+    expect(useDeps.getState().report?.checkedAt).toBe(2)
+  })
 })

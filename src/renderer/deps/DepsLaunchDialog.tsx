@@ -12,12 +12,13 @@ export function DepsLaunchDialog(props: { repo: string; entries: DepEntry[]; onC
   const { repo, entries, onClose } = props
   const dialog = useRef<HTMLDivElement>(null)
   const refs = useRepoRefs(repo, null)
-  const [branch, setBranch] = useState(() => defaultDepsBranch(entries, new Date()))
+  const { safe, unsafe } = promptSplit(entries)
+  // Only what reaches Claude decides fix/ or chore/.
+  const [branch, setBranch] = useState(() => defaultDepsBranch(safe, new Date()))
   const [target, setTarget] = useState<LaunchTarget | null>(null)
   const [startClaude, setStartClaude] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { safe, unsafe } = promptSplit(entries)
   const onTarget = useCallback((t: LaunchTarget | null) => setTarget(t), [])
   useModal(dialog, () => { if (!busy) onClose() })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Advisory, DepEntry, DepsReport } from '../../../src/shared/deps'
 import {
-  bannerText, initialSelection, lastCheckText, levelLabel, promptSplit, selectableKeys
+  bannerText, canSelect, initialSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
 } from '../../../src/renderer/deps/depsModel'
 
 const adv = (severity: Advisory['severity'], id = 'GHSA-xxxx-yyyy-zzzz'): Advisory =>
@@ -87,5 +87,25 @@ describe('promptSplit', () => {
     const { safe, unsafe } = promptSplit([tar, odd, request, badPath])
     expect(safe).toEqual([tar, request])
     expect(unsafe).toEqual([odd, badPath])
+  })
+})
+
+describe('canSelect', () => {
+  it('refuses private entries only', () => {
+    expect(canSelect(entry('secret', { level: 'private', cause: 'private' }))).toBe(false)
+    expect(canSelect(entry('flask', { level: 'pinless', cause: 'pinless' }))).toBe(true)
+    expect(canSelect(tar)).toBe(true)
+  })
+})
+
+describe('statusLine', () => {
+  const now = Date.parse('2026-11-09T12:00:00Z')
+  const base: DepsReport = { repo: '/r', checkedAt: now - 5 * 60_000, entries: [], errors: [], baseRef: null, manifests: 1 }
+  it('is the last check alone without errors', () => {
+    expect(statusLine(base, now)).toBe('Dernière vérification : il y a 5 min')
+  })
+  it('appends the first error', () => {
+    expect(statusLine({ ...base, errors: ['Fichier illisible : a/yarn.lock', 'Registre npm injoignable'] }, now))
+      .toBe('Dernière vérification : il y a 5 min · échec : Fichier illisible : a/yarn.lock')
   })
 })

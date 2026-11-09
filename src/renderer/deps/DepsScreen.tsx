@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DepEntry } from '../../shared/deps'
 import { basename, useApp } from '../store'
 import { DepsLaunchDialog } from './DepsLaunchDialog'
-import { initialSelection, lastCheckText, levelLabel, selectableKeys } from './depsModel'
+import { canSelect, initialSelection, levelLabel, selectableKeys, statusLine } from './depsModel'
 import { recheckDeps, useDeps } from './depsStore'
 
 /** Only the two URLs main builds (advisory, registry) are ever opened, through the checked external opener. */
@@ -23,8 +23,11 @@ function useNow(): number {
 function Row(props: { e: DepEntry; checked: boolean; showFile: boolean; onToggle: () => void }): React.JSX.Element {
   const { e } = props
   return (
-    <tr data-testid="deps-row" data-key={e.key} data-level={e.level}>
-      <td><input type="checkbox" aria-label={`Sélectionner ${e.name}`} checked={props.checked} onChange={props.onToggle} /></td>
+    <tr data-testid="deps-row" data-key={e.key} data-level={e.level} data-disabled={!canSelect(e) || undefined}>
+      <td>
+        <input type="checkbox" aria-label={`Sélectionner ${e.name}`} checked={props.checked && canSelect(e)} disabled={!canSelect(e)}
+          title={canSelect(e) ? undefined : 'Source privée ou locale : non vérifiée'} onChange={props.onToggle} />
+      </td>
       <td className="mono">
         {e.registryUrl
           ? <button className="deps-link" title="Page du registre" onClick={() => open(e.registryUrl!)}>{e.name}</button>
@@ -61,7 +64,7 @@ export function DepsScreen(): React.JSX.Element {
   const stamp = `${report?.repo ?? ''}:${report?.checkedAt ?? ''}`
   useEffect(() => { setSelected(initialSelection(entries)) }, [stamp])
 
-  const chosen = entries.filter((e) => selected.has(e.key))
+  const chosen = entries.filter((e) => selected.has(e.key) && canSelect(e))
   const selectable = selectableKeys(entries)
   const allChecked = selectable.length > 0 && selectable.every((k) => selected.has(k))
   const showFile = new Set(entries.map((e) => e.manifest)).size > 1
@@ -76,10 +79,17 @@ export function DepsScreen(): React.JSX.Element {
     return next
   })
 
-  const checked = report ? lastCheckText(report, now) : ''
+  const checked = report ? statusLine(report, now) : ''
   let body: React.JSX.Element
   if (!loaded) body = <p className="deps-empty">Chargement…</p>
-  else if (!report) body = <p className="deps-empty">Première vérification en cours…</p>
+  else if (!report) body = checking
+    ? <p className="deps-empty">Première vérification en cours…</p>
+    : (
+      <div className="deps-empty">
+        <strong>Pas encore vérifié</strong>
+        <button className="secondary" disabled={!repo} onClick={() => void recheckDeps()}>Revérifier</button>
+      </div>
+    )
   else if (report.manifests === 0) body = <p className="deps-empty">Aucun fichier de dépendances reconnu</p>
   else if (entries.length === 0) body = <div className="deps-empty"><strong>Tout est à jour</strong>{checked && <span>{checked}</span>}</div>
   else body = (
@@ -105,7 +115,7 @@ export function DepsScreen(): React.JSX.Element {
     <div className="deps-screen">
       <div className="deps-head">
         <h2>Dépendances{report ? ` · ${basename(report.repo)}` : ''}</h2>
-        {checked && entries.length > 0 && <span className="deps-checked">{checked}</span>}
+        {checked && (entries.length > 0 || report?.manifests === 0) && <span className="deps-checked">{checked}</span>}
       </div>
       <div className="deps-body">
         {body}
