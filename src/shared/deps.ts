@@ -113,7 +113,7 @@ function cleanText(t: string): string {
 
 function adviceReason(a: Advisory, d: Dep): string {
   let r = SEVERITY_LABEL[a.severity]
-  if (a.package !== d.name) return `${r} dans ${a.package} (via ${d.via?.length ? d.via.join(' > ') : d.name})`
+  if (a.package !== d.name) return `${r} dans ${cleanText(a.package)} (via ${cleanText(d.via?.length ? d.via.join(' > ') : d.name)})`
   if (a.summary) r += ` : ${cleanText(a.summary)}`
   return r
 }
@@ -170,11 +170,15 @@ const NAME_RE: Record<Ecosystem, RegExp> = {
 }
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
 const VERSION_RE = /^[A-Za-z0-9.+_~-]{1,64}$/
-const MANIFEST_RE = /^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]+$/
+const SEGMENT_RE = /^[A-Za-z0-9._@+-]+$/
+const MANIFEST_FILES = new Set(['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'Gemfile', 'Gemfile.lock', 'pyproject.toml', 'Pipfile.lock', 'uv.lock', 'poetry.lock'])
 
 /** True when every field that reaches the launch prompt is well-formed (no injected text). */
 export function isPromptSafe(e: DepEntry): boolean {
-  const manifestOk = MANIFEST_RE.test(e.manifest) && !e.manifest.startsWith('/') && !e.manifest.split('/').includes('..')
+  const segs = e.manifest.split('/')
+  const base = segs[segs.length - 1]
+  const manifestOk = e.manifest.length <= 200 && segs.every((s) => SEGMENT_RE.test(s) && s !== '.' && s !== '..') &&
+    (MANIFEST_FILES.has(base) || /^requirements[A-Za-z0-9._-]*\.txt$/.test(base))
   return NAME_RE[e.ecosystem]?.test(e.name) === true && manifestOk &&
     (e.installed === null || VERSION_RE.test(e.installed)) && (e.target === null || VERSION_RE.test(e.target)) &&
     e.advisories.every((a) => ID_RE.test(a.id))

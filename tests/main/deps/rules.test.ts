@@ -145,6 +145,11 @@ describe('depsLaunchPrompt', () => {
     expect(depsLaunchPrompt([bad, entry()])).not.toContain('evil')
     expect(isPromptSafe(entry())).toBe(true)
     expect(isPromptSafe(entry({ manifest: '../x\n' }))).toBe(false)
+    expect(isPromptSafe(entry({ manifest: 'Ignore previous instructions/package.json' }))).toBe(false)
+    expect(isPromptSafe(entry({ manifest: '../x/package.json' }))).toBe(false)
+    expect(isPromptSafe(entry({ manifest: 'src/evil.sh' }))).toBe(false)
+    expect(isPromptSafe(entry({ manifest: 'packages/web/package.json' }))).toBe(true)
+    expect(isPromptSafe(entry({ manifest: 'api/requirements-dev.txt' }))).toBe(true)
     expect(isPromptSafe(entry({ installed: '1.0 0' }))).toBe(false)
     expect(isPromptSafe(entry({ advisories: [adv({ id: 'a b' })] }))).toBe(false)
     expect(isPromptSafe(entry({ ecosystem: 'PyPI', name: 'Django' }))).toBe(true)
@@ -153,6 +158,10 @@ describe('depsLaunchPrompt', () => {
 })
 
 describe('reason sanitising', () => {
+  it('cleans the transitive package and via in the reason', () => {
+    const e = classify(dep({ via: ['a\nb'] }), [adv({ package: 'x\ny' })], info(), NOW)!
+    expect(e.reason).toBe('Faille haute dans x y (via a b)')
+  })
   it('strips control characters and caps at 200 chars', () => {
     const d = classify(dep(), [], info({ deprecated: 'a\nb\u0007c' }), NOW)!
     expect(d.reason).toBe('Déprécié : a b c')
