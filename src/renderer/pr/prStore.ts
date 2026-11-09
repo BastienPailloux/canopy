@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { PrActResult, PrAction, PrDetail, PrOptions, PrSummary } from '../../shared/pr'
 import { useApp } from '../store'
 import { isAttended } from '../shell/polling'
+import { askClaudeInNewTab } from '../sessions/sessionStore'
 
 export type PrSubTab = 'conv' | 'commits' | 'checks' | 'files'
 
@@ -17,11 +18,13 @@ interface PrState {
   error: string | null
   busy: PrAction['type'] | null
   subTab: PrSubTab
+  /** Thread id → the session tab « Faire corriger par Claude » started for it. Kept across worktrees: ids are global. */
+  claudeThreads: Record<string, string>
 }
 
 const EMPTY = { summary: null, detail: null, options: null, error: null, busy: null }
 
-export const usePr = create<PrState>(() => ({ cwd: null, branch: null, ...EMPTY, subTab: 'conv' }))
+export const usePr = create<PrState>(() => ({ cwd: null, branch: null, ...EMPTY, subTab: 'conv', claudeThreads: {} }))
 
 export const POLL_MS = 60_000
 /** A check running or auto-merge on: the PR changes by itself, soon. */
@@ -95,6 +98,15 @@ export async function act(action: PrAction): Promise<PrActResult | null> {
   } finally {
     if (usePr.getState().cwd === cwd) usePr.setState({ busy: null })
   }
+}
+
+/** Starts a new Claude session on the followed worktree with `text` and shows it; `threadId`: the thread it handles. */
+export function sendToClaude(text: string, threadId?: string): void {
+  const { cwd } = usePr.getState()
+  if (!cwd) return
+  const tabId = askClaudeInNewTab(cwd, text)
+  if (threadId) usePr.setState((s) => ({ claudeThreads: { ...s.claudeThreads, [threadId]: tabId } }))
+  useApp.getState().setView('sessions')
 }
 
 export const setSubTab = (subTab: PrSubTab): void => usePr.setState({ subTab })

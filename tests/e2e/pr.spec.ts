@@ -136,3 +136,84 @@ test('gh failing keeps the PR tab and shows the error', async () => {
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.getByTestId('pr-error')).toHaveCount(0)
 })
+
+const thread = (): Locator => page.getByTestId('pr-thread').filter({ hasText: 'src/routes/products.ts' })
+
+test('reply and resolve a thread', async () => {
+  await launch()
+  await openPr()
+  await expect(thread()).toContainText('L19–20')
+  await expect(thread()).toContainText('Should an unknown GTIN return 404')
+
+  await thread().getByRole('button', { name: 'Répondre' }).click()
+  await thread().getByRole('textbox', { name: 'Réponse' }).fill('Fixed in the last push.')
+  await thread().getByRole('button', { name: 'Envoyer la réponse' }).click()
+  await expect(thread()).toContainText('Fixed in the last push.')
+
+  await thread().getByRole('button', { name: 'Résoudre la conversation' }).click()
+  await expect(thread()).toContainText('Résolue')
+  // Resolved: folded, the reopen button stays.
+  await expect(thread()).not.toContainText('Fixed in the last push.')
+  await expect(prTab()).not.toContainText('1')
+  await thread().getByRole('button', { name: 'Rouvrir la conversation' }).click()
+  await expect(thread()).not.toContainText('Résolue')
+
+  expect((await loggedActions()).map((l) => l.action)).toEqual([
+    { type: 'reply', commentId: 501, body: 'Fixed in the last push.' },
+    { type: 'resolve', threadId: 'PRRT_kwDOgtin1', resolved: true },
+    { type: 'resolve', threadId: 'PRRT_kwDOgtin1', resolved: false }
+  ])
+})
+
+test('a Claude reply shows as Claude via Canopy', async () => {
+  await launch()
+  await openPr()
+  const reply = thread().getByTestId('pr-comment').filter({ hasText: 'Good catch' })
+  await expect(reply).toContainText('Claude · via Canopy')
+  await expect(reply).not.toContainText('— Claude via Canopy')
+  // A human comment keeps its login.
+  await expect(page.getByTestId('pr-comment').filter({ hasText: 'document the new route' })).toContainText('theo-m')
+})
+
+test('comment, and approval disabled on one\'s own PR', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('textbox', { name: 'Ajouter un commentaire' }).fill('Merci pour la revue !')
+  await page.getByRole('button', { name: 'Commenter', exact: true }).click()
+  await expect(page.getByTestId('pr-comment').filter({ hasText: 'Merci pour la revue !' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Ajouter un commentaire' })).toHaveValue('')
+  const approve = page.getByRole('button', { name: 'Approuver' })
+  await expect(approve).toBeDisabled()
+  await expect(approve).toHaveAttribute('title', "GitHub ne permet pas d'approuver sa propre PR")
+  expect((await loggedActions()).map((l) => l.action)).toEqual([{ type: 'comment', body: 'Merci pour la revue !' }])
+})
+
+test('Faire corriger par Claude opens a new session with the thread', async () => {
+  await launch()
+  await row(BRANCH).click()
+  // An empty session tab already open: Claude must not take it.
+  await nav().getByRole('button', { name: 'Sessions' }).click()
+  await expect(page.getByRole('tab')).toHaveCount(1)
+  await openPr()
+
+  await thread().getByRole('button', { name: 'Faire corriger par Claude' }).click()
+  await expect(nav().getByRole('button', { name: 'Sessions' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('tab')).toHaveCount(2)
+  await expect(page.getByTestId('assistant-message').last()).toContainText('src/routes/products.ts:19–20')
+  await expect(page.getByTestId('assistant-message').last()).toContainText('comments/501/replies')
+
+  await prTab().click()
+  await expect(thread().getByRole('button', { name: 'Claude a traité le retour' })).toBeVisible()
+  // Nothing goes to GitHub: Claude answers the thread itself.
+  expect(await loggedActions()).toEqual([])
+})
+
+test('Envoyer à Claude sends the comment to a new session and publishes nothing', async () => {
+  await launch()
+  await openPr()
+  await page.getByRole('textbox', { name: 'Ajouter un commentaire' }).fill('Documente la route dans le README.')
+  await page.getByRole('button', { name: 'Envoyer à Claude' }).click()
+  await expect(nav().getByRole('button', { name: 'Sessions' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('assistant-message').last()).toContainText('Documente la route dans le README.')
+  expect(await loggedActions()).toEqual([])
+})

@@ -1,4 +1,5 @@
 import type { PrDetail, PrState } from '../../shared/pr'
+import { Conversation } from './Conversation'
 import { tabCounts } from './mergeModel'
 import { act, setSubTab, usePr, type PrSubTab } from './prStore'
 import './pr.css'
@@ -88,7 +89,9 @@ export function PrScreen(): React.JSX.Element {
               <PrHeader pr={detail} />
               <SubTabs pr={detail} />
             </div>
-            <section className="pr-body" aria-label="Contenu de la PR" data-tab={subTab} />
+            <section className="pr-body" aria-label="Contenu de la PR" data-tab={subTab}>
+              {subTab === 'conv' && <Conversation pr={detail} />}
+            </section>
           </>
         )
         : !error && <div className="placeholder">Chargement de la PR…</div>}

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrDetail, PrSummary } from '../../src/shared/pr'
-import { act, connectPr, followWorktree, pollDelay, refresh, usePr } from '../../src/renderer/pr/prStore'
+import { act, connectPr, followWorktree, pollDelay, refresh, sendToClaude, usePr } from '../../src/renderer/pr/prStore'
+import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { tabCounts } from '../../src/renderer/pr/mergeModel'
 import { useApp } from '../../src/renderer/store'
 
@@ -162,5 +163,19 @@ describe('prStore', () => {
     expect(pollDelay(none)).toBe(60_000)
     expect(pollDelay({ ...none, checks: [...none.checks, { ...none.checks[0], outcome: 'pending' }] })).toBe(15_000)
     expect(pollDelay({ ...none, autoMerge: true })).toBe(15_000)
+  })
+
+  it('sendToClaude starts a new session on the worktree, remembers the thread and shows Sessions', () => {
+    canopy.repoTrust = vi.fn(() => new Promise(() => undefined))
+    usePr.setState({ cwd: '/w', claudeThreads: {} })
+    useSessions.setState({ tabs: {}, active: {} })
+    sendToClaude('corrige', 'PRRT_1')
+    const tabId = useSessions.getState().active['/w']
+    expect(useSessions.getState().tabs[tabId].draft.text).toBe('corrige')
+    expect(usePr.getState().claudeThreads).toEqual({ PRRT_1: tabId })
+    expect(useApp.getState().view).toBe('sessions')
+    sendToClaude('autre')
+    expect(Object.keys(useSessions.getState().tabs)).toHaveLength(2)
+    expect(usePr.getState().claudeThreads).toEqual({ PRRT_1: tabId })
   })
 })
