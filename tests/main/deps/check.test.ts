@@ -120,6 +120,16 @@ describe('checkRepo', () => {
     expect(r.entries[0].advisories[0].severity).toBe('high')
   })
 
+  test('a failure reuses the previous entry only for the same installed version', async () => {
+    const d = dep('lodash', '2.0.0')
+    const prev = prevEntry(dep('lodash', '1.0.0'), { level: 'critical', cause: 'advisory', reason: 'Faille haute : Bad', advisories: [adv({ package: 'lodash' })] })
+    const osvDown = await run(inv([unit([d])]), { advisories: async () => { throw new Error('offline') } }, prevReport([prev]))
+    expect(osvDown.entries.find((e) => e.name === 'lodash')?.level ?? null).not.toBe('critical')
+    expect(osvDown.entries.flatMap((e) => e.advisories)).toEqual([])
+    const registryDown = await run(inv([unit([d])]), { packageInfo: async () => { throw new Error('x') } }, prevReport([{ ...prev, cause: 'deprecated', advisories: [] }]))
+    expect(registryDown.entries).toEqual([])
+  })
+
   test('errors are sorted and deduplicated', async () => {
     const r = await run(inv([unit([], [], { error: 'b' }), unit([], [], { error: 'b' })], { notes: ['a'] }))
     expect(r.errors).toEqual(['a', 'b'])

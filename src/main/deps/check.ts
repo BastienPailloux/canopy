@@ -44,7 +44,9 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
     for (const d of u.deps) {
       jobs.push((async () => {
         const key = depKey(d)
-        const before = prev.get(key)
+        const known = prev.get(key)
+        // What was known about another installed version says nothing about this one.
+        const before = known?.installed === d.version ? known : undefined
         let advisories: Advisory[]
         if (osvFailed) advisories = before?.advisories ?? []
         else {
@@ -54,8 +56,10 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
         // A failed detail lookup yields 'unknown': keep the severity we already knew.
         advisories = advisories.map((a) => {
           if (a.severity !== 'unknown') return a
-          const old = before?.advisories.find((b) => b.id === a.id)
-          return old && old.severity !== 'unknown' ? old : a
+          const old = known?.advisories.find((b) => b.id === a.id)
+          if (!old || old.severity === 'unknown') return a
+          // An advisory's severity is the same for every version, its fix target is not.
+          return before ? old : { ...a, severity: old.severity }
         })
         let info: PackageInfo | null = null
         let failed = osvFailed
