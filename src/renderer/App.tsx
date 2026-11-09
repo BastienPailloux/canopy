@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react'
 import type { Workspace } from '../shared/types'
 import type { Stash } from '../shared/update'
 import { CodeScreen } from './code/CodeScreen'
+import { DepsBanner } from './deps/DepsBanner'
+import { DepsScreen } from './deps/DepsScreen'
+import { connectDeps } from './deps/depsStore'
 import { SessionsView } from './sessions/SessionsView'
 import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
 import { SidePanel } from './sessions/SidePanel'
@@ -10,6 +13,8 @@ import { connectTerminals } from './terminal/terminalStore'
 import { AccountFooter } from './shell/AccountFooter'
 import { CommandBar } from './shell/CommandBar'
 import { Header } from './shell/Header'
+import { NewWorktreeDialog } from './shell/NewWorktreeDialog'
+import { ShortcutHelp } from './shell/ShortcutHelp'
 import { useLayout } from './shell/layoutStore'
 import { dragLeft, dragRight, LEFT_DEFAULT, RAIL_WIDTH, RIGHT_DEFAULT, stepLeft } from './shell/panelWidths'
 import { Resizer } from './shell/Resizer'
@@ -25,6 +30,8 @@ import { LinearEditor } from './tickets/LinearEditor'
 import { parseTicketKey, type TicketKey } from '../shared/tickets'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
+import { QuickTicketDialog, QuickTicketNotice } from './tickets/QuickTicketDialog'
+import { connectShortcutContext, connectShortcuts, showsSidebar } from './shell/shortcuts'
 import { connectUnsaved } from './unsaved'
 import { connectUpdateStash, restoreStash } from './update/stash'
 import { UpdateBanner } from './update/UpdateBanner'
@@ -120,21 +127,44 @@ function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element | null {
   return null
 }
 
+/** Dialogs a shortcut opens from any screen. The sidebar shows the new worktree one itself where it is mounted. */
+function ShortcutDialogs({ repo, sidebar }: { repo: string; sidebar: boolean }): React.JSX.Element {
+  const dialog = useApp((s) => s.dialog)
+  const setDialog = useApp((s) => s.setDialog)
+  const setWorktree = useApp((s) => s.setWorktree)
+  const created = useApp((s) => s.createdTicket)
+  const setCreated = useApp((s) => s.setCreatedTicket)
+  return (
+    <>
+      {dialog === 'new-worktree' && !sidebar && (
+        // The sidebar reads the list again when it comes back: the new worktree is in it by then.
+        <NewWorktreeDialog repo={repo} onClose={() => setDialog(null)} onCreated={(path) => { setDialog(null); setWorktree(path) }} />
+      )}
+      {dialog === 'new-ticket' && <QuickTicketDialog repo={repo} onCreated={setCreated} />}
+      {created && <QuickTicketNotice key={created} id={created} onDone={() => setCreated(null)} />}
+    </>
+  )
+}
+
 export function App(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   const workspace = useApp((s) => s.workspace)
   const view = useApp((s) => s.view)
   const openTicket = useApp((s) => s.openTicket)
   const openMockup = useApp((s) => s.openMockup)
+  const help = useApp((s) => s.dialog === 'shortcuts')
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
   useEffect(() => connectUnsaved(), [])
+  useEffect(() => connectShortcutContext(), [])
+  useEffect(() => connectShortcuts(), [])
   useEffect(() => connectUpdateStash(), [])
   useEffect(() => connectLastEntry(), [])
   useEffect(() => connectTickets(), [])
   useEffect(() => connectLinear(), [])
   useEffect(() => connectMockups(), [])
+  useEffect(() => connectDeps(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
@@ -178,11 +208,16 @@ export function App(): React.JSX.Element {
       <RestoredChip />
       <WhatsNew />
       <Header />
+      <DepsBanner />
+      {help && <ShortcutHelp />}
+      {repo && workspace && <ShortcutDialogs repo={repo} sidebar={showsSidebar(view)} />}
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
           <main className="main tickets-view">{openTicket ? <OpenTicket k={openTicket} /> : <TicketsScreen />}</main>
         ) : repo && workspace && view === 'mockups' ? (
           <main className="main mockups-view">{openMockup ? <MockupEditor id={openMockup} /> : <MockupsScreen />}</main>
+        ) : repo && workspace && view === 'deps' ? (
+          <main className="main deps-view"><DepsScreen /></main>
         ) : repo && workspace ? (
           <>
             <Sidebar repo={repo} workspace={workspace} />

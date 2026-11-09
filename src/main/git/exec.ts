@@ -24,17 +24,33 @@ interface GitOptions {
    * Otherwise both are suppressed.
    */
   trusted?: boolean
+  /**
+   * Merged after the default environment, so it overrides it. Untrusted, the command-line config keys
+   * (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n, GIT_CONFIG_PARAMETERS) of both are dropped: they could name or restore a filter.
+   */
+  env?: NodeJS.ProcessEnv
+  /** The command is killed past this delay. */
+  timeoutMs?: number
 }
 
 /** No hook can be found under it: git looks for `/dev/null/<hook>` and finds nothing. */
 const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null']
 
-function run(cwd: string, args: string[], opts: GitOptions, extraEnv: NodeJS.ProcessEnv = {}, config: string[] = []): Promise<string> {
+/** Command-line config passed through the environment: inherited, it could name or restore a filter. */
+const CONFIG_ENV = /^GIT_CONFIG_(COUNT|PARAMETERS|KEY_\d+|VALUE_\d+)$/
+const withoutConfigEnv = (env: NodeJS.ProcessEnv) => Object.fromEntries(Object.entries(env).filter(([k]) => !CONFIG_ENV.test(k)))
+
+/** `untrusted`: GIT_CONFIG_* keys of the inherited and caller env are dropped, then only `extraEnv` sets them. */
+function run(cwd: string, args: string[], opts: GitOptions, untrusted?: { extraEnv: NodeJS.ProcessEnv; config: string[] }): Promise<string> {
+  const base = { ...currentEnv(), GIT_OPTIONAL_LOCKS: '0', ...opts.env }
+  const env = untrusted ? { ...withoutConfigEnv(base), ...untrusted.extraEnv } : base
   return new Promise((resolve, reject) => {
     const child = execFile(
       'git',
-      [...SAFE_CONFIG, ...config, ...args],
-      { cwd, env: { ...currentEnv(), GIT_OPTIONAL_LOCKS: '0', ...extraEnv }, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024 },
+      [...SAFE_CONFIG, ...untrusted?.config ?? [], ...args],
+      { cwd, env,
+        maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024,
+        ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: 'SIGKILL' as const } : {}) },
       (err, stdout, stderr) => {
         if (err) {
           const e = err as NodeJS.ErrnoException
@@ -91,5 +107,5 @@ async function blankFilters(cwd: string): Promise<NodeJS.ProcessEnv> {
 
 export async function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string> {
   if (opts.trusted) return run(cwd, args, opts)
-  return run(cwd, args, opts, await blankFilters(cwd), NO_HOOKS)
+  return run(cwd, args, opts, { extraEnv: await blankFilters(cwd), config: NO_HOOKS })
 }
