@@ -6,7 +6,7 @@ import { defaultEntry, mergeScan, repoWorktrees, worktreeLabel } from './shell/w
 
 export { worktreeLabel }
 
-export type View = 'sessions' | 'code' | 'tickets' | 'mockups'
+export type View = 'sessions' | 'code' | 'tickets' | 'mockups' | 'deps'
 
 /** A file the Code view must open as soon as it shows. */
 export interface CodeRequest { cwd: string; path: string; mode: 'code' | 'diff'; /** 1-based line to reveal. */ line?: number; /** 1-based column of `line` for the cursor. */ column?: number; seq: number }
