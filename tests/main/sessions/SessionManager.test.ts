@@ -1005,7 +1005,21 @@ test('canopy tools are allowed with no permission request', async () => {
   const id = h.m.start('/a', { content: content('hi') })
   await tick()
   const input = { source: 'local', title: 'x' }
-  await expect(h.queries[0].ask('mcp__canopy__create_ticket', 'r1', { input })).resolves.toEqual({ behavior: 'allow', updatedInput: input })
+  await expect(h.queries[0].ask('mcp__canopy__create_ticket', 'r1', { input, extra: { mcpServer: { source: 'sdk', name: 'canopy' } } }))
+    .resolves.toEqual({ behavior: 'allow', updatedInput: input })
   expect(h.permissions).toEqual([])
   expect(h.stateOf(id)).toBe('running')
+})
+
+test.each([
+  ['a configured server whose name starts with canopy__', 'mcp__canopy__x__run', { mcpServer: { source: 'project', name: 'canopy__x' } }],
+  ['a configured server named canopy', 'mcp__canopy__create_ticket', { mcpServer: { source: 'user', name: 'canopy' } }],
+  ['a call with no server origin', 'mcp__canopy__create_ticket', {}],
+])('a canopy-named tool from %s goes through the permission flow', async (_, tool, extra) => {
+  const h = setup({ canopyServer: () => ({ type: 'sdk', name: 'canopy', instance: {} }) as never })
+  h.m.start('/a', { content: content('hi') })
+  await tick()
+  void h.queries[0].ask(tool, 'r1', { extra })
+  await tick()
+  expect(h.permissions.map((p) => p.toolName)).toEqual([tool])
 })

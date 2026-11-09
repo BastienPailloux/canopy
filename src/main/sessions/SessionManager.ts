@@ -64,8 +64,11 @@ interface Session {
   closed: boolean
 }
 
-/** Prefix of the canopy tools: Claude uses them with no prompt, as Bastien decided (plan mode is refused in the tools). */
-const CANOPY_TOOL_PREFIX = 'mcp__canopy__'
+/**
+ * Claude uses the in-process canopy tools with no prompt, as Bastien decided (plan mode is refused in the tools).
+ * Trust is keyed on the server's origin, not the tool name: a configured server `canopy__x` exposes `mcp__canopy__x__*`.
+ */
+const isCanopyServer = (o: CanUseToolOptions): boolean => o.mcpServer?.source === 'sdk' && o.mcpServer.name === 'canopy'
 
 const WITHDRAWN: PermissionResult = { behavior: 'deny', message: 'Demande annulée.' }
 const INTERRUPTED: readonly unknown[] = ['aborted_tools', 'aborted_streaming']
@@ -399,7 +402,7 @@ export class SessionManager extends EventEmitter<EventMap> {
   ): Promise<PermissionResult> {
     if (s.closed || o.signal.aborted) return Promise.resolve(WITHDRAWN)
     // allowedTools already lets them through; this covers a mode where the SDK still asks.
-    if (toolName.startsWith(CANOPY_TOOL_PREFIX)) return Promise.resolve({ behavior: 'allow', updatedInput: input })
+    if (isCanopyServer(o)) return Promise.resolve({ behavior: 'allow', updatedInput: input })
     const { requestId, signal } = o
     // Other suggestion types would also switch the session's mode or widen its directories.
     const rules = o.suppressAlwaysAllowRule ? [] : (o.suggestions ?? []).filter((u) => u.type === 'addRules')
