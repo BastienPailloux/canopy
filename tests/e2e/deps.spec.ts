@@ -97,6 +97,10 @@ test('banner follows the displayed repo', async () => {
   await page.locator('.repo-picker > button').click()
   await page.getByRole('menuitem', { name: /clean/ }).click()
   await expect(page.locator('.repo-picker > button .name')).toHaveText('clean')
+  // The clean repo's own report is loaded: its absence of banner is a verdict, not a pending read.
+  await nav('Dépendances').click()
+  await expect(page.locator('.deps-screen h2')).toHaveText('Dépendances · clean', { timeout: 30_000 })
+  await expect(page.getByText('Aucun fichier de dépendances reconnu')).toBeVisible({ timeout: 30_000 })
   await expect(banner()).toHaveCount(0)
   await expect(page.getByTestId('deps-count')).toHaveCount(0)
 })
