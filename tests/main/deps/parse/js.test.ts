@@ -108,6 +108,24 @@ describe('parsePackageLock', () => {
     expect(parsePackageLock('web', lockV1).error).toBe('Format de fichier inattendu : web/package-lock.json')
   })
 
+  it('records a nested copy of a direct dep as a transitive of its parent', () => {
+    const u = parsePackageLock('', lock({
+      '': { dependencies: { semver: '^7', a: '^1' } },
+      'node_modules/semver': e('7.6.0'),
+      'node_modules/a': e('1.0.0', { dependencies: { semver: '^5', b: '^1' } }),
+      'node_modules/a/node_modules/semver': e('5.7.1'),
+      'node_modules/b': e('1.0.0', { dependencies: { semver: '^7' } })
+    }))
+    expect(u.transitive.map((d) => [d.name, d.version, d.via])).toEqual([['semver', '5.7.1', ['a']], ['b', '1.0.0', ['a']]])
+    const v1 = parsePackageLock('', JSON.stringify({ lockfileVersion: 1, dependencies: {
+      semver: { version: '7.6.0', resolved: `${REG}semver/-/semver-7.6.0.tgz` },
+      a: { version: '1.0.0', resolved: `${REG}a/-/a-1.0.0.tgz`, requires: { semver: '^5', b: '^1' },
+        dependencies: { semver: { version: '5.7.1', resolved: `${REG}semver/-/semver-5.7.1.tgz` } } },
+      b: { version: '1.0.0', resolved: `${REG}b/-/b-1.0.0.tgz`, requires: { semver: '^7' } }
+    } }), JSON.stringify({ dependencies: { semver: '^7', a: '^1' } }))
+    expect(v1.transitive.map((d) => [d.name, d.version, d.via])).toEqual([['semver', '5.7.1', ['a']], ['b', '1.0.0', ['a']]])
+  })
+
   it('ignores out-of-tree link targets as owners', () => {
     const u = parsePackageLock('', lock({
       '': { dependencies: { l: 'file:../l' } },

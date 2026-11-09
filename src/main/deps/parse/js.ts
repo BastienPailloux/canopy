@@ -80,6 +80,8 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
     const manifest = join(dir, owner, 'package.json')
     const declared = new Set<string>()
     for (const field of DEP_FIELDS) for (const n of Object.keys(packages[owner]?.[field] ?? {})) declared.add(n)
+    // Only the direct dep's own entry is reported as direct: another (nested) version of it is a transitive.
+    const directKeys = new Set([...declared].map((n) => resolveNpm(packages, owner, n)).filter((k) => k !== null))
     for (const name of declared) {
       const key = resolveNpm(packages, owner, name)
       const entry = key ? packages[key] : null
@@ -100,7 +102,7 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
             const ce = packages[ck]
             if (npmEntryPrivate(ce, keyName(ck))) continue
             queue.push(ck)
-            if (declared.has(child)) continue
+            if (directKeys.has(ck)) continue
             const version = typeof ce.version === 'string' ? ce.version : null
             transitive.set(`${manifest}\0${name}\0${child}\0${version}`, dep(child, version, manifest, false, [name]))
           }
@@ -139,7 +141,8 @@ function npmFromV1(dir: string, lock: Obj, pkg: Obj): Unit {
         if (seen.has(ce) || npmEntryPrivate(ce, child)) continue
         seen.add(ce)
         queue.push({ e: ce, scopes: [isObj(ce.dependencies) ? ce.dependencies : {}, ...cur.scopes.slice(i)] })
-        if (declared.has(child)) continue
+        // Only the direct dep's own entry is reported as direct: another (nested) version of it is a transitive.
+        if (declared.has(child) && root[child] === ce) continue
         const version = typeof ce.version === 'string' ? ce.version : null
         transitive.set(`${name}\0${child}\0${version}`, dep(child, version, manifest, false, [name]))
       }
