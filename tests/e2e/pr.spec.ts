@@ -268,3 +268,42 @@ test('the Commits tab lists the commits', async () => {
   await page.getByRole('tab', { name: /Commits/ }).click()
   await expect(page.getByRole('region', { name: 'Contenu de la PR' })).toContainText('feat(products): add gtin lookup route')
 })
+
+test('request Copilot as reviewer, add a label, assign', async () => {
+  await launch()
+  await openPr()
+  const side = page.getByRole('complementary', { name: 'Détails de la PR' })
+  await expect(side.getByRole('region', { name: 'Reviewers' })).toContainText('camille-r')
+  await expect(side.getByRole('region', { name: 'Reviewers' })).toContainText('Approuvé')
+  await expect(side.getByRole('region', { name: 'Ticket lié' })).toHaveCount(0)
+
+  await side.getByRole('button', { name: 'Demander une review', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Filtrer' }).fill('cop')
+  await expect(page.getByRole('option')).toHaveCount(1)
+  await page.getByRole('option', { name: /copilot/ }).click()
+  await expect(side.getByRole('region', { name: 'Reviewers' })).toContainText('copilot')
+
+  await side.getByRole('button', { name: 'Ajouter un label' }).click()
+  await page.getByRole('option', { name: 'bug' }).click()
+  await expect(side.getByRole('region', { name: 'Labels' })).toContainText('bug')
+
+  await side.getByRole('button', { name: 'Assigner quelqu’un' }).click()
+  await page.getByRole('option', { name: 'theo-m' }).click()
+  await expect(side.getByRole('region', { name: 'Assignés' })).toContainText('theo-m')
+
+  // Re-requesting a review from someone who reviewed, then dropping the label again.
+  await side.getByRole('button', { name: 'Redemander une review à camille-r' }).click()
+  await side.getByRole('button', { name: 'Retirer le label bug' }).click()
+  await expect(side.getByRole('region', { name: 'Labels' })).not.toContainText('bug')
+
+  expect((await loggedActions()).map((l) => l.action)).toEqual([
+    { type: 'reviewers', add: ['copilot'], remove: [] },
+    { type: 'labels', add: ['bug'], remove: [] },
+    { type: 'assignees', add: ['theo-m'], remove: [] },
+    { type: 'reviewers', add: ['camille-r'], remove: [] },
+    { type: 'labels', add: [], remove: ['bug'] }
+  ])
+
+  await side.getByRole('button', { name: 'Copier le lien de la PR' }).click()
+  await expect(side.getByRole('button', { name: 'Lien copié' })).toBeVisible()
+})

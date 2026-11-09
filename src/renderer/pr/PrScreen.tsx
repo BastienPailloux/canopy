@@ -1,5 +1,6 @@
 import type { PrDetail, PrState } from '../../shared/pr'
 import { Conversation } from './Conversation'
+import { PrSidebar } from './PrSidebar'
 import { ChecksTab, CommitsTab, FilesTab } from './PrTabs'
 import { tabCounts } from './mergeModel'
 import { act, setSubTab, usePr, type PrSubTab } from './prStore'
@@ -90,12 +91,15 @@ export function PrScreen(): React.JSX.Element {
               <PrHeader pr={detail} />
               <SubTabs pr={detail} />
             </div>
-            <section className="pr-body" aria-label="Contenu de la PR" data-tab={subTab}>
-              {subTab === 'conv' && <Conversation pr={detail} />}
-              {subTab === 'commits' && <CommitsTab pr={detail} />}
-              {subTab === 'checks' && <ChecksTab pr={detail} />}
-              {subTab === 'files' && <FilesTab pr={detail} />}
-            </section>
+            <div className="pr-main">
+              <section className="pr-body" aria-label="Contenu de la PR" data-tab={subTab}>
+                {subTab === 'conv' && <Conversation pr={detail} />}
+                {subTab === 'commits' && <CommitsTab pr={detail} />}
+                {subTab === 'checks' && <ChecksTab pr={detail} />}
+                {subTab === 'files' && <FilesTab pr={detail} />}
+              </section>
+              <PrSidebar pr={detail} />
+            </div>
           </>
         )
         : !error && <div className="placeholder">Chargement de la PR…</div>}

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrCheck, PrDetail, PrThread } from '../../src/shared/pr'
-import { checksSummary, tabCounts } from '../../src/renderer/pr/mergeModel'
+import type { Ticket, TicketListEntry } from '../../src/shared/tickets'
+import { checksSummary, linkedTicket, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
 
 const fixture = (): PrDetail => (JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail
 const thread = (id: string, resolved: boolean): PrThread =>
@@ -63,5 +64,39 @@ describe('checksSummary', () => {
   })
   it('says running while one is pending and none failed', () => {
     expect(checksSummary([c('success'), c('pending')])).toBe('Checks en cours · 1/2 réussis')
+  })
+})
+
+describe('linkedTicket', () => {
+  const local = (branch: string): TicketListEntry => ({ kind: 'ticket', ticket: { id: 'T-1', title: 'Local one', branch } as Ticket })
+  const link = { branch: 'feat/x', worktree: '/w', base: 'main' }
+
+  it('linkedTicket prefers the Linear link and falls back to a local ticket on the branch', () => {
+    expect(linkedTicket('feat/x', { 'CAN-5': link }, [local('feat/x')])).toEqual({ source: 'linear', id: 'CAN-5' })
+    expect(linkedTicket('feat/x', {}, [local('feat/x')])).toEqual({ source: 'local', id: 'T-1', title: 'Local one' })
+    expect(linkedTicket('feat/x', { 'CAN-5': { ...link, branch: 'feat/y' } }, [local('feat/y'), { kind: 'unreadable', file: 'a.md', error: 'x' }])).toBeNull()
+  })
+})
+
+describe('reviewerChoices', () => {
+  const suggested = [
+    { login: 'camille-r', kind: 'user' as const, hint: 'A modifié ces fichiers' },
+    { login: 'acme/core', kind: 'team' as const, hint: 'Équipe' }
+  ]
+
+  it('offers Copilot, keeps people who already reviewed, drops pending ones and filters', () => {
+    const current = [{ login: 'camille-r', kind: 'user' as const, status: 'approved' as const }, { login: 'acme/core', kind: 'team' as const, status: 'pending' as const }]
+    const logins = (q: string): string[] => reviewerChoices(suggested, current, q).map((c) => c.login)
+    expect(logins('')).toEqual(['camille-r', 'copilot'])
+    expect(logins('COP')).toEqual(['copilot'])
+    expect(logins('modifié')).toEqual(['camille-r'])
+  })
+})
+
+describe('sessionText', () => {
+  it('names the session state and falls back to no session', () => {
+    expect(sessionText('running')).toBe('Claude travaille')
+    expect(sessionText('draft')).toBe('Aucune session en cours')
+    expect(sessionText(undefined)).toBe('Aucune session en cours')
   })
 })
