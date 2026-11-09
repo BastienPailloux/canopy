@@ -8,7 +8,7 @@ import { AppStore } from '../../../src/main/appStore'
 import { cleanupAfterMerge, deleteMergedBranch, deleteLocalAfterMerge, updateBase } from '../../../src/main/github/cleanup'
 import type { PrGateway } from '../../../src/main/github/gateway'
 import type { BranchPrState } from '../../../src/main/git/pr'
-import type { PrAction, PrDetail, PrState } from '../../../src/shared/pr'
+import type { PrAction, PrDetail, PrState, PrSummary } from '../../../src/shared/pr'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 const run = promisify(execFile)
@@ -39,9 +39,11 @@ let remoteFails: boolean
 let ghState: PrState
 let ghHead: string | null
 let trusted: boolean
+/** The latest PR of feat/x as `find` returns it; null: #87 in `ghState`. */
+let latest: PrSummary | null
 
 const gateway = (): PrGateway => ({
-  find: async (_cwd, b) => (b === 'feat/x' ? { number: 87, state: ghState, title: 't', url: 'u' } : null),
+  find: async (_cwd, b) => (b === 'feat/x' ? latest ?? { number: 87, state: ghState, title: 't', url: 'u' } : null),
   view: async (_cwd, n) => ({ number: n, state: ghState, head: 'feat/x', headOid: ghHead ?? headOid } as PrDetail),
   options: async () => ({ labels: [], assignable: [], suggested: [] }),
   failedLog: async () => '',
@@ -68,6 +70,7 @@ beforeEach(async () => {
   ghState = 'merged'
   ghHead = null
   trusted = false
+  latest = null
 })
 afterEach(async () => {
   await repo.cleanup()
@@ -235,6 +238,37 @@ describe('cleanupAfterMerge checks', () => {
     expect(await branchExists(repo.path, 'feat/x')).toBe(true)
   })
 
+  it('an old merged PR of a reused branch is not the latest one → nothing touched', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    for (const b of ['feat/y', 'feat/x']) store.recordBranch(wt, b)
+    // #80 merged long ago; the branch was reused for #87, still open
+    latest = { number: 87, state: 'open', title: 't', url: 'u' }
+    const out = await cleanupAfterMerge(wt, { ...req(), number: 80 }, deps())
+    expect(out).toMatchObject({ kind: 'failed', steps: [{ step: 'check', ok: false }] })
+    expect(acts).toEqual([])
+    expect(await git(wt, ['branch', '--show-current'])).toBe('feat/x')
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it('work set aside for the merged branch blocks even once the worktree left it', async () => {
+    await writeFile(join(wt, 'x.txt'), 'changed\n')
+    await git(wt, ['stash', 'push', '-q', '-m', 'canopy:feat/x'])
+    await git(wt, ['switch', '-q', '-c', 'feat/y', 'main'])
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toEqual({ kind: 'dirty', files: 0, setAside: true })
+    expect(acts).toEqual([])
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it('work set aside for another branch does not block', async () => {
+    await git(wt, ['switch', '-q', '-c', 'feat/y', 'main'])
+    await writeFile(join(wt, 'README.md'), 'changed\n')
+    await git(wt, ['stash', 'push', '-q', '-m', 'canopy:feat/y'])
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toEqual({ kind: 'switched', branch: 'feat/y', steps: [{ step: 'remote', ok: true }, { step: 'local', ok: true }] })
+    expect(await branchExists(repo.path, 'feat/x')).toBe(false)
+  })
+
   it('an untrusted main checkout switches to the base but does not update it', async () => {
     await git(repo.path, ['worktree', 'remove', '--force', wt])
     await git(repo.path, ['branch', '-D', 'feat/x'])
@@ -287,6 +321,14 @@ describe('deleteLocalAfterMerge', () => {
     await git(repo.path, ['worktree', 'remove', '--force', wt])
     ghState = 'open'
     expect(await deleteLocalAfterMerge(gateway(), repo.path, 'feat/x')).toEqual({ step: 'local', ok: false, message: "La PR de cette branche n'est pas mergée : branche conservée" })
+    expect(await branchExists(repo.path, 'feat/x')).toBe(true)
+  })
+
+  it('keeps a branch with work set aside for it', async () => {
+    await writeFile(join(wt, 'x.txt'), 'changed\n')
+    await git(wt, ['stash', 'push', '-q', '-m', 'canopy:feat/x'])
+    await git(repo.path, ['worktree', 'remove', '--force', wt])
+    expect(await deleteLocalAfterMerge(gateway(), repo.path, 'feat/x')).toMatchObject({ step: 'local', ok: false })
     expect(await branchExists(repo.path, 'feat/x')).toBe(true)
   })
 

@@ -26,6 +26,9 @@ async function restore(cwd: string, branch: string, trusted: boolean): Promise<{
 export const dirtyCount = async (cwd: string): Promise<number> =>
   (await git(cwd, ['status', '--porcelain', '-z'])).split('\0').filter((e) => e !== '').length
 
+/** Whether Canopy set changes aside for `branch`, wherever its worktree is now: the stash list is the repo's. */
+export const hasSetAsideFor = async (cwd: string, branch: string): Promise<boolean> => (await setAsideIndex(cwd, branch)) >= 0
+
 /** Whether the branch checked out in `cwd` has changes set aside, which a checkout from outside Canopy did not take back. */
 export async function hasSetAsideChanges(cwd: string): Promise<boolean> {
   const branch = await currentBranch(cwd)

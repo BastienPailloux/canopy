@@ -3,7 +3,7 @@ import type { CleanupOutcome, CleanupRequest, CleanupStep } from '../../shared/p
 import type { AppStore } from '../appStore'
 import { git } from '../git/exec'
 import { cachedBaseRef } from '../git/sharedReads'
-import { currentBranch, dirtyCount, hasSetAsideChanges, switchBranch } from '../git/switchBranch'
+import { currentBranch, dirtyCount, hasSetAsideFor, switchBranch } from '../git/switchBranch'
 import { hasRef, listWorktrees } from '../git/worktrees'
 import type { PrGateway } from './gateway'
 
@@ -83,9 +83,14 @@ export async function updateBase(cwd: string, remote: string, trusted: boolean):
   }
 }
 
-/** The head GitHub merged for PR `number` of `branch`, or why it cannot be trusted to be merged. */
+/**
+ * The head GitHub merged for PR `number` of `branch`, or why it cannot be trusted to be merged. It must be the branch's
+ * latest PR (forks left out): an old merged PR of a reused branch says nothing of the work on it now.
+ */
 async function mergedHead(gateway: PrGateway, cwd: string, number: number, branch: string): Promise<{ headOid: string } | { message: string }> {
   try {
+    const latest = await gateway.find(cwd, branch)
+    if (latest === null || latest.number !== number) return { message: `La PR #${number} n'est plus la dernière de la branche ${branch} : rien n'a été nettoyé` }
     const pr = await gateway.view(cwd, number)
     if (pr.number !== number || pr.head !== branch || pr.state !== 'merged') return { message: `La PR #${number} n'est pas mergée : rien n'a été nettoyé` }
     return { headOid: pr.headOid }
@@ -100,12 +105,15 @@ export async function deleteLocalAfterMerge(gateway: PrGateway, repo: string, br
   if (pr === null || pr.state !== 'merged') return { step: 'local', ok: false, message: "La PR de cette branche n'est pas mergée : branche conservée" }
   const merged = await mergedHead(gateway, repo, pr.number, branch)
   if ('message' in merged) return { step: 'local', ok: false, message: merged.message }
+  if (await hasSetAsideFor(repo, branch).catch(() => true)) return { step: 'local', ok: false, message: SET_ASIDE }
   return deleteMergedBranch(repo, branch, merged.headOid)
 }
 
-/** Uncommitted files, and changes Canopy set aside for the branch: either would end up on a deleted branch. */
-async function pendingWork(cwd: string): Promise<CleanupOutcome | null> {
-  const [files, setAside] = await Promise.all([dirtyCount(cwd), hasSetAsideChanges(cwd)])
+const SET_ASIDE = 'Des modifications mises de côté pour cette branche attendent : branche conservée'
+
+/** Uncommitted files, and changes Canopy set aside for the merged `branch`: either would end up on a deleted branch. */
+async function pendingWork(cwd: string, branch: string): Promise<CleanupOutcome | null> {
+  const [files, setAside] = await Promise.all([dirtyCount(cwd), hasSetAsideFor(cwd, branch)])
   if (setAside) return { kind: 'dirty', files, setAside: true }
   return files > 0 ? { kind: 'dirty', files } : null
 }
@@ -122,7 +130,7 @@ export async function cleanupAfterMerge(cwd: string, req: CleanupRequest, d: Cle
   const merged = await mergedHead(d.gateway, cwd, req.number, req.branch)
   if ('message' in merged) return { kind: 'failed', steps: [{ step: 'check', ok: false, message: merged.message }] }
   const headOid = merged.headOid
-  const pending = await pendingWork(cwd)
+  const pending = await pendingWork(cwd, req.branch)
   if (pending) return pending
   const steps: CleanupStep[] = []
   // a protected branch, or one GitHub already deleted: reported, the rest goes on
@@ -158,7 +166,7 @@ export async function cleanupAfterMerge(cwd: string, req: CleanupRequest, d: Cle
   if (target === null) return { kind: 'proposeRemoval', steps }
 
   // Files changed since the first check would be set aside on the branch about to be deleted.
-  const late = await pendingWork(cwd)
+  const late = await pendingWork(cwd, req.branch)
   if (late) return late
   try {
     const { conflict } = await switchBranch(cwd, target, { trusted: d.trusted })
