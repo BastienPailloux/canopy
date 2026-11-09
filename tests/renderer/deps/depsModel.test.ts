@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Advisory, DepEntry, DepsReport } from '../../../src/shared/deps'
 import {
-  bannerText, canSelect, initialSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
+  bannerText, canSelect, emptyNotes, initialSelection, lastCheckText, levelLabel, promptSplit, selectableKeys, statusLine
 } from '../../../src/renderer/deps/depsModel'
 
 const adv = (severity: Advisory['severity'], id = 'GHSA-xxxx-yyyy-zzzz'): Advisory =>
@@ -107,5 +107,19 @@ describe('statusLine', () => {
   it('appends the first error', () => {
     expect(statusLine({ ...base, errors: ['Fichier illisible : a/yarn.lock', 'Registre npm injoignable'] }, now))
       .toBe('Dernière vérification : il y a 5 min · échec : Fichier illisible : a/yarn.lock')
+  })
+  it('starts with the error when no check ever answered', () => {
+    expect(statusLine({ ...base, checkedAt: null, errors: ['Failles non vérifiées : offline'] }, now)).toBe('Échec : Failles non vérifiées : offline')
+  })
+})
+
+describe('emptyNotes', () => {
+  const r: DepsReport = { repo: '/r', checkedAt: 1, entries: [], errors: [], baseRef: null, manifests: 0 }
+  it('says no file was recognized when nothing went wrong', () => {
+    expect(emptyNotes(r)).toEqual(['Aucun fichier de dépendances reconnu'])
+  })
+  it('shows why the repo was skipped instead', () => {
+    expect(emptyNotes({ ...r, errors: ['Dépôt partiel : dépendances non vérifiées'] })).toEqual(['Dépôt partiel : dépendances non vérifiées'])
+    expect(emptyNotes({ ...r, errors: ['Branche de base introuvable'] })).toEqual(['Branche de base introuvable'])
   })
 })

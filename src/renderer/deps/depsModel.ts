@@ -65,7 +65,13 @@ export function lastCheckText(r: DepsReport, now: number): string {
 /** The last-check line, with the first error when the check had any (the full list is shown under the table). */
 export function statusLine(r: DepsReport, now: number): string {
   const line = lastCheckText(r, now)
-  return r.errors.length ? `${line} · échec : ${r.errors[0]}` : line
+  if (!r.errors.length) return line
+  return line ? `${line} · échec : ${r.errors[0]}` : `Échec : ${r.errors[0]}`
+}
+
+/** What the screen says for a report without any dependency file: why the repo was skipped, when it was. */
+export function emptyNotes(r: DepsReport): string[] {
+  return r.errors.length ? r.errors : ['Aucun fichier de dépendances reconnu']
 }
 
 /** The entries `depsLaunchPrompt` keeps, and the ones it drops for an unusual name or path (shown to the user). */

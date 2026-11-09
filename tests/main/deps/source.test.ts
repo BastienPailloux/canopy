@@ -341,7 +341,7 @@ describe('readInventory', { timeout: 60_000 }, () => {
 
   test('returns a null base when none resolves', async () => {
     repo = await createRepo({ branch: 'topic' })
-    expect(await readInventory(repo.path)).toMatchObject({ baseRef: null, units: [], notes: [] })
+    expect(await readInventory(repo.path)).toMatchObject({ baseRef: null, units: [], notes: ['Branche de base introuvable'] })
   })
 
   test('JS priority: package-lock > pnpm > yarn', async () => {

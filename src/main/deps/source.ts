@@ -237,7 +237,7 @@ export async function readInventory(repo: string, o: { fetch?: boolean; fetchTim
     // Fresh read: the shared cache could still hold the ref as it was before the fetch.
     base = await resolveBaseRef(root, { env: NO_LAZY_FETCH }).catch(() => base)
   }
-  if (!base) return { repo: root, baseRef: null, units: [], notes: [] }
+  if (!base) return { repo: root, baseRef: null, units: [], notes: [...notes, 'Branche de base introuvable'] }
 
   const read = await readAtRef(root, base.ref)
   return { ...read, repo: root, notes: [...notes, ...read.notes] }

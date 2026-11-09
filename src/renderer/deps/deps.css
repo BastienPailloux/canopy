@@ -117,6 +117,7 @@
 }
 .deps-empty strong { color: var(--fg); font-size: 14px; }
 .deps-empty span { color: var(--fg-3); font-size: 12px; }
+.deps-empty p { margin: 0; }
 .deps-error { margin: 12px 0 0; color: var(--del); font-size: 12px; }
 .deps-errors {
   margin: 12px 0 0;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DepEntry } from '../../shared/deps'
 import { basename, useApp } from '../store'
 import { DepsLaunchDialog } from './DepsLaunchDialog'
-import { canSelect, initialSelection, levelLabel, selectableKeys, statusLine } from './depsModel'
+import { canSelect, emptyNotes, initialSelection, levelLabel, selectableKeys, statusLine } from './depsModel'
 import { recheckDeps, useDeps } from './depsStore'
 
 /** Only the two URLs main builds (advisory, registry) are ever opened, through the checked external opener. */
@@ -90,7 +90,7 @@ export function DepsScreen(): React.JSX.Element {
         <button className="secondary" disabled={!repo} onClick={() => void recheckDeps()}>Revérifier</button>
       </div>
     )
-  else if (report.manifests === 0) body = <p className="deps-empty">Aucun fichier de dépendances reconnu</p>
+  else if (report.manifests === 0) body = <div className="deps-empty">{emptyNotes(report).map((m) => <p key={m}>{m}</p>)}</div>
   else if (entries.length === 0) body = <div className="deps-empty"><strong>Tout est à jour</strong>{checked && <span>{checked}</span>}</div>
   else body = (
     <table className="deps-table">
@@ -120,7 +120,7 @@ export function DepsScreen(): React.JSX.Element {
       <div className="deps-body">
         {body}
         {error && <p className="deps-error" role="alert">{error}</p>}
-        {report && report.errors.length > 0 && (
+        {report && report.manifests > 0 && report.errors.length > 0 && (
           <ul className="deps-errors">{report.errors.map((m) => <li key={m}>{m}</li>)}</ul>
         )}
       </div>
