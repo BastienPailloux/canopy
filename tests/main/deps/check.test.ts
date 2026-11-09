@@ -40,6 +40,17 @@ describe('checkRepo', () => {
     expect(r.entries.find((x) => x.name === 'b')?.level).not.toBe('critical')
   })
 
+  test("a nested older copy's advisory is a transitive flaw, not the direct's own", async () => {
+    const x = dep('x', '2.0.0'), nested = dep('x', '1.0.0', { via: ['x'] })
+    const r = await run(inv([unit([x], [nested])]), {
+      packageInfo: async () => info({ latest: '2.1.0' }),
+      advisories: async () => new Map([[advisoryKey(nested), [adv({ package: 'x', version: '1.0.0', fixed: '1.0.5' })]]])
+    })
+    const e = r.entries.find((d) => d.name === 'x')!
+    expect(e.target).toBe('2.1.0')
+    expect(e.reason).toBe('Faille haute dans x 1.0.0 (via x)')
+  })
+
   test('only queries packageInfo for direct deps', async () => {
     const asked: string[] = []
     await run(inv([unit([dep('a', '1.0.0')], [dep('t', '1.0.0', { via: ['a'] })])]), { packageInfo: async (_h, d) => { asked.push(d.name); return info() } })

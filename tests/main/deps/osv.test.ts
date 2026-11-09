@@ -52,7 +52,7 @@ describe('advisoriesFor', () => {
     })
     const m = await advisoriesFor(f.http, [dep('a', '1.0.0'), dep('b', '2.0.0')])
     expect(f.gets).toEqual(['https://api.osv.dev/v1/vulns/GHSA-1'])
-    expect(m.get(advisoryKey(dep('a', '1.0.0')))).toEqual([{ id: 'GHSA-1', package: 'a', severity: 'moderate', summary: 'Bad', fixed: null, url: 'https://osv.dev/vulnerability/GHSA-1' }])
+    expect(m.get(advisoryKey(dep('a', '1.0.0')))).toEqual([{ id: 'GHSA-1', package: 'a', version: '1.0.0', severity: 'moderate', summary: 'Bad', fixed: null, url: 'https://osv.dev/vulnerability/GHSA-1' }])
     expect(m.get(advisoryKey(dep('b', '2.0.0')))![0].package).toBe('b')
   })
 
@@ -99,7 +99,7 @@ describe('advisoriesFor', () => {
   test('a failed detail still shows the advisory as unknown', async () => {
     const f = fake((q) => q.map(() => ({ vulns: [{ id: 'X-9' }] })))
     expect((await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(advisoryKey(dep('a', '1.0.0')))).toEqual([
-      { id: 'X-9', package: 'a', severity: 'unknown', summary: '', fixed: null, url: 'https://osv.dev/vulnerability/X-9' }
+      { id: 'X-9', package: 'a', version: '1.0.0', severity: 'unknown', summary: '', fixed: null, url: 'https://osv.dev/vulnerability/X-9' }
     ])
   })
 
@@ -134,5 +134,19 @@ describe('advisoriesFor', () => {
     modified = 'm2'
     await advisoriesFor(f.http, [dep('a', '1.0.0')], cache)
     expect(f.gets.filter((g) => g.endsWith('X-1'))).toHaveLength(2)
+  })
+
+  test('advisories carry the queried version, and the cache keeps only derived fields', async () => {
+    const f = fake((q) => q.map(() => ({ vulns: [{ id: 'X-1', modified: 'm' }] })), {
+      'X-1': detail({ summary: 'Bad', details: 'long text', references: [{ url: 'u' }], database_specific: { severity: 'HIGH' },
+        affected: [{ package: { name: 'a', ecosystem: 'npm' }, ranges: [{ events: [{ introduced: '0' }, { fixed: '1.0.5' }] }], versions: ['1.0.0'] }] })
+    })
+    const cache = new Map()
+    const m = await advisoriesFor(f.http, [dep('a', '1.0.0')], cache)
+    expect(m.get(advisoryKey(dep('a', '1.0.0')))![0]).toMatchObject({ version: '1.0.0', fixed: '1.0.5', severity: 'high', summary: 'Bad' })
+    expect([...cache.values()]).toEqual([{ severity: 'high', summary: 'Bad', fixes: [{ ecosystem: 'npm', name: 'a', fixed: '1.0.5' }] }])
+    const again = await advisoriesFor(f.http, [dep('a', '1.0.2')], cache)
+    expect(again.get(advisoryKey(dep('a', '1.0.2')))![0]).toMatchObject({ version: '1.0.2', fixed: '1.0.5', severity: 'high' })
+    expect(f.gets).toHaveLength(1)
   })
 })

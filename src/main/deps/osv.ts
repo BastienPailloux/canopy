@@ -13,8 +13,12 @@ const norm = (ecosystem: string, name: string) => (ecosystem === 'PyPI' ? name.t
 /** Key of `advisoriesFor` results: advisories depend on the package version, not on the manifest that lists it. */
 export const advisoryKey = (d: Pick<Dep, 'ecosystem' | 'name' | 'version'>) => `${d.ecosystem}:${norm(d.ecosystem, d.name)}@${d.version}`
 
+/** What an advisory says, reduced to what we show: OSV documents can be large, only this is kept. */
+export interface Detail { severity: Severity; summary: string
+  /** Every `fixed` event, per affected package (name normalized). */
+  fixes: { ecosystem: string; name: string; fixed: string }[] }
 /** Advisory details by `${id}\0${modified}`: a changed advisory gets a new `modified`, so a hit is never stale. */
-export type DetailCache = Map<string, Record<string, unknown>>
+export type DetailCache = Map<string, Detail>
 const CACHE_MAX = 5000
 const sharedCache: DetailCache = new Map()
 
@@ -25,17 +29,25 @@ function severityOf(v: Raw): Severity {
   return s ? severityFromCvss(s.score) : 'unknown'
 }
 
-/** Smallest `fixed` above the installed version among the ranges of the entries about this package. */
-function fixedOf(v: Raw, d: Dep): string | null {
-  let best: string | null = null
+function fixesOf(v: Raw): Detail['fixes'] {
+  const out: Detail['fixes'] = []
   for (const a of Array.isArray(v.affected) ? v.affected : []) {
-    if (!isObj(a) || a.package?.ecosystem !== d.ecosystem || typeof a.package?.name !== 'string' || norm(d.ecosystem, a.package.name) !== norm(d.ecosystem, d.name)) continue
+    if (!isObj(a) || typeof a.package?.ecosystem !== 'string' || typeof a.package?.name !== 'string') continue
     for (const r of Array.isArray(a.ranges) ? a.ranges : []) {
       for (const e of Array.isArray(r?.events) ? r.events : []) {
-        if (typeof e?.fixed !== 'string') continue
-        if (compareVersions(e.fixed, d.version!) > 0 && (best === null || compareVersions(e.fixed, best) < 0)) best = e.fixed
+        if (typeof e?.fixed === 'string') out.push({ ecosystem: a.package.ecosystem, name: norm(a.package.ecosystem, a.package.name), fixed: e.fixed })
       }
     }
+  }
+  return out
+}
+
+/** Smallest `fixed` above the installed version among the entries about this package. */
+function fixedOf(v: Detail, d: Dep): string | null {
+  let best: string | null = null
+  for (const f of v.fixes) {
+    if (f.ecosystem !== d.ecosystem || f.name !== norm(d.ecosystem, d.name)) continue
+    if (compareVersions(f.fixed, d.version!) > 0 && (best === null || compareVersions(f.fixed, best) < 0)) best = f.fixed
   }
   return best
 }
@@ -77,7 +89,7 @@ export async function advisoriesFor(http: Http, deps: Dep[], cache: DetailCache 
   }
 
   const limit = createLimiter(6)
-  const details = new Map<string, Promise<Raw | null>>()
+  const details = new Map<string, Promise<Detail | null>>()
   const detail = (id: string, modified: string | null) => {
     const ck = modified === null ? null : `${id}\0${modified}`
     const hit = ck === null ? undefined : cache.get(ck)
@@ -85,7 +97,10 @@ export async function advisoriesFor(http: Http, deps: Dep[], cache: DetailCache 
     let p = details.get(id)
     if (!p) {
       p = limit(async () => {
-        try { const v = (await http.getJson(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`)).body; return isObj(v) ? v : null } catch { return null }
+        try {
+          const v = (await http.getJson(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`)).body
+          return isObj(v) ? { severity: severityOf(v), summary: summaryOf(v), fixes: fixesOf(v) } : null
+        } catch { return null }
       }).then((v) => {
         if (v && ck !== null) {
           if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!)
@@ -103,8 +118,8 @@ export async function advisoriesFor(http: Http, deps: Dep[], cache: DetailCache 
       const v = await detail(id, modified)
       const url = `https://osv.dev/vulnerability/${id}`
       // A failed lookup still shows the advisory: better a vague warning than a hidden flaw.
-      if (!v) return { id, package: d.name, severity: 'unknown', summary: '', fixed: null, url }
-      return { id, package: d.name, severity: severityOf(v), summary: summaryOf(v), fixed: fixedOf(v, d), url }
+      if (!v) return { id, package: d.name, version: d.version!, severity: 'unknown', summary: '', fixed: null, url }
+      return { id, package: d.name, version: d.version!, severity: v.severity, summary: v.summary, fixed: fixedOf(v, d), url }
     }))
     out.set(advisoryKey(d), list)
   }))

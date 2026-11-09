@@ -55,7 +55,7 @@ const isStr = (v: unknown): v is string => typeof v === 'string'
 const isStrOrNull = (v: unknown) => v === null || isStr(v)
 const isStrArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr)
 const LEVELS = new Set(['critical', 'soon', 'later', 'private', 'pinless'])
-const isAdvisory = (a: unknown) => isObj(a) && isStr(a.id) && isStr(a.package) && isStr(a.severity) && isStr(a.summary) && isStrOrNull(a.fixed) && isStr(a.url)
+const isAdvisory = (a: unknown) => isObj(a) && isStr(a.id) && isStr(a.package) && (a.version === undefined || isStr(a.version)) && isStr(a.severity) && isStr(a.summary) && isStrOrNull(a.fixed) && isStr(a.url)
 const isEntry = (e: unknown) => isObj(e) && isStr(e.key) && isStr(e.ecosystem) && isStr(e.name) && isStr(e.manifest) &&
   isStrOrNull(e.installed) && isStrOrNull(e.target) && isStr(e.level) && LEVELS.has(e.level) && isStr(e.cause) && isStr(e.reason) &&
   Array.isArray(e.advisories) && e.advisories.every(isAdvisory) && isStrOrNull(e.registryUrl)

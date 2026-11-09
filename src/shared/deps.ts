@@ -7,7 +7,10 @@ export type Level = 'critical' | 'soon' | 'later'
 export interface Dep { ecosystem: Ecosystem; name: string; version: string | null; manifest: string; private: boolean; via?: string[]
   /** Set only when private because a strict unit (pnpm, yarn berry) has no registry declared for this scope, e.g. '@babel'. */
   unmappedScope?: string }
-export interface Advisory { id: string; package: string; severity: Severity; summary: string; fixed: string | null; url: string }
+export interface Advisory { id: string; package: string
+  /** The version of `package` it was found for; absent in reports stored before it existed. */
+  version?: string
+  severity: Severity; summary: string; fixed: string | null; url: string }
 export interface PackageInfo { latest: string | null; deprecated: string | null; yanked: boolean; inactive: boolean; lastRelease: string | null }
 export interface DepEntry {
   /** `${ecosystem}:${manifest}:${name}` */
@@ -152,9 +155,16 @@ function cleanText(t: string): string {
   return c.length > 200 ? c.slice(0, 199) + '…' : c
 }
 
+/** About this very package and version, not a transitive one (another copy of the same package included). */
+const isOwn = (a: Advisory, d: Dep) => a.package === d.name && (a.version === undefined || a.version === d.version)
+
 function adviceReason(a: Advisory, d: Dep): string {
   let r = SEVERITY_LABEL[a.severity]
-  if (a.package !== d.name) return `${r} dans ${cleanText(a.package)} (via ${cleanText(d.via?.length ? d.via.join(' > ') : d.name)})`
+  if (!isOwn(a, d)) {
+    // Another copy of the same package: its version tells it apart.
+    const what = a.package === d.name && a.version ? `${a.package} ${a.version}` : a.package
+    return `${r} dans ${cleanText(what)} (via ${cleanText(d.via?.length ? d.via.join(' > ') : d.name)})`
+  }
   if (a.summary) r += ` : ${cleanText(a.summary)}`
   return r
 }
@@ -175,7 +185,7 @@ export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | nul
 
   let target = latest
   // A transitive advisory's `fixed` is a version of the other package, not of this one.
-  const own = advisories.filter((a) => a.package === d.name)
+  const own = advisories.filter((a) => isOwn(a, d))
   const inMajor = (f: string | null): f is string => !!f && sameMajor(f, d.version!)
   const unfixable = own.some((a) => SEVERITY_RANK[a.severity] >= SEVERITY_RANK.high && !inMajor(a.fixed))
   const fixes = own.map((a) => a.fixed).filter(inMajor)
