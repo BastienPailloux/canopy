@@ -3,6 +3,7 @@
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { DepsReport } from './deps'
+import type { ShortcutContext } from './shortcuts'
 import type { LaunchCandidate, LaunchRequest, LaunchTarget, Ticket, TicketFields, TicketListEntry } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 import type {
@@ -171,6 +172,10 @@ export interface CanopyApi {
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
   /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts, ticket edits not written. */
   reportUnsaved(counts: { buffers: number; drafts: number; tickets: number; comments: number }): Promise<void>
+  /** Tells the main process what is active, so that it greys the shortcuts that would do nothing. */
+  reportShortcutContext(ctx: ShortcutContext): Promise<void>
+  /** Opens macOS dictation on the focused field. */
+  startDictation(): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
