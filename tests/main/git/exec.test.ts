@@ -76,6 +76,31 @@ describe('filters a repo sets for itself', () => {
     }
   })
 
+  test('an inherited GIT_CONFIG_* env cannot undo the blanking of filters', async () => {
+    await filtered('evil')
+    config('filter.evil.clean', `touch '${marker('inherited-ran')}'; cat`)
+    const cases: Record<string, string>[] = [{ GIT_CONFIG_COUNT: '0' }, { GIT_CONFIG_KEY_0: 'core.quotepath', GIT_CONFIG_VALUE_0: 'false' },
+      { GIT_CONFIG_PARAMETERS: `'filter.evil.clean'='touch ${marker('inherited-ran')}; cat'` },
+      { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'filter.evil.clean', GIT_CONFIG_VALUE_0: `touch '${marker('inherited-ran')}'; cat` }]
+    for (const env of cases) {
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
+      await git(repo!.path, ['diff', '--numstat', 'HEAD'])
+      expect(await ran('inherited-ran'), JSON.stringify(env)).toBe(false)
+      vi.unstubAllEnvs()
+    }
+  })
+
+  test('an inherited GIT_CONFIG_* env cannot name a filter the repo uses', async () => {
+    await filtered('evil')
+    const cmd = `touch '${marker('env-filter-ran')}'; cat`
+    for (const env of [{ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'filter.evil.clean', GIT_CONFIG_VALUE_0: cmd }, { GIT_CONFIG_PARAMETERS: `'filter.evil.clean'='${cmd.replace(/'/g, "'\\''")}'` }]) {
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
+      await git(repo!.path, ['diff', '--numstat', 'HEAD'])
+      vi.unstubAllEnvs()
+      expect(await ran('env-filter-ran'), JSON.stringify(env)).toBe(false)
+    }
+  })
+
   test('a filter with an empty name does not run either', async () => {
     await filtered('')
     config('filter..clean', `touch '${marker('empty-name-ran')}'; cat`)
