@@ -1,6 +1,6 @@
 import { classify, depKey, isValidPackageName, type Advisory, type Dep, type DepEntry, type DepsReport, type PackageInfo } from '../../shared/deps'
 import { createLimiter, HttpError, type Http } from './http'
-import { advisoriesFor } from './osv'
+import { advisoriesFor, advisoryKey } from './osv'
 import { packageInfo as defaultPackageInfo } from './registries'
 import { readInventory } from './source'
 
@@ -48,8 +48,8 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
         let advisories: Advisory[]
         if (osvFailed) advisories = before?.advisories ?? []
         else {
-          advisories = [...(found.get(key) ?? [])]
-          for (const t of u.transitive) if (t.via?.[0] === d.name) advisories.push(...(found.get(depKey(t)) ?? []))
+          advisories = [...(found.get(advisoryKey(d)) ?? [])]
+          for (const t of u.transitive) if (t.via?.[0] === d.name && t.manifest === d.manifest) advisories.push(...(found.get(advisoryKey(t)) ?? []))
         }
         // A failed detail lookup yields 'unknown': keep the severity we already knew.
         advisories = advisories.map((a) => {

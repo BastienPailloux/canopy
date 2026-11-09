@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { advisoriesFor } from '../../../src/main/deps/osv'
+import { advisoriesFor, advisoryKey } from '../../../src/main/deps/osv'
 import type { Http } from '../../../src/main/deps/http'
-import { depKey, type Dep } from '../../../src/shared/deps'
+import type { Dep } from '../../../src/shared/deps'
 
 const dep = (name: string, version: string | null, o: Partial<Dep> = {}): Dep =>
   ({ ecosystem: 'npm', name, version, manifest: 'package-lock.json', private: false, ...o })
@@ -29,7 +29,7 @@ describe('advisoriesFor', () => {
     const m = await advisoriesFor(f.http, [dep('ok', '1.0.0'), dep('priv', '1.0.0', { private: true }), dep('nover', null), dep('bad name; rm', '1.0.0'), dep('../x', '1.0.0')])
     expect(f.posts).toHaveLength(1)
     expect(f.posts[0].body).toEqual({ queries: [{ package: { name: 'ok', ecosystem: 'npm' }, version: '1.0.0' }] })
-    expect([...m.keys()]).toEqual([depKey(dep('ok', '1.0.0'))])
+    expect([...m.keys()]).toEqual([advisoryKey(dep('ok', '1.0.0'))])
   })
 
   test('splits OSV queries in batches of 1000', async () => {
@@ -52,13 +52,13 @@ describe('advisoriesFor', () => {
     })
     const m = await advisoriesFor(f.http, [dep('a', '1.0.0'), dep('b', '2.0.0')])
     expect(f.gets).toEqual(['https://api.osv.dev/v1/vulns/GHSA-1'])
-    expect(m.get(depKey(dep('a', '1.0.0')))).toEqual([{ id: 'GHSA-1', package: 'a', severity: 'moderate', summary: 'Bad', fixed: null, url: 'https://osv.dev/vulnerability/GHSA-1' }])
-    expect(m.get(depKey(dep('b', '2.0.0')))![0].package).toBe('b')
+    expect(m.get(advisoryKey(dep('a', '1.0.0')))).toEqual([{ id: 'GHSA-1', package: 'a', severity: 'moderate', summary: 'Bad', fixed: null, url: 'https://osv.dev/vulnerability/GHSA-1' }])
+    expect(m.get(advisoryKey(dep('b', '2.0.0')))![0].package).toBe('b')
   })
 
   test.each([['CRITICAL', 'critical'], ['HIGH', 'high'], ['MODERATE', 'moderate'], ['MEDIUM', 'moderate'], ['LOW', 'low']])('maps %s', async (label, sev) => {
     const f = fake((q) => q.map(() => ({ vulns: [{ id: 'X-1' }] })), { 'X-1': detail({ database_specific: { severity: label } }) })
-    expect((await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(depKey(dep('a', '1.0.0')))![0].severity).toBe(sev)
+    expect((await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(advisoryKey(dep('a', '1.0.0')))![0].severity).toBe(sev)
   })
 
   test('falls back to the CVSS_V3 vector, then unknown', async () => {
@@ -66,7 +66,7 @@ describe('advisoriesFor', () => {
       'X-1': detail({ severity: [{ type: 'CVSS_V2', score: 'AV:N' }, { type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }] }),
       'X-2': detail({ details: 'First line\nsecond' })
     })
-    const a = (await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(depKey(dep('a', '1.0.0')))!
+    const a = (await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(advisoryKey(dep('a', '1.0.0')))!
     expect(a.map((x) => x.severity)).toEqual(['critical', 'unknown'])
     expect(a[1].summary).toBe('First line')
   })
@@ -84,7 +84,7 @@ describe('advisoriesFor', () => {
         ]
       })
     })
-    const a = (await advisoriesFor(f.http, [dep('tar', '5.0.2')])).get(depKey(dep('tar', '5.0.2')))!
+    const a = (await advisoriesFor(f.http, [dep('tar', '5.0.2')])).get(advisoryKey(dep('tar', '5.0.2')))!
     expect(a[0].fixed).toBe('5.0.10')
   })
 
@@ -93,12 +93,12 @@ describe('advisoriesFor', () => {
       'X-1': detail({ affected: [{ package: { name: 'Foo_Bar', ecosystem: 'PyPI' }, ranges: [{ events: [{ introduced: '0' }, { fixed: '2.0' }] }] }] })
     })
     const d = dep('foo.bar', '1.0', { ecosystem: 'PyPI' })
-    expect((await advisoriesFor(f.http, [d])).get(depKey(d))![0].fixed).toBe('2.0')
+    expect((await advisoriesFor(f.http, [d])).get(advisoryKey(d))![0].fixed).toBe('2.0')
   })
 
   test('a failed detail still shows the advisory as unknown', async () => {
     const f = fake((q) => q.map(() => ({ vulns: [{ id: 'X-9' }] })))
-    expect((await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(depKey(dep('a', '1.0.0')))).toEqual([
+    expect((await advisoriesFor(f.http, [dep('a', '1.0.0')])).get(advisoryKey(dep('a', '1.0.0')))).toEqual([
       { id: 'X-9', package: 'a', severity: 'unknown', summary: '', fixed: null, url: 'https://osv.dev/vulnerability/X-9' }
     ])
   })
@@ -111,5 +111,28 @@ describe('advisoriesFor', () => {
     }
     await advisoriesFor(http, [dep('a', '1.0.0')])
     expect(max).toBe(6)
+  })
+
+  test('queries each name@version once and keys results by version', async () => {
+    const f = fake((q) => q.map((x: any) => (x.version === '0.0.8' ? { vulns: [{ id: 'X-1' }] } : {})), { 'X-1': detail({ database_specific: { severity: 'CRITICAL' } }) })
+    const m = await advisoriesFor(f.http, [dep('minimist', '0.0.8'), dep('minimist', '0.0.8', { manifest: 'web/package-lock.json' }), dep('minimist', '1.2.8')])
+    expect(f.posts[0].body.queries.map((q: any) => q.version)).toEqual(['0.0.8', '1.2.8'])
+    expect(m.get(advisoryKey(dep('minimist', '0.0.8')))!.map((a) => a.severity)).toEqual(['critical'])
+    expect(m.get(advisoryKey(dep('minimist', '1.2.8')))).toEqual([])
+    expect(advisoryKey(dep('Foo_Bar', '1.0', { ecosystem: 'PyPI' }))).toBe(advisoryKey(dep('foo.bar', '1.0', { ecosystem: 'PyPI', manifest: 'x' })))
+  })
+
+  test('reuses an advisory detail across calls while its modified date is unchanged', async () => {
+    let modified = 'm1'
+    const f = fake((q) => q.map(() => ({ vulns: [{ id: 'X-1', modified }, { id: 'X-2', modified }] })), { 'X-1': detail({ summary: 'Bad' }) })
+    const cache = new Map()
+    await advisoriesFor(f.http, [dep('a', '1.0.0')], cache)
+    const again = await advisoriesFor(f.http, [dep('b', '1.0.0')], cache)
+    expect(again.get(advisoryKey(dep('b', '1.0.0')))![0].summary).toBe('Bad')
+    // X-1 is cached; X-2 failed and is asked again.
+    expect(f.gets).toEqual(['https://api.osv.dev/v1/vulns/X-1', 'https://api.osv.dev/v1/vulns/X-2', 'https://api.osv.dev/v1/vulns/X-2'])
+    modified = 'm2'
+    await advisoriesFor(f.http, [dep('a', '1.0.0')], cache)
+    expect(f.gets.filter((g) => g.endsWith('X-1'))).toHaveLength(2)
   })
 })

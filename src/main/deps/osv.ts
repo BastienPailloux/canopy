@@ -1,4 +1,4 @@
-import { compareVersions, depKey, isValidPackageName, severityFromCvss, type Advisory, type Dep, type Severity } from '../../shared/deps'
+import { compareVersions, isValidPackageName, severityFromCvss, type Advisory, type Dep, type Severity } from '../../shared/deps'
 import { createLimiter, type Http } from './http'
 
 const BATCH = 1000
@@ -9,6 +9,14 @@ type Raw = Record<string, any>
 const isObj = (v: unknown): v is Raw => typeof v === 'object' && v !== null
 
 const norm = (ecosystem: string, name: string) => (ecosystem === 'PyPI' ? name.toLowerCase().replace(/[-_.]+/g, '-') : name)
+
+/** Key of `advisoriesFor` results: advisories depend on the package version, not on the manifest that lists it. */
+export const advisoryKey = (d: Pick<Dep, 'ecosystem' | 'name' | 'version'>) => `${d.ecosystem}:${norm(d.ecosystem, d.name)}@${d.version}`
+
+/** Advisory details by `${id}\0${modified}`: a changed advisory gets a new `modified`, so a hit is never stale. */
+export type DetailCache = Map<string, Record<string, unknown>>
+const CACHE_MAX = 5000
+const sharedCache: DetailCache = new Map()
 
 function severityOf(v: Raw): Severity {
   const label = v.database_specific?.severity
@@ -38,13 +46,20 @@ function summaryOf(v: Raw): string {
 }
 
 /**
- * Advisories per queried dep (key = depKey). Private, unpinned and invalidly named deps are never sent.
+ * Advisories per queried package version (key = advisoryKey). Private, unpinned and invalidly named deps are never sent,
+ * and a name@version listed by several manifests is asked once. Details are kept across calls in `cache` (successes only).
  * `next_page_token` of a batch result is ignored: batches are small enough that a dep with >1000 advisories is not a real case.
  */
-export async function advisoriesFor(http: Http, deps: Dep[]): Promise<Map<string, Advisory[]>> {
+export async function advisoriesFor(http: Http, deps: Dep[], cache: DetailCache = sharedCache): Promise<Map<string, Advisory[]>> {
   const out = new Map<string, Advisory[]>()
-  const eligible = deps.filter((d) => !d.private && d.version !== null && isValidPackageName(d.ecosystem, d.name))
-  const ids = new Map<Dep, string[]>()
+  const unique = new Map<string, Dep>()
+  for (const d of deps) {
+    if (d.private || d.version === null || !isValidPackageName(d.ecosystem, d.name)) continue
+    const k = advisoryKey(d)
+    if (!unique.has(k)) unique.set(k, d)
+  }
+  const eligible = [...unique.values()]
+  const ids = new Map<Dep, { id: string; modified: string | null }[]>()
   for (let i = 0; i < eligible.length; i += BATCH) {
     const chunk = eligible.slice(i, i + BATCH)
     const res: any = await http.postJson('https://api.osv.dev/v1/querybatch', {
@@ -53,17 +68,30 @@ export async function advisoriesFor(http: Http, deps: Dep[]): Promise<Map<string
     const results = Array.isArray(res?.results) ? res.results : []
     chunk.forEach((d, j) => {
       const vulns = Array.isArray(results[j]?.vulns) ? results[j].vulns : []
-      ids.set(d, [...new Set<string>(vulns.map((v: Raw) => v?.id).filter((id: unknown): id is string => typeof id === 'string' && ID_RE.test(id)))])
+      const byId = new Map<string, string | null>()
+      for (const v of vulns) {
+        if (typeof v?.id === 'string' && ID_RE.test(v.id) && !byId.has(v.id)) byId.set(v.id, typeof v.modified === 'string' ? v.modified : null)
+      }
+      ids.set(d, [...byId].map(([id, modified]) => ({ id, modified })))
     })
   }
 
   const limit = createLimiter(6)
   const details = new Map<string, Promise<Raw | null>>()
-  const detail = (id: string) => {
+  const detail = (id: string, modified: string | null) => {
+    const ck = modified === null ? null : `${id}\0${modified}`
+    const hit = ck === null ? undefined : cache.get(ck)
+    if (hit) return Promise.resolve(hit)
     let p = details.get(id)
     if (!p) {
       p = limit(async () => {
         try { const v = (await http.getJson(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`)).body; return isObj(v) ? v : null } catch { return null }
+      }).then((v) => {
+        if (v && ck !== null) {
+          if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!)
+          cache.set(ck, v)
+        }
+        return v
       })
       details.set(id, p)
     }
@@ -71,14 +99,14 @@ export async function advisoriesFor(http: Http, deps: Dep[]): Promise<Map<string
   }
 
   await Promise.all(eligible.map(async (d) => {
-    const list = await Promise.all((ids.get(d) ?? []).map(async (id): Promise<Advisory> => {
-      const v = await detail(id)
+    const list = await Promise.all((ids.get(d) ?? []).map(async ({ id, modified }): Promise<Advisory> => {
+      const v = await detail(id, modified)
       const url = `https://osv.dev/vulnerability/${id}`
       // A failed lookup still shows the advisory: better a vague warning than a hidden flaw.
       if (!v) return { id, package: d.name, severity: 'unknown', summary: '', fixed: null, url }
       return { id, package: d.name, severity: severityOf(v), summary: summaryOf(v), fixed: fixedOf(v, d), url }
     }))
-    out.set(depKey(d), list)
+    out.set(advisoryKey(d), list)
   }))
   return out
 }

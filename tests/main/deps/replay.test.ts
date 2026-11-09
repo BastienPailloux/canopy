@@ -41,10 +41,10 @@ describe('replayHttp', () => {
   test('answers querybatch from the per-package map and details from vulns/<id>', async () => {
     const h = replayHttp(FIX)
     const m = await advisoriesFor(h, [d('tar', '6.1.11'), d('zustand', '5.0.1')])
-    const tar = m.get('npm:package-lock.json:tar')!
+    const tar = m.get('npm:tar@6.1.11')!
     expect(tar).toHaveLength(1)
     expect(tar[0]).toMatchObject({ severity: 'critical', fixed: '6.2.1' })
-    expect(m.get('npm:package-lock.json:zustand')).toEqual([])
+    expect(m.get('npm:zustand@5.0.1')).toEqual([])
   })
 
   test('fixtures give the four scenarios', async () => {

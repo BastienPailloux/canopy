@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { checkRepo, type CheckDeps } from '../../../src/main/deps/check'
 import { HttpError, type Http } from '../../../src/main/deps/http'
+import { advisoryKey } from '../../../src/main/deps/osv'
 import type { Inventory } from '../../../src/main/deps/source'
 import { depKey, type Advisory, type Dep, type DepEntry, type DepsReport, type PackageInfo } from '../../../src/shared/deps'
 
@@ -22,11 +23,21 @@ describe('checkRepo', () => {
   test('attaches a transitive advisory to the direct dep of via[0]', async () => {
     const direct = dep('express', '4.0.0'), other = dep('lodash', '1.0.0')
     const trans = dep('qs', '1.0.0', { via: ['express', 'qs'] })
-    const r = await run(inv([unit([direct, other], [trans])]), { advisories: async () => new Map([[depKey(trans), [adv({ package: 'qs' })]]]) })
+    const r = await run(inv([unit([direct, other], [trans])]), { advisories: async () => new Map([[advisoryKey(trans), [adv({ package: 'qs' })]]]) })
     const e = r.entries.find((x) => x.name === 'express')!
     expect(e.level).toBe('critical')
     expect(e.reason).toBe('Faille haute dans qs (via express)')
     expect(r.entries.find((x) => x.name === 'lodash')?.level).not.toBe('critical')
+  })
+
+  test('attaches advisories of the exact version each direct dep brings', async () => {
+    const a = dep('a', '1.0.0'), b = dep('b', '1.0.0')
+    const old = dep('minimist', '0.0.8', { via: ['a'] }), fresh = dep('minimist', '1.2.8', { via: ['b'] })
+    const r = await run(inv([unit([a, b], [old, fresh])]), {
+      advisories: async () => new Map([[advisoryKey(old), [adv({ package: 'minimist', severity: 'critical' })]], [advisoryKey(fresh), []]])
+    })
+    expect(r.entries.find((x) => x.name === 'a')?.level).toBe('critical')
+    expect(r.entries.find((x) => x.name === 'b')?.level).not.toBe('critical')
   })
 
   test('only queries packageInfo for direct deps', async () => {
@@ -88,7 +99,7 @@ describe('checkRepo', () => {
     const d = dep('lodash', '1.0.0')
     const r = await run(inv([unit([d])]), {
       packageInfo: async () => { throw new HttpError(429, 'u') },
-      advisories: async () => new Map([[depKey(d), [adv({ package: 'lodash' })]]])
+      advisories: async () => new Map([[advisoryKey(d), [adv({ package: 'lodash' })]]])
     }, prevReport([prevEntry(d, {})]))
     expect(r.entries[0].level).toBe('critical')
     expect(r.entries[0].advisories).toHaveLength(1)
@@ -104,7 +115,7 @@ describe('checkRepo', () => {
   test('an unknown severity from a failed detail lookup keeps the previous known one', async () => {
     const d = dep('lodash', '1.0.0')
     const prev = prevEntry(d, { level: 'critical', cause: 'advisory', advisories: [adv({ package: 'lodash', severity: 'high' })] })
-    const r = await run(inv([unit([d])]), { advisories: async () => new Map([[depKey(d), [adv({ package: 'lodash', severity: 'unknown' })]]]) }, prevReport([prev]))
+    const r = await run(inv([unit([d])]), { advisories: async () => new Map([[advisoryKey(d), [adv({ package: 'lodash', severity: 'unknown' })]]]) }, prevReport([prev]))
     expect(r.entries[0].level).toBe('critical')
     expect(r.entries[0].advisories[0].severity).toBe('high')
   })
