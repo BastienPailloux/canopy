@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { useApp } from '../../src/renderer/store'
 import { connectShortcutContext, nextWorktree, runShortcut, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
 import { SHORTCUTS } from '../../src/shared/shortcuts'
 import type { Worktree } from '../../src/shared/types'
 
-beforeEach(() => { useApp.setState({ view: 'sessions', repo: null, worktree: null, worktrees: [], orphans: [], workspace: null, dialog: null }) })
+beforeEach(() => { useSessions.setState({ focusRequest: null }); useApp.setState({ view: 'sessions', repo: null, worktree: null, worktrees: [], orphans: [], workspace: null, dialog: null }) })
 afterEach(() => { vi.unstubAllGlobals() })
 
 it('tells the main process what is active, only when it changes', () => {
@@ -20,7 +21,7 @@ it('tells the main process what is active, only when it changes', () => {
 })
 
 const wt = (path: string): Worktree => ({ path, branch: path.slice(1), head: 'abc1234', isMain: path === '/a' }) as Worktree
-const deps = (over: Partial<ShortcutDeps> = {}): ShortcutDeps => ({ modalOpen: () => false, newTab: vi.fn(() => 'tab'), startDictation: vi.fn(), ...over })
+const deps = (over: Partial<ShortcutDeps> = {}): ShortcutDeps => ({ modalOpen: () => false, newTab: vi.fn(() => 'tab'), ...over })
 const open = (): void => { useApp.setState({ repo: '/a', worktree: '/a', worktrees: [wt('/a'), wt('/b')] }) }
 
 it('nextWorktree walks the list in a loop', () => {
@@ -78,7 +79,7 @@ it('nothing happens behind a modal', () => {
   for (const s of SHORTCUTS) runShortcut(s.id, d)
   expect(useApp.getState()).toMatchObject({ view: 'sessions', worktree: '/a', dialog: null })
   expect(d.newTab).not.toHaveBeenCalled()
-  expect(d.startDictation).not.toHaveBeenCalled()
+  expect(useSessions.getState().focusRequest ?? null).toBeNull()
 })
 
 it('without a repo nothing throws and no tab opens', () => {
@@ -86,4 +87,12 @@ it('without a repo nothing throws and no tab opens', () => {
   for (const s of SHORTCUTS) expect(() => runShortcut(s.id, d)).not.toThrow()
   expect(d.newTab).not.toHaveBeenCalled()
   expect(useApp.getState().dialog === null || useApp.getState().dialog === 'shortcuts').toBe(true)
+})
+
+it('dictation shows Sessions and asks the composer for the focus and the dictation', () => {
+  open()
+  useApp.setState({ view: 'code' })
+  runShortcut('dictation', deps())
+  expect(useApp.getState().view).toBe('sessions')
+  expect(useSessions.getState().focusRequest).toMatchObject({ cwd: '/a', dictate: true })
 })

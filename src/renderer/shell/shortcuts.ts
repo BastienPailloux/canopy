@@ -1,5 +1,5 @@
 import { SHORTCUTS, shortcutEnabled, type ShortcutId } from '../../shared/shortcuts'
-import { newTab } from '../sessions/sessionStore'
+import { newTab, requestComposerFocus } from '../sessions/sessionStore'
 import { useApp, type AppDialog, type View } from '../store'
 
 /** Keeps the main process told of what is active, so that it greys the menu entries that would do nothing. */
@@ -29,7 +29,6 @@ export interface ShortcutDeps {
   /** A dialog is in front: nothing may change behind it. */
   modalOpen: () => boolean
   newTab: (cwd: string) => string
-  startDictation: () => void
 }
 
 const VIEWS: Partial<Record<ShortcutId, View>> = { 'view-sessions': 'sessions', 'view-code': 'code', 'view-tickets': 'tickets', 'view-mockups': 'mockups' }
@@ -55,7 +54,9 @@ export function runShortcut(id: ShortcutId, deps: ShortcutDeps): void {
     deps.newTab(worktree)
     app.setView('sessions')
   } else if (id === 'dictation') {
-    deps.startDictation()
+    app.setView('sessions')
+    // The composer starts dictation once it holds the focus: before that, macOS would dictate into nothing.
+    requestComposerFocus(worktree, true)
   }
 }
 
@@ -65,8 +66,7 @@ const isShortcutId = (v: unknown): v is ShortcutId => SHORTCUTS.some((s) => s.id
 export function connectShortcuts(): () => void {
   const deps: ShortcutDeps = {
     modalOpen: () => document.querySelector('[aria-modal="true"]') !== null,
-    newTab,
-    startDictation: () => undefined
+    newTab
   }
   return window.canopy.on('menu:shortcut', (id) => { if (isShortcutId(id)) runShortcut(id, deps) })
 }

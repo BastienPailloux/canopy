@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -28,7 +28,7 @@ let storage: Map<string, string>
 beforeEach(() => {
   storage = new Map()
   vi.stubGlobal('localStorage', { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v) } })
-  useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null })
+  useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null, focusRequest: null })
   api = {
     repoTrust: vi.fn(async () => TRUSTED),
     trustRepo: vi.fn(async () => undefined),
@@ -480,5 +480,18 @@ describe('modeFrom', () => {
     expect(modeFrom(message({ type: 'system', subtype: 'status', status: 'requesting' }))).toBeUndefined()
     expect(modeFrom(message({ type: 'assistant', permissionMode: 'plan' }))).toBeUndefined()
     expect(modeFrom(message({ type: 'system', subtype: 'init', permissionMode: 'bypassPermissions' }))).toBeUndefined()
+  })
+})
+
+describe('requestComposerFocus', () => {
+  it('creates a tab when there is none and asks its composer for the focus', () => {
+    requestComposerFocus(CWD, false)
+    expect(tabs()).toHaveLength(1)
+    const first = useSessions.getState().focusRequest
+    expect(first).toMatchObject({ cwd: CWD, dictate: false })
+    requestComposerFocus(CWD, true)
+    expect(tabs()).toHaveLength(1)
+    expect(useSessions.getState().focusRequest).toMatchObject({ dictate: true })
+    expect(useSessions.getState().focusRequest?.seq).toBeGreaterThan(first!.seq)
   })
 })

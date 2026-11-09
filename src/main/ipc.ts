@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { startDictation } from './dictation'
 import { applyShortcutContext, parseShortcutContext } from './shortcutMenu'
 import { access } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
@@ -168,6 +169,7 @@ export function registerIpc(
     const parsed = parseShortcutContext(ctx)
     if (parsed) applyShortcutContext(Menu.getApplicationMenu(), parsed)
   })
+  ipcMain.handle('dictation:start', () => { if (process.platform === 'darwin') startDictation((a) => Menu.sendActionToFirstResponder(a)) })
 
   const prs = new PrCache()
   const orphans = new OrphanTracker()

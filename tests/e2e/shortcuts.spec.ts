@@ -111,3 +111,11 @@ test('⌘⇧H lists every shortcut', async () => {
   await page.keyboard.press('Escape')
   await expect(help).toBeHidden()
 })
+
+// Real dictation is not checked: in the hidden window the native call shows nothing to assert on.
+test('⌘⇧D focuses the composer on Sessions', async () => {
+  await press('view-code')
+  await press('dictation')
+  await expect(nav('Sessions')).toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('#composer')).toBeFocused()
+})

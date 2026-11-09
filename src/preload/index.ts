@@ -31,6 +31,7 @@ const api: CanopyApi = {
   orphanedWorktrees: (root) => ipcRenderer.invoke('worktree:orphans', root),
   reportUnsaved: (counts) => ipcRenderer.invoke('app:unsaved', counts),
   reportShortcutContext: (ctx) => ipcRenderer.invoke('shortcuts:context', ctx),
+  startDictation: () => ipcRenderer.invoke('dictation:start'),
   updateState: () => ipcRenderer.invoke('update:state'),
   restartToUpdate: () => ipcRenderer.invoke('update:restart'),
   submitStash: (s) => ipcRenderer.invoke('update:submitStash', s),

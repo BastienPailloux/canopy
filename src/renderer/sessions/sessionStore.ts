@@ -50,6 +50,8 @@ interface SessionsState {
   /** Past sessions per worktree. */
   summaries: Record<string, SessionSummary[]>
   trustPrompt: TrustPrompt | null
+  /** The composer of `cwd` is to take the focus, then open dictation if `dictate`; `seq` tells requests apart. */
+  focusRequest: { cwd: string; dictate: boolean; seq: number } | null
 }
 
 export const NEW_SESSION_TITLE = 'Nouvelle session'
@@ -64,7 +66,8 @@ export const useSessions = create<SessionsState>(() => ({
   active: {},
   permissions: [],
   summaries: {},
-  trustPrompt: null
+  trustPrompt: null,
+  focusRequest: null
 }))
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -118,6 +121,12 @@ export function ensureTab(cwd: string): void {
   const [first] = tabsOf(cwd)
   if (first) selectTab(cwd, first.id)
   else newTab(cwd)
+}
+
+/** Asks the composer of the selected tab of `cwd`, made if need be, for the focus, and for dictation if `dictate`. */
+export function requestComposerFocus(cwd: string, dictate: boolean): void {
+  ensureTab(cwd)
+  useSessions.setState((s) => ({ focusRequest: { cwd, dictate, seq: (s.focusRequest?.seq ?? 0) + 1 } }))
 }
 
 /** The only way a session stops from the UI: switching view, worktree or repo never does. */

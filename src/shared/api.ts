@@ -173,6 +173,8 @@ export interface CanopyApi {
   reportUnsaved(counts: { buffers: number; drafts: number; tickets: number; comments: number }): Promise<void>
   /** Tells the main process what is active, so that it greys the shortcuts that would do nothing. */
   reportShortcutContext(ctx: ShortcutContext): Promise<void>
+  /** Opens macOS dictation on the focused field. */
+  startDictation(): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
