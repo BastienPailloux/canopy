@@ -185,7 +185,7 @@ export class TicketStore {
     checkId(id)
     const out: Ticket[] = []
     for (const e of await this.list(repo)) if (e.kind === 'ticket' && e.ticket.parent === id) out.push(e.ticket)
-    return out
+    return out.sort((x, y) => x.id.localeCompare(y.id, 'en', { numeric: true }))
   }
 
   create(repo: string, f: TicketFields): Promise<Ticket> {

@@ -205,6 +205,13 @@ describe('TicketStore', () => {
       expect((await store.children(repo.path, a.id)).map((t) => t.id)).toEqual([b.id])
     })
 
+    it('sorts children by number, not lexicographically', async () => {
+      const a = await store.create(repo.path, fields())
+      const ids: string[] = []
+      for (let i = 0; i < 10; i++) ids.push((await store.create(repo.path, fields({ parent: a.id }))).id)
+      expect((await store.children(repo.path, a.id)).map((t) => t.id)).toEqual(ids)
+    })
+
     it('refuses a missing parent', async () => {
       await expect(store.create(repo.path, fields({ parent: 'CAN-99' }))).rejects.toThrow('Parent introuvable : CAN-99')
     })

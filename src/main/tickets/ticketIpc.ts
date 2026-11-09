@@ -28,7 +28,7 @@ function assertId(id: unknown): asserts id is string {
 
 
 /** Checks the fields present in `raw`; unknown keys are refused. */
-function parseFields(raw: unknown): Partial<TicketFields> {
+export function parseFields(raw: unknown): Partial<TicketFields> {
   if (!isObject(raw)) throw bad('Ticket')
   for (const k of Object.keys(raw)) if (!(FIELD_KEYS as string[]).includes(k)) throw bad(`Champ ${k}`)
   const { title, description, status, priority, labels, subtasks, branch, worktree, base, parent } = raw
@@ -56,7 +56,8 @@ function parseFields(raw: unknown): Partial<TicketFields> {
   return out as Partial<TicketFields>
 }
 
-function parseNewTicket(raw: unknown): TicketFields {
+/** Like parseFields, with a required title and defaults for a new ticket. */
+export function parseNewTicket(raw: unknown): TicketFields {
   const f = parseFields(raw)
   if (typeof f.title !== 'string' || f.title.trim() === '') throw bad('Titre')
   return { description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...f, title: f.title }
