@@ -1,7 +1,8 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { memo, useCallback, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { Markdown } from './Markdown'
 import { PermissionCard } from './PermissionCard'
+import { pinnedUserIndex } from './pinnedPrompt'
 import { QuestionCard, questionsOf } from './QuestionCard'
 import { interrupt, type SessionTab, useSessions } from './sessionStore'
 import { ToolCard } from './ToolCard'
@@ -62,7 +63,9 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
   const { tab } = props
   const { items } = tab.transcript
   const scroller = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
   const following = useRef(true)
+  const [pinned, setPinned] = useState<number>()
   const rows = useVirtualizer({
     count: items.length,
     getScrollElement: () => scroller.current,
@@ -79,13 +82,34 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
 
   const onScroll = (): void => {
     const el = scroller.current
-    if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_PX
+    if (!el) return
+    following.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_PX
+    // Row offsets start below the list's own top padding. The rendered range may still be stale here, measurements are not.
+    const top = Math.max(0, el.scrollTop - (list.current?.offsetTop ?? 0))
+    const row = rows.getVirtualItemForOffset(top)
+    setPinned(row ? pinnedUserIndex(items, [row], top) : undefined)
   }
+
+  const goToPinned = (): void => {
+    if (pinned === undefined) return
+    following.current = false
+    rows.scrollToIndex(pinned, { align: 'start' })
+  }
+
+  const pinnedItem = pinned === undefined ? undefined : items[pinned]
 
   return (
     <>
       <div className="conversation" ref={scroller} onScroll={onScroll} data-testid="conversation">
-        <div className="conversation-rows" style={{ height: total }}>
+        {pinnedItem?.kind === 'user' && (
+          <div className="pinned-prompt-anchor">
+            <button type="button" className="pinned-prompt" data-testid="pinned-prompt"
+              title="Revenir à ce message" onClick={goToPinned}>
+              {pinnedItem.text}
+            </button>
+          </div>
+        )}
+        <div className="conversation-rows" ref={list} style={{ height: total }}>
           {rows.getVirtualItems().map((row) => {
             const item = items[row.index]
             const tight = item.kind === 'tool' && items[row.index + 1]?.kind === 'tool'
