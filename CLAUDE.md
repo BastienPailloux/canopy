@@ -36,6 +36,8 @@ src/
   shared/     types et contrats partagés main/renderer (aucune dépendance Electron ni DOM)
 tests/        miroir de src : main/, renderer/, scripts/, e2e/, helpers/
 scripts/release/  calcul de version et notes de release (exécuté en CI)
+scripts/ci/       vérifications de CI (titre de PR conventionnel)
+.github/          workflows ci, pr-title, codeql, release ; dependabot
 build/        icônes, entitlements, CLI `canopy` (shell script copié dans le bundle)
 ```
 
@@ -61,6 +63,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 - Toute logique dans `main/`, `shared/` ou `scripts/` a son test Vitest dans le dossier miroir de `tests/`. Les tests git créent de vrais repos temporaires (`tests/helpers/repo.ts`).
 - Un parcours utilisateur visible ajoute ou adapte un spec Playwright dans `tests/e2e/` (un worker, timeout 60 s).
 - Avant de déclarer un travail terminé : `npm run typecheck && npm test` doivent passer, et `npm run test:e2e` si l'UI ou le main ont changé.
+- La CI (`.github/workflows/ci.yml`, `pr-title.yml`, `codeql.yml`) rejoue tout cela sur chaque PR vers `develop`, plus `npm audit --omit=dev --audit-level=high`, la validation du titre de PR et CodeQL. Une dépendance livrée vulnérable bloque le merge : la corriger (mise à jour ou `overrides` dans `package.json`), pas contourner le check. Détails : `docs/release.md`, section 4 ter.
 
 ## Git et branches
 

@@ -1,0 +1,28 @@
+name: pr-title
+
+# Separate from ci.yml: renaming a PR re-checks its title without re-running the whole CI.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: conventional title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: node scripts/ci/check-pr-title.ts
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
