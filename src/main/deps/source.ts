@@ -130,25 +130,36 @@ function tracker(root: string, tree: Tree) {
 }
 type Tracker = ReturnType<typeof tracker>
 
-/** Parsed units by root and lockfile path, LRU: parsing a big lockfile blocks the main process, unchanged ones are never parsed again. */
-const CACHE_MAX = 200
-const parsed = new Map<string, { files: [string, string | null][]; value: unknown }>()
+/**
+ * Parsed units per repo root, then lockfile path: parsing a big lockfile blocks the main process, unchanged ones
+ * are never parsed again. One map per repo, so a pass over many repos never evicts a repo before its next check.
+ * A read keeps only the paths it used: a repo holds at most its own lockfiles. `forgetRepo` drops a repo's map.
+ */
+type Parsed = { files: [string, string | null][]; value: unknown; read: number }
+const parsed = new Map<string, { read: number; entries: Map<string, Parsed> }>()
+
+/** Drops the parsed lockfiles of a repo no longer watched (`root` as given to readAtRef). */
+export function forgetRepo(root: string): void {
+  parsed.delete(root)
+}
+
+function repoCache(root: string) {
+  let c = parsed.get(root)
+  if (!c) { c = { read: 0, entries: new Map() }; parsed.set(root, c) }
+  return c
+}
 
 async function cached<T>(root: string, tree: Tree, path: string, produce: (t: Tracker) => Promise<T>): Promise<T> {
-  const key = `${root}\0${path}`
-  const hit = parsed.get(key)
+  const cache = repoCache(root)
+  const hit = cache.entries.get(path)
   if (hit && hit.files.every(([p, oid]) => (tree.get(p) ?? null) === oid)) {
-    parsed.delete(key)
-    parsed.set(key, hit)
+    hit.read = cache.read
     return hit.value as T
   }
   const t = tracker(root, tree)
   const value = await produce(t)
-  parsed.delete(key)
-  if (!t.failed()) {
-    parsed.set(key, { files: [...t.files], value })
-    if (parsed.size > CACHE_MAX) parsed.delete(parsed.keys().next().value!)
-  }
+  cache.entries.delete(path)
+  if (!t.failed()) cache.entries.set(path, { files: [...t.files], value, read: cache.read })
   return value
 }
 
@@ -371,6 +382,9 @@ export async function readAtRef(root: string, ref: string, o: { home?: string; e
   const { tree, byDir } = groupListing(listing)
   const units: Unit[] = []
   const user = await userConfigs(o.home ?? homedir(), o.env ?? process.env)
+  const cache = repoCache(root)
+  const read = ++cache.read
   for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!, user))
+  for (const [path, e] of cache.entries) if (e.read !== read) cache.entries.delete(path)
   return { repo: root, baseRef: ref, units, notes: [] }
 }

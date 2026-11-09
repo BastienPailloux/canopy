@@ -16,6 +16,7 @@ import { checkRepo } from './deps/check'
 import { depsFirstPassDelay, selectDepsHttp } from './deps/replay'
 import { createDepsService } from './deps/service'
 import { createRegistry } from './deps/registries'
+import { forgetRepo } from './deps/source'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
@@ -166,7 +167,7 @@ void app.whenReady().then(async () => {
     check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now, packageInfo: depsRegistry.packageInfo }, repo, prev),
     repos: () => listDepsRepos(store.recentRepos),
     file: join(userData, 'deps-reports.json'),
-    now: Date.now, setInterval, clearInterval, setTimeout, clearTimeout, broadcast,
+    now: Date.now, setInterval, clearInterval, setTimeout, clearTimeout, broadcast, forget: forgetRepo,
     firstPassDelayMs: depsFirstPassDelay({ isPackaged: app.isPackaged, env: process.env })
   })
   let depsHooks: ReturnType<typeof registerDepsIpc> | null = null

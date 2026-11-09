@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import { git as gitSpy } from '../../../src/main/git/exec'
-import { EXCLUDED_DIRS, groupListing, readAtRef, readInventory } from '../../../src/main/deps/source'
+import { EXCLUDED_DIRS, forgetRepo, groupListing, readAtRef, readInventory } from '../../../src/main/deps/source'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 // Pass-through spy: lets a test list the git commands readInventory ran.
@@ -501,6 +501,28 @@ describe('parsed lockfile cache', { timeout: 60_000 }, () => {
     expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: true, b: true, bar: false, foo: false })
     await commitAll(repo, { 'requirements-base.txt': '--index-url https://corp/simple\nbar==1.0\n' })
     expect(priv(await readAtRef(repo.path, 'main'))).toEqual({ a: true, b: true, bar: true, foo: true })
+  })
+})
+
+describe('parsed lockfile cache across repos', { timeout: 120_000 }, () => {
+  const reads = () => vi.mocked(gitSpy).mock.calls.filter(([, args]) => args.includes('cat-file')).length
+  let other: TestRepo | undefined
+  afterEach(async () => { await other?.cleanup(); other = undefined })
+  const many = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`g${i}/Gemfile.lock`, GEMS]))
+
+  test('a pass over several big repos does not evict the first one, and forgetRepo drops a repo', async () => {
+    repo = await createRepo()
+    other = await createRepo()
+    await commitAll(repo, many(120))
+    await commitAll(other, many(120))
+    await readAtRef(repo.path, 'main')
+    await readAtRef(other.path, 'main')
+    vi.mocked(gitSpy).mockClear()
+    await readAtRef(repo.path, 'main')
+    expect(reads()).toBe(0)
+    forgetRepo(repo.path)
+    await readAtRef(repo.path, 'main')
+    expect(reads()).toBe(120)
   })
 })
 

@@ -22,6 +22,8 @@ export interface DepsServiceDeps {
   /** FIRST_PASS_DELAY_MS by default. */
   firstPassDelayMs?: number
   broadcast: (event: string, payload: unknown) => void
+  /** Called for each repo dropped from the list: frees what the checks keep for it (parsed lockfiles). */
+  forget?: (repo: string) => void
   log?: (msg: string, err: unknown) => void
 }
 
@@ -91,6 +93,7 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
         Object.keys(reports).filter((r) => r === entry || r.startsWith(`${entry}/`))
     }))
     const keep = new Set(entries.flatMap((e) => e.repos))
+    for (const r of new Set([...previous?.flatMap((e) => e.repos) ?? [], ...Object.keys(reports)])) if (!keep.has(r)) d.forget?.(r)
     let dropped = false
     for (const k of Object.keys(reports)) if (!keep.has(k)) { delete reports[k]; dropped = true }
     for (const k of Object.keys(dismissed)) if (!keep.has(k)) { delete dismissed[k]; dropped = true }

@@ -207,6 +207,18 @@ describe('createDepsService', () => {
     await expect(t.svc.recheck('/b')).rejects.toThrow('Dépôt inconnu')
   })
 
+  test('forget is called for each repo dropped from the list', async () => {
+    let list = [{ entry: '/a', repos: ['/a', '/b'] }]
+    const forgotten: string[] = []
+    const t = setup({ repos: async () => list, forget: (r) => forgotten.push(r) })
+    t.svc.start()
+    await until(t, 2)
+    expect(forgotten).toEqual([])
+    list = [{ entry: '/a', repos: ['/a'] }]
+    t.tick()
+    await vi.waitFor(() => { expect(forgotten).toEqual(['/b']) })
+  })
+
   test('a failing check keeps the previous report, logs, and continues', async () => {
     const log = vi.fn()
     let fail = false
