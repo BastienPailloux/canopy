@@ -78,3 +78,12 @@ test('a setting too big to be typed is refused', async () => {
   await expect(saveLaunchConfig(store, repo.path, huge)).rejects.toThrow(/Réglage invalide : trop long/)
   expect(store.launchConfig(repo.path)).toBeNull()
 })
+
+test('the size cap counts bytes, not characters', async () => {
+  // 40 000 characters, 120 000 bytes in UTF-8.
+  await expect(saveLaunchConfig(store, repo.path, { setup: ['€'.repeat(40_000)], services: [] })).rejects.toThrow(/Réglage invalide : trop long/)
+})
+
+test('a missing setting gets the readable error, not a crash', async () => {
+  await expect(saveLaunchConfig(store, repo.path, undefined)).rejects.toThrow(/^Réglage invalide : un objet est attendu/)
+})

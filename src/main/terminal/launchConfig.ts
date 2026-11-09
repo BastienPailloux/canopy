@@ -26,9 +26,9 @@ const MAX_SETTING = 64 * 1024
  * An empty one is removed too: kept, it would silently disable the file with nothing to run instead.
  */
 export async function saveLaunchConfig(store: AppStore, cwd: string, config: unknown): Promise<void> {
-  // It lands in the app state, read and written whole on every change.
-  if (JSON.stringify(config).length > MAX_SETTING) throw new Error('Réglage invalide : trop long')
   const clean = config === null ? null : validateConfig(config, 'Réglage')
+  // It lands in the app state, read and written whole on every change. Measured once valid: only then is it JSON.
+  if (clean !== null && Buffer.byteLength(JSON.stringify(clean)) > MAX_SETTING) throw new Error('Réglage invalide : trop long')
   const empty = clean !== null && clean.setup.length === 0 && clean.services.length === 0
   store.setLaunchConfig(await mainWorktreeRoot(cwd), empty ? null : clean)
 }
