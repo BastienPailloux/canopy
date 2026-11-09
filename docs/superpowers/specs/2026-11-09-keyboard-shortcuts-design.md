@@ -19,7 +19,7 @@ Raccourcis existants : ⌘K (barre de recherche, `shell/CommandBar.tsx`), ⌘P e
 
 | Raccourci | Action | Origine |
 |---|---|---|
-| ⌘1 / ⌘2 / ⌘3 / ⌘4 | Écran Sessions / Code / Tickets / Maquettes | proposition, idée ajoutée **[Choix conception]** |
+| ⌘1 / ⌘2 / ⌘3 / ⌘4 / ⌘5 | Écran Sessions / Code / Tickets / Maquettes / Dépendances | proposition, idée ajoutée **[Choix conception]** |
 | ⌘⇧N | Nouveau worktree : ouvre `NewWorktreeDialog` du repo actif, par-dessus l'écran courant | ticket |
 | ⌘T | Nouvelle session dans le worktree actif : `newTab(cwd)`, puis écran Sessions | ticket |
 | ⌃⇥ / ⌃⇧⇥ | Worktree suivant / précédent **du repo actif uniquement** **[Bastien]**, dans l'ordre de la liste de gauche, en boucle ; ignore l'entrée « espace » et les orphelins ; marche depuis tous les écrans | ticket |

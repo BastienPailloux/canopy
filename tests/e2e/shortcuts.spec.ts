@@ -46,13 +46,18 @@ const press = async (id: string): Promise<void> => {
 // Tickets carries a count once one is open: its name starts with the label.
 const nav = (name: string): Locator => page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: new RegExp(`^${name}`) })
 
-test('⌘1 to ⌘4 switch screens', async () => {
+test('⌘1 to ⌘5 switch screens', async () => {
   await press('view-code')
   await expect(nav('Code')).toHaveAttribute('aria-current', 'page')
   await press('view-tickets')
   await expect(nav('Tickets')).toHaveAttribute('aria-current', 'page')
   await press('view-mockups')
   await expect(nav('Maquettes')).toHaveAttribute('aria-current', 'page')
+  await press('view-deps')
+  await expect(nav('Dépendances')).toHaveAttribute('aria-current', 'page')
+  await press('new-worktree')
+  await expect(page.getByLabel('Nom de la branche')).toBeVisible()
+  await page.keyboard.press('Escape')
   await press('view-sessions')
   await expect(nav('Sessions')).toHaveAttribute('aria-current', 'page')
 })

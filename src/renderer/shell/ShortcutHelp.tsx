@@ -6,7 +6,7 @@ import { useModal } from './useModal'
 interface Row { keys: string; label: string }
 
 const GROUPS: { title: string; ids: ShortcutId[]; extra?: Row[] }[] = [
-  { title: 'Écrans', ids: ['view-sessions', 'view-code', 'view-tickets', 'view-mockups'] },
+  { title: 'Écrans', ids: ['view-sessions', 'view-code', 'view-tickets', 'view-mockups', 'view-deps'] },
   { title: 'Worktrees et sessions', ids: ['worktree-next', 'worktree-previous', 'new-worktree', 'new-session'], extra: [{ keys: '⌘W', label: "Fermer l'onglet" }] },
   { title: 'Tickets', ids: ['new-ticket'] },
   {

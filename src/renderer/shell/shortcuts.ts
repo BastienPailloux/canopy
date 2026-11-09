@@ -45,7 +45,10 @@ export interface ShortcutDeps {
   newTab: (cwd: string) => string
 }
 
-const VIEWS: Partial<Record<ShortcutId, View>> = { 'view-sessions': 'sessions', 'view-code': 'code', 'view-tickets': 'tickets', 'view-mockups': 'mockups' }
+const VIEWS: Partial<Record<ShortcutId, View>> = { 'view-sessions': 'sessions', 'view-code': 'code', 'view-tickets': 'tickets', 'view-mockups': 'mockups', 'view-deps': 'deps' }
+
+/** The screens with the worktree sidebar; elsewhere the app shows the dialogs the sidebar would. */
+export const showsSidebar = (view: View): boolean => view === 'sessions' || view === 'code'
 const DIALOGS: Partial<Record<ShortcutId, AppDialog>> = { 'new-worktree': 'new-worktree', 'new-ticket': 'new-ticket', help: 'shortcuts' }
 
 /** Carries out a shortcut from the app menu on what the page shows. */

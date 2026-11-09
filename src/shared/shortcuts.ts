@@ -1,5 +1,5 @@
 export type ShortcutId =
-  | 'view-sessions' | 'view-code' | 'view-tickets' | 'view-mockups'
+  | 'view-sessions' | 'view-code' | 'view-tickets' | 'view-mockups' | 'view-deps'
   | 'worktree-next' | 'worktree-previous'
   | 'new-worktree' | 'new-session' | 'new-ticket' | 'dictation'
   | 'help'
@@ -22,6 +22,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'view-code', accelerator: 'CmdOrCtrl+2', label: 'Code', menu: 'go', needs: 'repo' },
   { id: 'view-tickets', accelerator: 'CmdOrCtrl+3', label: 'Tickets', menu: 'go', needs: 'repo' },
   { id: 'view-mockups', accelerator: 'CmdOrCtrl+4', label: 'Maquettes', menu: 'go', needs: 'repo' },
+  { id: 'view-deps', accelerator: 'CmdOrCtrl+5', label: 'Dépendances', menu: 'go', needs: 'repo' },
   { id: 'worktree-next', accelerator: 'Ctrl+Tab', label: 'Worktree suivant', menu: 'go', needs: 'worktree' },
   { id: 'worktree-previous', accelerator: 'Ctrl+Shift+Tab', label: 'Worktree précédent', menu: 'go', needs: 'worktree' },
   { id: 'new-worktree', accelerator: 'CmdOrCtrl+Shift+N', label: 'Nouveau worktree…', menu: 'file', needs: 'repo' },

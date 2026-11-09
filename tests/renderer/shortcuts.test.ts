@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { useApp } from '../../src/renderer/store'
-import { connectShortcutContext, nextWorktree, runShortcut, worktreeCycle, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
+import { connectShortcutContext, nextWorktree, runShortcut, showsSidebar, worktreeCycle, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
 import { SHORTCUTS } from '../../src/shared/shortcuts'
 import type { Workspace, WorkspaceEntry, Worktree } from '../../src/shared/types'
 
@@ -38,7 +38,7 @@ it('nextWorktree goes to the first from a worktree not in the list, and stays pu
 
 it('view shortcuts switch the screen', () => {
   open()
-  const views = { 'view-sessions': 'sessions', 'view-code': 'code', 'view-tickets': 'tickets', 'view-mockups': 'mockups' } as const
+  const views = { 'view-sessions': 'sessions', 'view-code': 'code', 'view-tickets': 'tickets', 'view-mockups': 'mockups', 'view-deps': 'deps' } as const
   for (const [id, view] of Object.entries(views)) {
     runShortcut(id as keyof typeof views, deps())
     expect(useApp.getState().view).toBe(view)
@@ -118,4 +118,8 @@ it('⇧⌘H closes the help it opened, and only that dialog', () => {
   useApp.setState({ dialog: 'new-ticket' })
   runShortcut('help', deps({ modalOpen: () => true }))
   expect(useApp.getState().dialog).toBe('new-ticket')
+})
+
+it('only Sessions and Code show the sidebar that holds the new worktree dialog', () => {
+  expect((['sessions', 'code', 'tickets', 'mockups', 'deps'] as const).filter(showsSidebar)).toEqual(['sessions', 'code'])
 })

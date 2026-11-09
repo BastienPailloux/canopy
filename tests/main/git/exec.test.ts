@@ -67,6 +67,40 @@ describe('filters a repo sets for itself', () => {
     expect(await ran('clean-ran')).toBe(false)
   })
 
+  test("a caller's env cannot undo the blanking of filters", async () => {
+    await filtered('evil')
+    config('filter.evil.clean', `touch '${marker('env-ran')}'; cat`)
+    for (const env of [{ GIT_CONFIG_COUNT: '0' }, { GIT_CONFIG_KEY_0: 'core.quotepath', GIT_CONFIG_VALUE_0: 'false' }, { GIT_CONFIG_PARAMETERS: `'filter.evil.clean'='touch ${marker('env-ran')}; cat'` }]) {
+      await git(repo!.path, ['diff', '--numstat', 'HEAD'], { env })
+      expect(await ran('env-ran'), JSON.stringify(env)).toBe(false)
+    }
+  })
+
+  test('an inherited GIT_CONFIG_* env cannot undo the blanking of filters', async () => {
+    await filtered('evil')
+    config('filter.evil.clean', `touch '${marker('inherited-ran')}'; cat`)
+    const cases: Record<string, string>[] = [{ GIT_CONFIG_COUNT: '0' }, { GIT_CONFIG_KEY_0: 'core.quotepath', GIT_CONFIG_VALUE_0: 'false' },
+      { GIT_CONFIG_PARAMETERS: `'filter.evil.clean'='touch ${marker('inherited-ran')}; cat'` },
+      { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'filter.evil.clean', GIT_CONFIG_VALUE_0: `touch '${marker('inherited-ran')}'; cat` }]
+    for (const env of cases) {
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
+      await git(repo!.path, ['diff', '--numstat', 'HEAD'])
+      expect(await ran('inherited-ran'), JSON.stringify(env)).toBe(false)
+      vi.unstubAllEnvs()
+    }
+  })
+
+  test('an inherited GIT_CONFIG_* env cannot name a filter the repo uses', async () => {
+    await filtered('evil')
+    const cmd = `touch '${marker('env-filter-ran')}'; cat`
+    for (const env of [{ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'filter.evil.clean', GIT_CONFIG_VALUE_0: cmd }, { GIT_CONFIG_PARAMETERS: `'filter.evil.clean'='${cmd.replace(/'/g, "'\\''")}'` }]) {
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
+      await git(repo!.path, ['diff', '--numstat', 'HEAD'])
+      vi.unstubAllEnvs()
+      expect(await ran('env-filter-ran'), JSON.stringify(env)).toBe(false)
+    }
+  })
+
   test('a filter with an empty name does not run either', async () => {
     await filtered('')
     config('filter..clean', `touch '${marker('empty-name-ran')}'; cat`)
@@ -225,5 +259,23 @@ describe('filters a repo sets for itself', () => {
     execFileSync('git', ['config', '--worktree', 'filter.wt.clean', `touch '${marker('wt-ran')}'; cat`], { cwd: wt })
     await worktreeStats(wt, 'HEAD')
     expect(await ran('wt-ran')).toBe(false)
+  })
+})
+
+describe('env and timeoutMs options', () => {
+  test('env overrides the default environment', async () => {
+    repo = await createRepo()
+    const out = await git(repo.path, ['var', 'GIT_AUTHOR_IDENT'], { env: { GIT_AUTHOR_NAME: 'Override Name', GIT_AUTHOR_EMAIL: 'o@x.y' } })
+    expect(out).toContain('Override Name')
+  })
+
+  test('timeoutMs kills a command that runs too long', async () => {
+    repo = await createRepo()
+    const hook = join(repo.path, '..', 'slow.sh')
+    await writeFile(hook, '#!/bin/sh\nsleep 5\n')
+    await chmod(hook, 0o755)
+    const started = Date.now()
+    await expect(git(repo.path, ['-c', `alias.slow=!${hook}`, 'slow'], { timeoutMs: 200 })).rejects.toThrow()
+    expect(Date.now() - started).toBeLessThan(3000)
   })
 })
