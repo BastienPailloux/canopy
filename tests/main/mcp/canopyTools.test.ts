@@ -236,4 +236,99 @@ describe('canopy read tools', () => {
       await expect(tools.list_mockups({})).rejects.toThrow(/JSON invalide/)
     })
   })
+
+  it('get_ticket: an unreadable mockup registry does not fail the call', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    const t = await tickets.create(repo.path, fields('One'))
+    await mockups.add(repo.path, URL1, { ticket: t.id })
+    await writeFile(`${repo.path}/.mockups/mockups.json`, '{broken')
+    const r = (await tools.get_ticket({ key: 'local:CAN-1' })) as { title: string; mockups: unknown[]; mockupsError: string }
+    expect(r.title).toBe('One')
+    expect(r.mockups).toEqual([])
+    expect(r.mockupsError).toMatch(/JSON invalide/)
+  })
+
+  describe('local writes', () => {
+    it('create_ticket writes the file with defaults and a parent', async () => {
+      await tickets.create(repo.path, fields('Parent'))
+      const r = await tools.create_ticket({ source: 'local', title: 'Child', parent: 'local:CAN-1' })
+      expect(r).toEqual({ key: 'local:CAN-2' })
+      const t = await tickets.get(repo.path, 'CAN-2')
+      expect(t).toMatchObject({ title: 'Child', parent: 'CAN-1', status: 'backlog', priority: 'none', labels: [], subtasks: [] })
+      const { readFile } = await import('node:fs/promises')
+      expect(await readFile(`${repo.path}/.tickets/CAN-2.md`, 'utf8')).toContain('parent: CAN-1')
+    })
+
+    it('create_ticket refuses a parent of another source and bad fields', async () => {
+      await expect(tools.create_ticket({ source: 'local', title: 'x', parent: 'linear:ENG-1' })).rejects.toThrow('Le parent doit venir de la même source que le ticket.')
+      await expect(tools.create_ticket({ source: 'local', title: 'x'.repeat(1000) })).rejects.toThrow('Titre invalide')
+      await expect(tools.create_ticket({ source: 'local', title: 'x', status: 'nope' })).rejects.toThrow('Statut inconnu : nope. Statuts possibles : backlog, todo, in_progress, in_review, done')
+      await expect(tools.create_ticket({ source: 'local', title: 'x', parent: 'local:CAN-9' })).rejects.toThrow('Parent introuvable : CAN-9')
+    })
+
+    it('update_ticket patches fields and removes the parent', async () => {
+      await tickets.create(repo.path, fields('Parent'))
+      await tickets.create(repo.path, fields('Child', { parent: 'CAN-1' }))
+      const r = await tools.update_ticket({ key: 'local:CAN-2', title: 'New', description: 'D', status: 'todo', priority: 'high', labels: ['a'], parent: null })
+      expect(r).toEqual({ key: 'local:CAN-2' })
+      const t = await tickets.get(repo.path, 'CAN-2')
+      expect(t).toMatchObject({ title: 'New', description: 'D', status: 'todo', priority: 'high', labels: ['a'] })
+      expect(t.parent).toBeUndefined()
+    })
+
+    it('update_ticket validates', async () => {
+      await tickets.create(repo.path, fields('One'))
+      await tickets.create(repo.path, fields('Two', { parent: 'CAN-1' }))
+      await expect(tools.update_ticket({ key: 'local:CAN-1' })).rejects.toThrow('Rien à modifier.')
+      await expect(tools.update_ticket({ key: 'local:CAN-1', status: 'zzz' })).rejects.toThrow('Statut inconnu : zzz. Statuts possibles : backlog, todo, in_progress, in_review, done')
+      await expect(tools.update_ticket({ key: 'local:CAN-1', title: 'x'.repeat(1000) })).rejects.toThrow('Titre invalide')
+      await expect(tools.update_ticket({ key: 'local:CAN-1', parent: 'linear:ENG-1' })).rejects.toThrow('Le parent doit venir de la même source que le ticket.')
+      await expect(tools.update_ticket({ key: 'local:CAN-1', parent: 'local:CAN-2' })).rejects.toThrow('Ce parent créerait une boucle : CAN-2')
+      await expect(tools.update_ticket({ key: 'local:CAN-1', parent: 'local:CAN-9' })).rejects.toThrow('Parent introuvable : CAN-9')
+      await expect(tools.update_ticket({ key: 'local:CAN-9', title: 'x' })).rejects.toThrow('Ticket introuvable : CAN-9')
+    })
+
+    it('plan mode refuses every write, reads the mode at each call', async () => {
+      let mode: string = 'plan'
+      const planTools = createCanopyTools({ ...deps, mode: () => mode as never })
+      await tickets.create(repo.path, fields('One'))
+      const msg = 'Mode plan : Canopy ne modifie rien tant que la session est en mode plan.'
+      await expect(planTools.create_ticket({ source: 'local', title: 'x' })).rejects.toThrow(msg)
+      await expect(planTools.update_ticket({ key: 'local:CAN-1', title: 'x' })).rejects.toThrow(msg)
+      await expect(planTools.link_mockup({ mockup: URL1, ticket: 'local:CAN-1' })).rejects.toThrow(msg)
+      expect((await tickets.list(repo.path)).length).toBe(1)
+      expect((await tickets.get(repo.path, 'CAN-1')).title).toBe('One')
+      await expect(planTools.list_tickets({})).resolves.toBeDefined()
+      mode = 'default'
+      await expect(planTools.create_ticket({ source: 'local', title: 'x' })).resolves.toEqual({ key: 'local:CAN-2' })
+    })
+  })
+
+  describe('link_mockup', () => {
+    it('links by id with a status, then unlinks', async () => {
+      await tickets.create(repo.path, fields('One'))
+      await mockups.add(repo.path, URL1, { title: 'M' })
+      await tools.link_mockup({ mockup: 'AAAAAAAAAAAAAAAAAAAAAA', ticket: 'local:CAN-1', status: 'wip' })
+      let m = (await mockups.list(repo.path) as { mockups: { ticket?: string; status: string }[] }).mockups[0]
+      expect(m).toMatchObject({ ticket: 'CAN-1', status: 'wip' })
+      await tools.link_mockup({ mockup: 'AAAAAAAAAAAAAAAAAAAAAA', ticket: null })
+      m = (await mockups.list(repo.path) as { mockups: { ticket?: string; status: string }[] }).mockups[0]
+      expect(m.ticket).toBeUndefined()
+    })
+
+    it('adds an unregistered URL then links it', async () => {
+      await tickets.create(repo.path, fields('One'))
+      await tools.link_mockup({ mockup: URL2, ticket: 'local:CAN-1' })
+      const list = (await mockups.list(repo.path) as { mockups: { id: string; ticket?: string }[] }).mockups
+      expect(list).toHaveLength(1)
+      expect(list[0]).toMatchObject({ id: 'BBBBBBBBBBBBBBBBBBBBBB', ticket: 'CAN-1' })
+    })
+
+    it('refuses unknown or Linear tickets and bad mockups', async () => {
+      await expect(tools.link_mockup({ mockup: URL1, ticket: 'local:CAN-9' })).rejects.toThrow('Ticket introuvable : CAN-9')
+      await expect(tools.link_mockup({ mockup: URL1, ticket: 'linear:ENG-1' })).rejects.toThrow("Une maquette ne se lie qu'à un ticket local.")
+      await expect(tools.link_mockup({ mockup: 'nope', ticket: null })).rejects.toThrow('Maquette invalide : nope')
+      expect(await mockups.list(repo.path)).toEqual({ kind: 'ok', mockups: [] })
+    })
+  })
 })

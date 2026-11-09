@@ -4,8 +4,9 @@ import type { LinearEdits } from '../linear/edits'
 import type { LinearSync } from '../linear/sync'
 import type { MockupStore } from '../mockups/store'
 import type { TicketStore } from '../tickets/store'
-import { TICKET_ID_RE, ticketKey, type Ticket, type TicketKey, type TicketSource } from '../../shared/tickets'
-import type { Mockup } from '../../shared/mockups'
+import { parseFields } from '../tickets/ticketIpc'
+import { STATUSES, TICKET_ID_RE, ticketKey, type Ticket, type TicketKey, type TicketSource } from '../../shared/tickets'
+import { MOCKUP_ID_RE, MOCKUP_STATUSES, parseArtifactUrl, type Mockup, type MockupStatus } from '../../shared/mockups'
 import type { LinearIssue } from '../../shared/linear'
 
 export type CanopyToolName = 'list_tickets' | 'get_ticket' | 'list_mockups' | 'create_ticket' | 'update_ticket' | 'link_mockup'
@@ -113,7 +114,13 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
 
   async function getLocal(id: string) {
     const t = await deps.tickets.get(repoRoot, id)
-    const [kids, all] = await Promise.all([deps.tickets.children(repoRoot, id), mockupsOf()])
+    // An unreadable registry must not hide the ticket itself.
+    let all: Mockup[] = []
+    let mockupsError: string | undefined
+    const [kids] = await Promise.all([
+      deps.tickets.children(repoRoot, id),
+      mockupsOf().then((m) => { all = m }, (e) => { mockupsError = e instanceof Error ? e.message : String(e) }),
+    ])
     let parent: { key: TicketKey; title?: string; missing?: true } | undefined
     if (t.parent) {
       const key = ticketKey('local', t.parent)
@@ -126,6 +133,7 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
       ...(parent ? { parent } : {}),
       children: kids.map((c) => ({ key: ticketKey('local', c.id), title: c.title, status: c.status })),
       mockups: all.filter((m) => m.ticket === t.id).map(({ id: mid, title, url, kind, status }) => ({ id: mid, title, url, kind, status })),
+      ...(mockupsError ? { mockupsError } : {}),
       created: t.created, updated: t.updated,
     }
   }
@@ -166,15 +174,87 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     return { mockups: rows.map(mockupRow) }
   }
 
-  // Replaced by the write handlers of the next tasks.
   const unavailable = async (): Promise<never> => { throw new Error('Pas encore disponible') }
+
+  /** Refuses writes while the session is in plan mode; read at each call because the mode can change mid-session. */
+  const guarded = (fn: (args: Args) => Promise<unknown>) => async (args: Args): Promise<unknown> => {
+    if (deps.mode() === 'plan') throw new Error('Mode plan : Canopy ne modifie rien tant que la session est en mode plan.')
+    return fn(args)
+  }
+
+  const checkStatus = (v: unknown): void => {
+    if (v !== undefined && !STATUSES.includes(v as never)) throw new Error(`Statut inconnu : ${String(v)}. Statuts possibles : ${STATUSES.join(', ')}`)
+  }
+
+  /** Id of a local parent given as a key; null/undefined pass through. */
+  function localParent(v: unknown): string | null | undefined {
+    if (v === undefined || v === null) return v
+    const k = parseKey(v as string)
+    if (k.source !== 'local') throw new Error('Le parent doit venir de la même source que le ticket.')
+    return k.id
+  }
+
+  function fieldsOf(args: Args): Record<string, unknown> {
+    const raw: Record<string, unknown> = {}
+    for (const k of ['title', 'description', 'status', 'priority', 'labels']) if (args[k] !== undefined) raw[k] = args[k]
+    return raw
+  }
+
+  async function createTicket(args: Args) {
+    if (args.source === 'linear') return unavailable()
+    if (args.source !== 'local') throw new Error('Source inconnue : local ou linear attendu.')
+    checkStatus(args.status)
+    const parent = localParent(args.parent)
+    const f = parseFields({ ...fieldsOf(args), ...(parent ? { parent } : {}) })
+    if (typeof f.title !== 'string') throw new Error('Titre invalide')
+    const t = await deps.tickets.create(repoRoot, { description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...f, title: f.title })
+    return { key: ticketKey('local', t.id) }
+  }
+
+  async function updateTicket(args: Args) {
+    const { source, id } = parseKey(args.key as string)
+    if (source === 'linear') return unavailable()
+    checkStatus(args.status)
+    const parent = localParent(args.parent)
+    const changes = parseFields(fieldsOf(args))
+    if (parent === null) changes.parent = undefined
+    else if (parent !== undefined) changes.parent = parent
+    if (Object.keys(changes).length === 0) throw new Error('Rien à modifier.')
+    await deps.tickets.patch(repoRoot, id, changes)
+    return { key: ticketKey('local', id) }
+  }
+
+  async function linkMockup(args: Args) {
+    const ref = typeof args.mockup === 'string' ? args.mockup.trim() : ''
+    const parsed = parseArtifactUrl(ref)
+    const id = parsed?.id ?? (MOCKUP_ID_RE.test(ref) ? ref : undefined)
+    if (!id) throw new Error(`Maquette invalide : ${String(args.mockup)}`)
+    let ticket: string | null | undefined
+    if (args.ticket === null) ticket = null
+    else if (args.ticket !== undefined) {
+      const k = parseKey(args.ticket as string)
+      if (k.source !== 'local') throw new Error("Une maquette ne se lie qu'à un ticket local.")
+      await deps.tickets.get(repoRoot, k.id)
+      ticket = k.id
+    }
+    if (args.status !== undefined && !MOCKUP_STATUSES.includes(args.status as MockupStatus)) {
+      throw new Error(`Statut de maquette inconnu : ${String(args.status)}. Statuts possibles : ${MOCKUP_STATUSES.join(', ')}`)
+    }
+    if (ticket === undefined && args.status === undefined) throw new Error('Rien à modifier.')
+    if (parsed) await deps.mockups.add(repoRoot, parsed.url)
+    const m = await deps.mockups.patch(repoRoot, id, {
+      ...(ticket !== undefined ? { ticket } : {}),
+      ...(args.status !== undefined ? { status: args.status as MockupStatus } : {}),
+    })
+    return mockupRow(m)
+  }
 
   return {
     list_tickets: listTickets,
     get_ticket: getTicket,
     list_mockups: listMockups,
-    create_ticket: unavailable,
-    update_ticket: unavailable,
-    link_mockup: unavailable,
+    create_ticket: guarded(createTicket),
+    update_ticket: guarded(updateTicket),
+    link_mockup: guarded(linkMockup),
   }
 }
