@@ -42,3 +42,10 @@ gh pr list --head feat/linear-tickets --state all --limit 1 --json number,state,
 - Le `diffHunk` est porté par chaque commentaire, pas par le fil.
 - Les bots ont un `login` sans suffixe `[bot]` en GraphQL (`copilot-pull-request-reviewer`), `__typename: "Bot"`.
 - `gh api graphql -f query=@fichier` n'ouvre pas le fichier : seul `-F` lit `@fichier`.
+
+## Actions d'écriture (non vérifiées en direct)
+
+Aucune action d'écriture n'a été lancée contre GitHub : `tests/main/github/gatewayAct.test.ts` ne vérifie que les arguments et l'entrée standard transmis à un `gh` simulé.
+
+- **Revue de Copilot** : `gh pr edit --add-reviewer` (gh 2.61.0) ne connaît que des logins d'utilisateurs et des équipes. Le choix retenu est la requête REST documentée par GitHub, `POST repos/O/R/pulls/N/requested_reviewers` avec `{"reviewers":["copilot-pull-request-reviewer[bot]"]}` sur l'entrée standard (`DELETE` pour la retirer). **Non vérifié en direct** : à confirmer au premier usage réel (le dépôt doit avoir Copilot code review activé).
+- L'identifiant GraphQL de la PR (fichier vu, annulation) est lu par une petite requête dans `act`, pas par `PrDetail`.

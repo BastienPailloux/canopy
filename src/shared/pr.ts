@@ -34,6 +34,26 @@ export interface PrDetail {
   /** Connections cut at 100 items: how many more GitHub has, per list. */
   truncated: { timeline: number; commits: number; files: number; checks: number }
 }
+export type PrAction =
+  | { type: 'comment'; body: string }
+  | { type: 'reply'; commentId: number; body: string }          // REST databaseId of the thread's first comment
+  | { type: 'resolve'; threadId: string; resolved: boolean }
+  | { type: 'review'; event: 'APPROVE' | 'REQUEST_CHANGES'; body: string }
+  | { type: 'editBody'; body: string }
+  | { type: 'draft'; draft: boolean }
+  | { type: 'close' } | { type: 'reopen' }
+  | { type: 'reviewers'; add: string[]; remove: string[] }    // logins, `org/team`, or `copilot`
+  | { type: 'assignees'; add: string[]; remove: string[] }
+  | { type: 'labels'; add: string[]; remove: string[] }
+  | { type: 'viewed'; path: string; viewed: boolean }
+  | { type: 'rerun'; runId: number; jobId: number | null }    // null: the run's failed jobs
+  | { type: 'updateBranch' }
+  | { type: 'merge'; method: MergeMethod; subject: string; body: string }
+  | { type: 'autoMerge'; enable: boolean; method: MergeMethod; subject: string; body: string }
+  | { type: 'revert' }
+  | { type: 'deleteRemoteBranch'; branch: string }
+/** `url`: the revert PR. */
+export type PrActResult = { ok: true } | { ok: true; url: string }
 export interface PrOptions { labels: string[]; assignable: string[]; suggested: { login: string; kind: 'user' | 'team' | 'bot'; hint: string }[] }
 
 /** Last line of every reply Claude writes from Canopy: how the tab tells them from the user's own. */
