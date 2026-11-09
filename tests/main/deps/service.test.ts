@@ -139,6 +139,20 @@ describe('createDepsService', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(1)
   })
 
+  test('drops stored reports of an unexpected shape one by one, without crashing', () => {
+    const bad = { ...report('/b'), entries: 'x' }
+    const badEntry = { ...report('/dir/x'), entries: [{ ...entry('k'), key: 1 }] }
+    const badAdvisory = { ...report('/dir/y'), entries: [{ ...entry('k'), advisories: [null] }] }
+    writeFileSync(file, JSON.stringify({ version: 1, reports: { '/a': report('/a', ['k']), '/b': bad, '/dir/x': badEntry, '/dir/y': badAdvisory, '/n': null }, dismissed: { '/a': 'k', '/b': ['k'] } }))
+    const t = setup({ repos: async () => [] })
+    t.svc.start()
+    expect(t.svc.report('/a')?.entries).toHaveLength(1)
+    for (const r of ['/b', '/dir/x', '/dir/y', '/n']) expect(t.svc.report(r)).toBeNull()
+    expect(t.svc.bannerFor('/a')).toBe(true)
+    expect(t.svc.critical('/dir')).toBe(0)
+    expect(() => t.svc.critical('/b')).not.toThrow()
+  })
+
   test('ignores a file with another version', () => {
     writeFileSync(file, JSON.stringify({ version: 2, reports: { '/a': report('/a') }, dismissed: {} }))
     const t = setup({ repos: async () => [] })

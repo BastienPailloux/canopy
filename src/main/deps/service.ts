@@ -50,6 +50,21 @@ export interface DepsService {
 
 type Entries = { entry: string; repos: string[] }[]
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const isStr = (v: unknown): v is string => typeof v === 'string'
+const isStrOrNull = (v: unknown) => v === null || isStr(v)
+const isStrArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr)
+const LEVELS = new Set(['critical', 'soon', 'later', 'private', 'pinless'])
+const isAdvisory = (a: unknown) => isObj(a) && isStr(a.id) && isStr(a.package) && isStr(a.severity) && isStr(a.summary) && isStrOrNull(a.fixed) && isStr(a.url)
+const isEntry = (e: unknown) => isObj(e) && isStr(e.key) && isStr(e.ecosystem) && isStr(e.name) && isStr(e.manifest) &&
+  isStrOrNull(e.installed) && isStrOrNull(e.target) && isStr(e.level) && LEVELS.has(e.level) && isStr(e.cause) && isStr(e.reason) &&
+  Array.isArray(e.advisories) && e.advisories.every(isAdvisory) && isStrOrNull(e.registryUrl)
+/** The stored file is ours, but an older or damaged one must not crash the screens that read it. */
+function isReport(r: unknown): r is DepsReport {
+  return isObj(r) && isStr(r.repo) && (r.checkedAt === null || typeof r.checkedAt === 'number') && Array.isArray(r.entries) &&
+    r.entries.every(isEntry) && isStrArray(r.errors) && isStrOrNull(r.baseRef) && typeof r.manifests === 'number'
+}
+
 export function createDepsService(d: DepsServiceDeps): DepsService {
   const log = d.log ?? ((msg: string, err: unknown) => console.error(msg, err))
   let reports: Record<string, DepsReport> = {}
@@ -60,14 +75,13 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
   let firstPass: ReturnType<typeof setTimeout> | null = null
   let started = false
 
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
-
   function load(): void {
     try {
       const raw = JSON.parse(readFileSync(d.file, 'utf8'))
-      if (!isObject(raw) || raw.version !== 1 || !isObject(raw.reports)) return
-      reports = raw.reports as Record<string, DepsReport>
-      dismissed = isObject(raw.dismissed) ? (raw.dismissed as Record<string, string[]>) : {}
+      if (!isObj(raw) || raw.version !== 1 || !isObj(raw.reports)) return
+      // Each invalid report or dismissal is dropped on its own: the others still show.
+      reports = Object.fromEntries(Object.entries(raw.reports).filter(([, r]) => isReport(r))) as Record<string, DepsReport>
+      dismissed = isObj(raw.dismissed) ? (Object.fromEntries(Object.entries(raw.dismissed).filter(([, k]) => isStrArray(k))) as Record<string, string[]>) : {}
     } catch { /* missing or corrupt: start empty, and leave the file alone until a report is stored */ }
   }
 
