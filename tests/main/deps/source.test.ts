@@ -432,3 +432,42 @@ describe('readInventory', { timeout: 60_000 }, () => {
     })
   })
 })
+
+describe('private registries', { timeout: 60_000 }, () => {
+  const priv = (inv: { units: { deps: { name: string; private: boolean }[] }[] }) =>
+    Object.fromEntries(inv.units.flatMap((u) => u.deps.map((d) => [d.name, d.private])))
+  const PNPM = (...names: string[]) => `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n${names.map((n) => `      '${n}':\n        specifier: ^1.0.0\n        version: 1.0.0\n`).join('')}`
+  const BERRY = (...names: string[]) => `__metadata:\n  version: 8\n\n${names.map((n) => `"${n}@npm:^1.0.0":\n  version: 1.0.0\n  resolution: "${n}@npm:1.0.0"\n`).join('\n')}`
+
+  test('a scope with its own registry in the root .npmrc is private for a pnpm unit in a subfolder', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { '.npmrc': '@corp:registry=https://npm.corp.example/\n', 'web/package.json': PKG('@corp/ui', 'left-pad'), 'web/pnpm-lock.yaml': PNPM('@corp/ui', 'left-pad') })
+    expect(priv(await readInventory(repo.path))).toEqual({ '@corp/ui': true, 'left-pad': false })
+  })
+
+  test('a default registry overridden in the unit .npmrc makes every dep private', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'web/.npmrc': 'registry=https://npm.corp.example/\n', 'web/package.json': PKG('@corp/ui', 'left-pad'), 'web/pnpm-lock.yaml': PNPM('@corp/ui', 'left-pad') })
+    expect(priv(await readInventory(repo.path))).toEqual({ '@corp/ui': true, 'left-pad': true })
+  })
+
+  test('yarn berry: npmScopes and npmRegistryServer in .yarnrc.yml', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { '.yarnrc.yml': 'npmScopes:\n  corp:\n    npmRegistryServer: "https://npm.corp.example"\n', 'package.json': PKG('@corp/ui', 'left-pad'), 'yarn.lock': BERRY('@corp/ui', 'left-pad') })
+    expect(priv(await readInventory(repo.path))).toEqual({ '@corp/ui': true, 'left-pad': false })
+    await commitAll(repo, { '.yarnrc.yml': 'npmRegistryServer: "https://npm.corp.example"\n' })
+    expect(priv(await readInventory(repo.path))).toEqual({ '@corp/ui': true, 'left-pad': true })
+  })
+
+  test('an unparsable rc file fails closed', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { '.yarnrc.yml': 'npmScopes: [: x\n', 'package.json': PKG('left-pad'), 'yarn.lock': BERRY('left-pad') })
+    expect(priv(await readInventory(repo.path))).toEqual({ 'left-pad': true })
+  })
+
+  test('npm units without any rc file stay public', async () => {
+    repo = await createRepo()
+    await commitAll(repo, { 'package.json': PKG('left-pad'), 'pnpm-lock.yaml': PNPM('left-pad') })
+    expect(priv(await readInventory(repo.path))).toEqual({ 'left-pad': false })
+  })
+})

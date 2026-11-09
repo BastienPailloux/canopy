@@ -75,6 +75,23 @@ describe('parsePackageLock', () => {
     expect(u.transitive.map((d) => d.name)).toEqual([])
   })
 
+  it('fails closed on a scoped entry without a resolved URL, unscoped ones stay public', () => {
+    const u = parsePackageLock('', lock({
+      '': { dependencies: { '@corp/ui': '1', plain: '1', b: '1' } },
+      'node_modules/@corp/ui': { version: '1.0.0' },
+      'node_modules/plain': { version: '1.0.0' },
+      'node_modules/b': e('1.0.0', { dependencies: { '@corp/util': '1' } }),
+      'node_modules/@corp/util': { version: '2.0.0' }
+    }))
+    expect(u.deps.map((d) => [d.name, d.private])).toEqual([['@corp/ui', true], ['plain', false], ['b', false]])
+    expect(u.transitive).toEqual([])
+    const v1 = parsePackageLock('', JSON.stringify({ lockfileVersion: 1, dependencies: { '@corp/ui': { version: '1.0.0' }, plain: { version: '1.0.0' } } }),
+      JSON.stringify({ dependencies: { '@corp/ui': '1', plain: '1' } }))
+    expect(v1.deps.map((d) => [d.name, d.private])).toEqual([['@corp/ui', true], ['plain', false]])
+    const missing = parsePackageLock('', lock({ '': { dependencies: { '@corp/gone': '1', gone: '1' } } }))
+    expect(missing.deps.map((d) => [d.name, d.private])).toEqual([['@corp/gone', true], ['gone', false]])
+  })
+
   it('reads lockfile v1 with direct deps from package.json', () => {
     const lockV1 = JSON.stringify({
       lockfileVersion: 1,

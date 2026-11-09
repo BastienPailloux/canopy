@@ -25,9 +25,10 @@ const fail = (dir: string, file: string): Unit => ({ dir, ecosystem: 'npm', deps
 const dep = (name: string, version: string | null, manifest: string, priv: boolean, via?: string[]): Dep =>
   ({ ecosystem: 'npm', name, version, manifest, private: priv, ...(via ? { via } : {}) })
 
-function npmEntryPrivate(e: Obj): boolean {
+/** Without `resolved`, a scoped name may come from a private registry: fail closed. Unscoped names stay public. */
+function npmEntryPrivate(e: Obj, name: string): boolean {
   if (e.link === true) return true
-  if (typeof e.resolved === 'string' && !e.resolved.startsWith(REGISTRIES[0])) return true
+  if (typeof e.resolved === 'string' ? !e.resolved.startsWith(REGISTRIES[0]) : name.startsWith('@')) return true
   return typeof e.version === 'string' && hasPrivatePrefix(e.version)
 }
 
@@ -76,8 +77,8 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
     for (const name of declared) {
       const key = resolveNpm(packages, owner, name)
       const entry = key ? packages[key] : null
-      deps.push(dep(name, typeof entry?.version === 'string' ? entry.version : null, manifest, entry ? npmEntryPrivate(entry) : false))
-      if (!key || npmEntryPrivate(entry)) continue
+      deps.push(dep(name, typeof entry?.version === 'string' ? entry.version : null, manifest, entry ? npmEntryPrivate(entry, name) : name.startsWith('@')))
+      if (!key || npmEntryPrivate(entry, name)) continue
       const seen = new Set([key])
       const queue = [key]
       while (queue.length) {
@@ -89,7 +90,7 @@ function npmFromPackages(dir: string, packages: Obj): Unit {
             if (!ck || seen.has(ck)) continue
             seen.add(ck)
             const ce = packages[ck]
-            if (npmEntryPrivate(ce)) continue
+            if (npmEntryPrivate(ce, child)) continue
             queue.push(ck)
             if (declared.has(child)) continue
             const version = typeof ce.version === 'string' ? ce.version : null
@@ -113,9 +114,9 @@ function npmFromV1(dir: string, lock: Obj, pkg: Obj): Unit {
   for (const field of DEP_FIELDS) for (const n of Object.keys(pkg[field] ?? {})) declared.add(n)
   for (const name of declared) {
     const e = root[name]
-    if (!isObj(e)) { deps.push(dep(name, null, manifest, false)); continue }
-    deps.push(dep(name, typeof e.version === 'string' ? e.version : null, manifest, npmEntryPrivate(e)))
-    if (npmEntryPrivate(e)) continue
+    if (!isObj(e)) { deps.push(dep(name, null, manifest, name.startsWith('@'))); continue }
+    deps.push(dep(name, typeof e.version === 'string' ? e.version : null, manifest, npmEntryPrivate(e, name)))
+    if (npmEntryPrivate(e, name)) continue
     // `scopes[0]` holds the entry's own nested deps, then the maps that contain it, up to the top level.
     const seen = new Set<Obj>([e])
     const queue: { e: Obj; scopes: Obj[] }[] = [{ e, scopes: [isObj(e.dependencies) ? e.dependencies : {}, root] }]
@@ -125,7 +126,7 @@ function npmFromV1(dir: string, lock: Obj, pkg: Obj): Unit {
         const i = cur.scopes.findIndex((m) => isObj(m[child]))
         if (i < 0) continue
         const ce: Obj = cur.scopes[i][child]
-        if (seen.has(ce) || npmEntryPrivate(ce)) continue
+        if (seen.has(ce) || npmEntryPrivate(ce, child)) continue
         seen.add(ce)
         queue.push({ e: ce, scopes: [isObj(ce.dependencies) ? ce.dependencies : {}, ...cur.scopes.slice(i)] })
         if (declared.has(child)) continue

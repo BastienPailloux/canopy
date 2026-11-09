@@ -3,6 +3,7 @@ import { git as run } from '../git/exec'
 import { resolveBaseRef } from '../git/refs'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { parsePackageLock, parsePnpmLock, parseYarnLock, type Unit } from './parse/js'
+import { applyRegistryConfig, parseNpmrc, parseYarnrc, type RegistryConfig } from './parse/npmrc'
 import { parsePipfileLock, parsePoetryLock, parseRequirements, parseUvLock } from './parse/python'
 import { parseGemfileLock } from './parse/ruby'
 
@@ -124,7 +125,18 @@ async function includesTainted(root: string, ref: string, unit: Unit): Promise<b
   return false
 }
 
-async function readDir(root: string, ref: string, dir: string, files: string[]): Promise<Unit[]> {
+/** The registry settings of the unit's directory and of the repo root (unreadable or invalid files fail closed). */
+async function registryConfigs(root: string, ref: string, dir: string, listed: (path: string) => boolean): Promise<RegistryConfig[]> {
+  const configs: RegistryConfig[] = []
+  for (const [file, parse] of [['.npmrc', parseNpmrc], ['.yarnrc.yml', parseYarnrc]] as const) {
+    for (const path of new Set([posix.join(dir, file), file])) {
+      if (listed(path)) configs.push(parse(await show(root, ref, path)))
+    }
+  }
+  return configs
+}
+
+async function readDir(root: string, ref: string, dir: string, files: string[], listed: (path: string) => boolean): Promise<Unit[]> {
   const path = (f: string) => posix.join(dir, f)
   const units: Unit[] = []
   const read = async (file: string, ecosystem: Unit['ecosystem'], parse: (text: string) => Unit | Promise<Unit>) => {
@@ -139,10 +151,11 @@ async function readDir(root: string, ref: string, dir: string, files: string[]):
   const js = JS_LOCKS.find((f) => files.includes(f))
   if (js) {
     const pkg = files.includes('package.json') ? await show(root, ref, path('package.json')) : null
-    await read(js, 'npm', (lock) =>
+    const configs = await registryConfigs(root, ref, dir, listed)
+    await read(js, 'npm', (lock) => applyRegistryConfig(
       js === 'package-lock.json' ? parsePackageLock(dir, lock, pkg ?? undefined)
         : js === 'pnpm-lock.yaml' ? parsePnpmLock(dir, pkg ?? '{}', lock)
-          : parseYarnLock(dir, pkg ?? '{}', lock))
+          : parseYarnLock(dir, pkg ?? '{}', lock), configs))
   }
   if (files.includes('Gemfile.lock')) await read('Gemfile.lock', 'RubyGems', (lock) => parseGemfileLock(dir, lock))
 
@@ -194,7 +207,8 @@ export async function readAtRef(root: string, ref: string): Promise<Inventory> {
     return { repo: root, baseRef: ref, units: [], notes: [`Liste des fichiers illisible : ${reason}`] }
   }
   const byDir = new Map<string, string[]>()
-  for (const path of listing.split('\0')) {
+  const all = new Set(listing.split('\0'))
+  for (const path of all) {
     if (!path) continue
     const segments = path.split('/')
     if (segments.some((s) => EXCLUDED_DIRS.includes(s))) continue
@@ -202,6 +216,6 @@ export async function readAtRef(root: string, ref: string): Promise<Inventory> {
     byDir.set(dir, [...byDir.get(dir) ?? [], segments[segments.length - 1]])
   }
   const units: Unit[] = []
-  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, ref, dir, byDir.get(dir)!))
+  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, ref, dir, byDir.get(dir)!, (p) => all.has(p)))
   return { repo: root, baseRef: ref, units, notes: [] }
 }
