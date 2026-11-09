@@ -669,6 +669,47 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* The settings grow with the repo's sections: they scroll rather than leave the window. */
+.dialog.settings {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.dialog .launch-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg-2);
+}
+
+.dialog .launch-settings textarea {
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.dialog .launch-service {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr auto;
+  gap: 6px;
+}
+
+.dialog .launch-service input {
+  min-width: 0;
+}
+
+.dialog .launch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .dialog .actions {
   display: flex;
   justify-content: flex-end;

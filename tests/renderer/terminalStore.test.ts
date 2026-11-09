@@ -53,3 +53,10 @@ it('stops waiting when the setup terminal is closed, and starts nothing', async 
   expect(api.runServices).not.toHaveBeenCalled()
   expect(useTerminals.getState().notices[CWD]).toContain('fermé')
 })
+
+it('with nothing to launch, points to both the settings and the file', async () => {
+  api.runSetup.mockResolvedValueOnce(null)
+  api.runServices.mockResolvedValueOnce([])
+  await testPR(CWD)
+  expect(useTerminals.getState().notices[CWD]).toBe('Rien à lancer : déclare un setup ou un service dans Réglages → Tester la PR, ou dans .canopy/config.json.')
+})

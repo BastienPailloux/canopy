@@ -155,7 +155,7 @@ export async function testPR(cwd: string): Promise<void> {
     }
     const services = await withTrust(cwd, () => window.canopy.runServices(cwd))
     if (services.length > 0) await upsert(services)
-    else if (!setup) setNotice(cwd, 'Rien à lancer : .canopy/config.json ne déclare ni setup ni service.')
+    else if (!setup) setNotice(cwd, 'Rien à lancer : déclare un setup ou un service dans Réglages → Tester la PR, ou dans .canopy/config.json.')
   } catch (e) {
     setNotice(cwd, errorText(e))
   }

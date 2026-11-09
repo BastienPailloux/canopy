@@ -2,9 +2,10 @@ import { ipcMain } from 'electron'
 import { isAbsolute } from 'node:path'
 import type { TerminalInfo } from '../../shared/api'
 import type { AppStore } from '../appStore'
-import { requireTrustedRoot } from '../repoTrust'
+import { mainWorktreeRoot } from '../git/worktrees'
 import { assertId } from '../sessions/validate'
-import { allocatePorts, isFree, readConfig, type CanopyConfig } from './config'
+import { allocatePorts, isFree, type CanopyConfig } from './config'
+import { launchConfig, saveLaunchConfig } from './launchConfig'
 import type { TerminalManager } from './TerminalManager'
 
 const STOP_WAIT_MS = 3000
@@ -16,17 +17,6 @@ function assertPath(p: unknown): asserts p is string {
 
 function assertSize(n: unknown): asserts n is number {
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 1000) throw new Error('Taille invalide')
-}
-
-/**
- * The config of `cwd`, only if that exact config is approved: its commands run with the user's rights.
- * Approval is checked again after the read, since the file may change in between.
- */
-async function trustedConfig(store: AppStore, cwd: string): Promise<CanopyConfig> {
-  await requireTrustedRoot(store, cwd)
-  const config = await readConfig(cwd)
-  await requireTrustedRoot(store, cwd)
-  return config
 }
 
 const envName = (service: string): string => `PORT_${service.toUpperCase().replace(/-/g, '_')}`
@@ -52,7 +42,7 @@ const queues = new Map<string, Promise<unknown>>()
 
 export function runServices(
   store: AppStore, terminals: TerminalManager, cwd: string, name?: string,
-  getConfig: (store: AppStore, cwd: string) => Promise<CanopyConfig> = trustedConfig
+  getConfig: (store: AppStore, cwd: string) => Promise<CanopyConfig> = launchConfig
 ): Promise<TerminalInfo[]> {
   const run = (queues.get(cwd) ?? Promise.resolve()).then(() => startServices(store, terminals, cwd, name, getConfig))
   const tail = run.catch(() => undefined)
@@ -140,7 +130,7 @@ export function registerTerminalIpc(store: AppStore, terminals: TerminalManager,
 
   ipcMain.handle('terminal:runSetup', async (_e, cwd: unknown) => {
     assertPath(cwd)
-    const { setup } = await trustedConfig(store, cwd)
+    const { setup } = await launchConfig(store, cwd)
     if (setup.length === 0) return null
     for (const old of terminals.list(cwd).filter((t) => t.kind === 'setup')) {
       await stop(terminals, old.id)
@@ -148,6 +138,16 @@ export function registerTerminalIpc(store: AppStore, terminals: TerminalManager,
     }
     const id = terminals.create(cwd, { command: setup.map((c) => `(${c})`).join(' && '), label: 'setup', kind: 'setup' })
     return terminals.get(id) as TerminalInfo
+  })
+
+  ipcMain.handle('terminal:launchConfig', async (_e, cwd: unknown) => {
+    assertPath(cwd)
+    return store.launchConfig(await mainWorktreeRoot(cwd))
+  })
+
+  ipcMain.handle('terminal:setLaunchConfig', async (_e, cwd: unknown, config: unknown) => {
+    assertPath(cwd)
+    await saveLaunchConfig(store, cwd, config)
   })
 
   ipcMain.handle('terminal:runServices', async (_e, cwd: unknown, name: unknown) => {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { AppStore } from '../../../src/main/appStore'
-import { allocatePorts, isFree, readConfig } from '../../../src/main/terminal/config'
+import { allocatePorts, isFree, readConfig, validateConfig } from '../../../src/main/terminal/config'
 
 let dir: string
 let servers: Server[]
@@ -116,4 +116,11 @@ test('a refused portEnv says what is expected', async () => {
 test('PORT itself may be spelled out, like any _PORT variable', async () => {
   await writeConfig({ services: [{ name: 'web', command: 'x', portEnv: 'PORT' }, { name: 'api', command: 'y', portEnv: 'API_PORT' }] })
   expect((await readConfig(dir)).services.map((s) => s.portEnv)).toEqual(['PORT', 'API_PORT'])
+})
+
+test('validates a config given as data, naming its source in errors', () => {
+  expect(validateConfig({ services: [{ name: 'web', command: 'npm run dev' }] }, 'Réglage')).toEqual({
+    setup: [], services: [{ name: 'web', command: 'npm run dev', portEnv: 'PORT' }]
+  })
+  expect(() => validateConfig({ services: [{ name: 'web', command: 'x', portEnv: 'PATH' }] }, 'Réglage')).toThrow(/^Réglage invalide/)
 })
