@@ -39,6 +39,7 @@ test('the canopy server lists the six tools, read ones annotated read-only, alwa
   expect(readOnly).toEqual(['get_ticket', 'list_mockups', 'list_tickets'])
   expect(tools.every((t) => t._meta?.['anthropic/alwaysLoad'] === true)).toBe(true)
   const create = tools.find((t) => t.name === 'create_ticket')!
+  expect(create.description).toContain('required when the user has no assigned Linear issue and no parent is given')
   expect(Object.keys(create.inputSchema.properties ?? {}).sort()).toEqual(['description', 'labels', 'parent', 'priority', 'source', 'status', 'team', 'title'])
 })
 

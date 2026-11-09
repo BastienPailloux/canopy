@@ -23,7 +23,7 @@ const DESCRIPTIONS: Record<CanopyToolName, string> = {
     'Creates a ticket, or a sub-ticket with `parent` (a key of the same source). Search with `list_tickets` first to avoid a duplicate. ' +
     'Local statuses: backlog, todo, in_progress, in_review, done; a Linear status is given by its name. ' +
     'A Linear issue is assigned to the user and goes in the team of its parent, else the only team of the user\'s issues, ' +
-    'else the one named by `team`. Returns the new key.',
+    'else the one named by `team` (Linear team name), which is required when the user has no assigned Linear issue and no parent is given. Returns the new key.',
   update_ticket:
     `Changes the given fields of a ticket. ${KEY} \`description\` is the full wanted text, not a diff; \`labels\` is the full wanted set. ` +
     '`parent` (a key, or null to detach) is for local tickets only. Linear edits are queued and sent like the user\'s; the result says if they were sent.',
@@ -56,7 +56,7 @@ const SHAPES = {
     labels: z.array(z.string()).optional(),
     status: z.string().optional(),
     parent: z.string().nullable().optional().describe('Key of the parent ticket, same source.'),
-    team: z.string().optional().describe('Linear team name, when it cannot be inferred.'),
+    team: z.string().optional().describe('Linear team name: required when the user has no assigned Linear issue and no parent is given.'),
   },
   update_ticket: {
     key,
