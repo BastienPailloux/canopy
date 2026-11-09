@@ -253,14 +253,20 @@ describe('readInventory', () => {
       expect(inv.baseRef).toBeNull()
     })
 
-    test('a promisor remote set to false is not a partial clone', async () => {
+    // Old git reads these as a partial clone whatever their value (any non-zero int is true): presence is enough.
+    test.each([
+      ['remote.evil.promisor', 'false'],
+      ['remote.evil.promisor', '2'],
+      ['remote.evil.partialclonefilter', 'blob:none']
+    ])('%s=%s marks a partial clone', async (key, value) => {
       repo = await createRepo({ remote: true })
-      await repo.commit('package-lock.json', npmLock('a'))
-      sh(repo.path, 'push', '-q', 'origin', 'main')
-      sh(repo.path, 'config', 'remote.origin.promisor', 'false')
-      const inv = await readInventory(repo.path, { fetch: false })
-      expect(inv.notes).toEqual([])
-      expect(inv.units).toHaveLength(1)
+      sh(repo.path, 'config', key, value)
+      vi.mocked(gitSpy).mockClear()
+      const inv = await readInventory(repo.path)
+      expect(inv.notes).toEqual(['Dépôt partiel : dépendances non vérifiées'])
+      expect(inv.baseRef).toBeNull()
+      const commands = vi.mocked(gitSpy).mock.calls.map(([, args]) => args.find((a) => !a.startsWith('-') && !a.includes('=')))
+      expect(new Set(commands)).toEqual(new Set(['worktree', 'config']))
     })
 
     test('a remote.origin.fetch refspec cannot move a local branch', async () => {

@@ -60,29 +60,26 @@ const SAFE_LOCAL_KEYS = [
 ]
 const OWN_SCOPES = new Set(['local', 'worktree'])
 
-/** The repo's own (local and worktree scope) config entries; a key with no value is a git boolean true. Reads no object. */
-async function localConfig(root: string): Promise<{ key: string; value: string | null }[]> {
-  const out = await git(root, ['config', '--list', '--show-scope', '-z'], { okCodes: [1] })
+/** The repo's own (local and worktree scope) config keys. Reads no object. */
+async function localConfig(root: string): Promise<{ key: string }[]> {
+  const out = await git(root, ['config', '--list', '--show-scope', '--name-only', '-z'], { okCodes: [1] })
   const fields = out.split('\0')
-  const entries: { key: string; value: string | null }[] = []
+  const entries: { key: string }[] = []
   for (let i = 0; i + 1 < fields.length; i += 2) {
-    if (!OWN_SCOPES.has(fields[i])) continue
-    const nl = fields[i + 1].indexOf('\n')
-    entries.push(nl < 0 ? { key: fields[i + 1], value: null } : { key: fields[i + 1].slice(0, nl), value: fields[i + 1].slice(nl + 1) })
+    if (OWN_SCOPES.has(fields[i])) entries.push({ key: fields[i + 1] })
   }
   return entries
 }
 
-const isTrue = (value: string | null): boolean => value === null || ['true', 'yes', 'on', '1'].includes(value.trim().toLowerCase())
-
 /**
  * Any read of a missing object would fetch it from the promisor remote, running the repo's own config.
  * GIT_NO_LAZY_FETCH forbids that only from git 2.45: older git (Apple's) ignores it, so such a repo is never read.
+ * Presence, not value: git reads any non-zero int as true, and a partialclonefilter alone makes a promisor remote.
  */
-function isPartialClone(config: { key: string; value: string | null }[]): boolean {
-  return config.some(({ key, value }) => {
+function isPartialClone(config: { key: string }[]): boolean {
+  return config.some(({ key }) => {
     const k = key.toLowerCase()
-    return k === 'extensions.partialclone' || (k.startsWith('remote.') && k.endsWith('.promisor') && isTrue(value))
+    return k === 'extensions.partialclone' || (k.startsWith('remote.') && (k.endsWith('.promisor') || k.endsWith('.partialclonefilter')))
   })
 }
 
