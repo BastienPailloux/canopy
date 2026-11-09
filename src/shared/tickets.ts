@@ -45,6 +45,8 @@ export interface TicketFields {
   branch?: string
   worktree?: string
   base?: string
+  /** Local id of the parent ticket. */
+  parent?: string
 }
 
 export interface Ticket extends TicketFields {

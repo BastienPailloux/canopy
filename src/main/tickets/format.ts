@@ -1,8 +1,8 @@
 import { Document, isSeq, parse } from 'yaml'
-import { PRIORITIES, STATUSES, type Subtask, type Ticket, type TicketPriority, type TicketStatus } from '../../shared/tickets'
+import { PRIORITIES, STATUSES, TICKET_ID_RE, type Subtask, type Ticket, type TicketPriority, type TicketStatus } from '../../shared/tickets'
 
 const SUBTASKS_HEADING = '## Sous-tâches'
-const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base']
+const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base', 'parent']
 
 function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {
   const m = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(text)
@@ -73,6 +73,8 @@ export function parseTicket(text: string, fileId: string): Ticket {
   if (branch) t.branch = branch
   if (worktree) t.worktree = worktree
   if (base) t.base = base
+  const parent = optStr(data.parent)
+  if (parent && TICKET_ID_RE.test(parent)) t.parent = parent
   return t
 }
 
@@ -100,6 +102,7 @@ export function serializeTicket(t: Ticket, extra: Record<string, unknown> = {}):
   if (t.branch) front.branch = t.branch
   if (t.worktree) front.worktree = t.worktree
   if (t.base) front.base = t.base
+  if (t.parent) front.parent = t.parent
   for (const [k, v] of Object.entries(extra)) if (!KNOWN.includes(k)) front[k] = v
   const doc = new Document(front)
   const labels = doc.get('labels', true)
