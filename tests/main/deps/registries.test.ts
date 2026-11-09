@@ -55,6 +55,19 @@ describe('packageInfo', () => {
     expect(await packageInfo(f.http, dep('PyPI', 'Foo_Bar', '1.0'))).toEqual({ latest: '2.0', deprecated: null, yanked: true, inactive: true, lastRelease: '2021-05-01T00:00:00Z' })
   })
 
+  test('a document of the wrong shape throws instead of reading as up to date', async () => {
+    const urls = { npm: 'https://registry.npmjs.org/x', RubyGems: 'https://rubygems.org/api/v1/versions/x.json', PyPI: 'https://pypi.org/pypi/x/json' } as const
+    for (const [eco, url] of Object.entries(urls) as [Dep['ecosystem'], string][]) {
+      for (const body of [{}, null, 'x', []]) {
+        await expect(createRegistry({}).packageInfo(fake({ [url]: body }).http, dep(eco, 'x', '1.0.0')), `${eco} ${JSON.stringify(body)}`).rejects.toThrow('Réponse inattendue')
+      }
+    }
+    await expect(createRegistry({}).packageInfo(fake({ [urls.npm]: { 'dist-tags': { latest: 1 }, versions: {} } }).http, dep('npm', 'x', '1.0.0'))).rejects.toThrow()
+    await expect(createRegistry({}).packageInfo(fake({ [urls.npm]: { 'dist-tags': { latest: '1.0.0' } } }).http, dep('npm', 'x', '1.0.0'))).rejects.toThrow()
+    await expect(createRegistry({}).packageInfo(fake({ [urls.RubyGems]: [{ number: 1 }] }).http, dep('RubyGems', 'x', '1.0.0'))).rejects.toThrow()
+    await expect(createRegistry({}).packageInfo(fake({ [urls.PyPI]: { info: { version: '1.0' } } }).http, dep('PyPI', 'x', '1.0.0'))).rejects.toThrow()
+  })
+
   test('invalid names throw without any request', async () => {
     const f = fake({})
     await expect(packageInfo(f.http, dep('npm', '../etc', '1.0.0'))).rejects.toThrow('Nom de paquet invalide')

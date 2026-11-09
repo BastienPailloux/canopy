@@ -45,10 +45,20 @@ function request(d: Dep): { url: string; headers?: Record<string, string> } {
   return { url: `https://pypi.org/pypi/${e(d.name.toLowerCase().replace(/[-_.]+/g, '-'))}/json` }
 }
 
+const isRaw = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** The fields each registry must send: anything else (an error page, a moved API) must not read as « up to date ». */
+function wellFormed(d: Dep, j: unknown): boolean {
+  if (d.ecosystem === 'RubyGems') return Array.isArray(j) && j.length > 0 && j.every((x) => isRaw(x) && typeof x.number === 'string')
+  if (!isRaw(j)) return false
+  if (d.ecosystem === 'npm') return isRaw(j['dist-tags']) && typeof j['dist-tags'].latest === 'string' && isRaw(j.versions)
+  return isRaw(j.info) && typeof j.info.version === 'string' && isRaw(j.releases)
+}
+
 function derive(d: Dep, j: unknown, url: string): PackageInfo {
+  if (!wellFormed(d, j)) throw new Error(`Réponse inattendue : ${url}`)
   const version = d.version ?? ''
   if (d.ecosystem === 'RubyGems') return gemInfo(j, version)
-  if (typeof j !== 'object' || j === null) throw new Error(`Réponse inattendue : ${url}`)
   return d.ecosystem === 'npm' ? npmInfo(j as Raw, version) : pypiInfo(j as Raw, version)
 }
 
