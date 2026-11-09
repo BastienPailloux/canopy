@@ -21,7 +21,7 @@ npm run build        # build electron-vite vers out/
 
 Un seul test : `npx vitest run tests/main/quit.test.ts` ou `npx playwright test tests/e2e/sessions.spec.ts`.
 
-Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E.
+Les E2E tournent avec `CANOPY_HIDE_WINDOW=1` par défaut (fenêtre hors écran, sans focus). `CANOPY_HIDE_WINDOW=0` pour la voir. `CANOPY_FAKE_QUERY` remplace le SDK par `src/main/sessions/fakeQuery.ts` : aucun test ne lance de vraie session Claude. `CANOPY_FAKE_ACCOUNT` fait de même pour le compte. `CANOPY_FAKE_LINEAR=tests/fixtures/linear` remplace le serveur MCP Linear par la relecture des réponses capturées (`src/main/linear/replay.ts`, ignoré en build packagé) ; `CANOPY_FAKE_LINEAR_FAIL`, `_LOG` et `_COLLEAGUE` pilotent les pannes, le journal des appels et les modifications d'un collègue dans les E2E. `CANOPY_FAKE_GH=tests/fixtures/gh/pr.json` remplace `gh` par une PR en mémoire (`src/main/github/fakeGateway.ts`, ignoré en build packagé) ; `CANOPY_FAKE_GH_LOG` journalise les actions, `CANOPY_FAKE_GH_FAIL` (fichier présent) fait échouer chaque appel.
 
 `.npmrc` impose `legacy-peer-deps=true` : ne pas le retirer.
 
@@ -32,7 +32,7 @@ src/
   main/       process principal Electron (Node) : git, sessions Claude, terminaux (node-pty),
               LSP TypeScript, recherche (ripgrep), tickets, mises à jour, menu, CLI
   preload/    pont contextBridge : expose `window.canopy` (type CanopyApi)
-  renderer/   UI React 19 + Zustand, organisée par écran (sessions, code, terminal, tickets, shell, update)
+  renderer/   UI React 19 + Zustand, organisée par écran (sessions, code, pr, terminal, tickets, mockups, shell, update)
   shared/     types et contrats partagés main/renderer (aucune dépendance Electron ni DOM)
 tests/        miroir de src : main/, renderer/, scripts/, e2e/, helpers/
 scripts/release/  calcul de version et notes de release (exécuté en CI)
@@ -44,6 +44,7 @@ build/        icônes, entitlements, CLI `canopy` (shell script copié dans le b
 - **Binaires natifs** (SDK Claude, node-pty, ripgrep, serveur LSP) sont en `asarUnpack` dans `electron-builder.yml`. Toute nouvelle dépendance qui spawn un binaire doit y être ajoutée, sinon elle casse uniquement en build packagé.
 - **Worktrees** : créés par défaut sous `<repo>/.worktrees/` (ignoré par git). `.canopy/config.json` décrit le setup et les services lancés par « Tester la PR » ; le port est fourni via `PORT`.
 - **Tickets** : fichiers Markdown dans `.tickets/` du checkout principal, hors git.
+- **PR** : onglet « PR » de la branche du worktree sélectionné (`src/renderer/pr/`), via `gh` uniquement (`src/main/github/`, `execFile`, textes utilisateur par stdin). Le jeton GitHub ne quitte jamais le main.
 - **Linear** : connecteur dans `src/main/linear/`, uniquement via le serveur MCP officiel (`https://mcp.linear.app/mcp`, OAuth avec enregistrement dynamique, jeton chiffré par `safeStorage`). Les modifications passent par une file sur disque (`linear-pending.json`) et la description part en `patch` : ne jamais envoyer une description complète. Comportement réel du serveur : `tests/fixtures/linear/README.md`.
 
 ## Conventions de code
