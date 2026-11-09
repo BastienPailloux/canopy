@@ -48,25 +48,31 @@ export async function checkRepo(deps: CheckDeps, repo: string, previous: DepsRep
           advisories = [...(found.get(key) ?? [])]
           for (const t of u.transitive) if (t.via?.[0] === d.name) advisories.push(...(found.get(depKey(t)) ?? []))
         }
+        // A failed detail lookup yields 'unknown': keep the severity we already knew.
+        advisories = advisories.map((a) => {
+          if (a.severity !== 'unknown') return a
+          const old = before?.advisories.find((b) => b.id === a.id)
+          return old && old.severity !== 'unknown' ? old : a
+        })
         let info: PackageInfo | null = null
         let failed = osvFailed
         if (!d.private && isValidPackageName(d.ecosystem, d.name)) {
           try { info = await limit(() => getInfo(deps.http, d)) } catch (e) {
             const why = e instanceof HttpError ? `HTTP ${e.status}` : messageOf(e)
             errors.push(`${d.ecosystem} : ${d.name} non vérifié (${why})`)
-            if (before) return before
             failed = true
           }
         }
         const entry = classify(d, advisories, info, deps.now())
         // A network failure must never make a known problem disappear or look milder.
-        if (failed && before && rank(entry) > rank(before)) return before
+        if (failed && before && rank(entry) >= rank(before)) return before
         return entry
       })())
     }
   }
   const entries = (await Promise.all(jobs)).filter((e): e is DepEntry => e !== null)
+  const uniqueErrors = [...new Set(errors)].sort()
   entries.sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level] || a.name.localeCompare(b.name, 'fr') || a.manifest.localeCompare(b.manifest))
 
-  return { repo: inventory.repo, checkedAt: deps.now(), entries, errors, baseRef: inventory.baseRef, manifests: inventory.units.length }
+  return { repo: inventory.repo, checkedAt: deps.now(), entries, errors: uniqueErrors, baseRef: inventory.baseRef, manifests: inventory.units.length }
 }

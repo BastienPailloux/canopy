@@ -82,6 +82,38 @@ describe('checkRepo', () => {
     expect(r.repo).toBe('/r')
   })
 
+  const prevEntry = (d: Dep, o: Partial<DepEntry>): DepEntry => ({ key: depKey(d), ecosystem: 'npm', name: d.name, manifest: d.manifest, installed: d.version, target: null, level: 'soon', cause: 'majors', reason: 'old', advisories: [], registryUrl: null, ...o })
+
+  test('a registry failure does not drop fresh advisories', async () => {
+    const d = dep('lodash', '1.0.0')
+    const r = await run(inv([unit([d])]), {
+      packageInfo: async () => { throw new HttpError(429, 'u') },
+      advisories: async () => new Map([[depKey(d), [adv({ package: 'lodash' })]]])
+    }, prevReport([prevEntry(d, {})]))
+    expect(r.entries[0].level).toBe('critical')
+    expect(r.entries[0].advisories).toHaveLength(1)
+  })
+
+  test('a registry failure keeps a previous critical entry without fresh advisory', async () => {
+    const d = dep('lodash', '1.0.0')
+    const prev = prevEntry(d, { level: 'critical', cause: 'deprecated', reason: 'Déprécié : x' })
+    const r = await run(inv([unit([d])]), { packageInfo: async () => { throw new Error('x') } }, prevReport([prev]))
+    expect(r.entries).toEqual([prev])
+  })
+
+  test('an unknown severity from a failed detail lookup keeps the previous known one', async () => {
+    const d = dep('lodash', '1.0.0')
+    const prev = prevEntry(d, { level: 'critical', cause: 'advisory', advisories: [adv({ package: 'lodash', severity: 'high' })] })
+    const r = await run(inv([unit([d])]), { advisories: async () => new Map([[depKey(d), [adv({ package: 'lodash', severity: 'unknown' })]]]) }, prevReport([prev]))
+    expect(r.entries[0].level).toBe('critical')
+    expect(r.entries[0].advisories[0].severity).toBe('high')
+  })
+
+  test('errors are sorted and deduplicated', async () => {
+    const r = await run(inv([unit([], [], { error: 'b' }), unit([], [], { error: 'b' })], { notes: ['a'] }))
+    expect(r.errors).toEqual(['a', 'b'])
+  })
+
   test('propagates an inventory failure', async () => {
     await expect(checkRepo({ http, now: () => NOW, inventory: async () => { throw new Error('no repo') } }, '/r', null)).rejects.toThrow('no repo')
   })
