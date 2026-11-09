@@ -139,7 +139,7 @@ describe('depsLaunchPrompt', () => {
   it('lists entries and instructions', () => {
     const p = depsLaunchPrompt([entry()])
     for (const s of ['npm', 'package-lock.json', '1.0.0 → 1.2.0', 'faille de sécurité', 'GHSA-xyz (haute)']) expect(p).toContain(s)
-    for (const s of ['tester', 'signaler', 'PR']) expect(p).toContain(s)
+    for (const s of ['tester', 'signaler', 'PR', 'corriger ce qui casse']) expect(p).toContain(s)
     expect(p).not.toContain('Boom')
   })
   it('never includes author-controlled text', () => {

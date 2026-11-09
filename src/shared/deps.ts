@@ -212,7 +212,7 @@ export function depsLaunchPrompt(entries: DepEntry[]): string {
     ...lines,
     '',
     'Consulte toi-même chaque avis de sécurité et chaque page de registre pour les détails.',
-    'Utilise l\'outil du projet (npm, yarn, pnpm, bundler, pip…) pour appliquer les mises à jour et corriger les failles. Pense à tester (tests et typecheck).',
+    'Utilise l\'outil du projet (npm, yarn, pnpm, bundler, pip…) pour appliquer les mises à jour et corriger les failles, puis corriger ce qui casse après la mise à jour. Pense à tester (tests et typecheck).',
     'Si une mise à jour majeure te paraît risquée, pense à la signaler plutôt que de la forcer.',
     'Prépare ensuite la PR.'
   ].join('\n')
