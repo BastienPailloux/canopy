@@ -61,3 +61,17 @@ export const CLAUDE_SIGNATURE = '— Claude via Canopy'
 export const isClaudeReply = (body: string): boolean => body.trimEnd().endsWith(CLAUDE_SIGNATURE)
 /** GitHub refuses a body or comment longer than this. */
 export const MAX_PR_BODY = 65_536
+
+/** What the cleanup after a merge needs of the PR: `headOid` is its head commit, the only tip a local branch may be deleted at. */
+export interface CleanupRequest { number: number; branch: string; headOid: string }
+/** An auto-merge enabled from the tab; `cleanup`: its box was checked. */
+export type AutoMergeEntry = CleanupRequest & { cleanup: boolean }
+export type CleanupStep = { step: 'remote' | 'switch' | 'local' | 'update'; ok: boolean; message?: string }
+export type CleanupOutcome =
+  /** Uncommitted files: nothing done locally. */
+  | { kind: 'dirty'; files: number }
+  | { kind: 'switched'; branch: string; steps: CleanupStep[] }
+  /** No branch to go back to: the renderer offers to remove the worktree. */
+  | { kind: 'proposeRemoval'; steps: CleanupStep[] }
+  /** A step failed: the later ones were skipped. */
+  | { kind: 'failed'; steps: CleanupStep[] }

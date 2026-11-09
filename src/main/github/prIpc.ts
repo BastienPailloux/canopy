@@ -1,5 +1,9 @@
 import { isAbsolute } from 'node:path'
-import { MAX_PR_BODY, type MergeMethod, type PrAction } from '../../shared/pr'
+import { MAX_PR_BODY, type AutoMergeEntry, type CleanupRequest, type MergeMethod, type PrAction } from '../../shared/pr'
+import type { AppStore } from '../appStore'
+import { clearSharedReads } from '../git/sharedReads'
+import type { AutoMergeWatch } from './autoMergeWatch'
+import { cleanupAfterMerge, deleteMergedBranch } from './cleanup'
 import type { PrGateway } from './gateway'
 
 const bad = (): Error => new Error('Action invalide')
@@ -114,6 +118,26 @@ export function parsePrAction(raw: unknown): PrAction {
   }
 }
 
+const OID_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+const badCleanup = (): Error => new Error('Demande de nettoyage invalide')
+
+/** Checks a `CleanupRequest` from the renderer: `headOid` is a full commit id, the only tip a branch is deleted at. */
+export function parseCleanupRequest(raw: unknown, extra: string[] = []): CleanupRequest {
+  if (!isObject(raw)) throw badCleanup()
+  const keys = ['number', 'branch', 'headOid', ...extra]
+  if (Object.keys(raw).some((k) => !keys.includes(k)) || keys.some((k) => !(k in raw))) throw badCleanup()
+  if (!isPosInt(raw.number) || !isBranchName(raw.branch) || typeof raw.headOid !== 'string' || !OID_RE.test(raw.headOid)) throw badCleanup()
+  return { number: raw.number, branch: raw.branch, headOid: raw.headOid }
+}
+
+function parseAutoMerge(raw: unknown): AutoMergeEntry | null {
+  if (raw === null) return null
+  const req = parseCleanupRequest(raw, ['cleanup'])
+  const cleanup = (raw as Record<string, unknown>).cleanup
+  if (typeof cleanup !== 'boolean') throw badCleanup()
+  return { ...req, cleanup }
+}
+
 function assertCwd(p: unknown): asserts p is string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new Error('Chemin invalide')
 }
@@ -127,6 +151,10 @@ export interface PrIpcDeps {
   currentBranch: (cwd: string) => Promise<string | null>
   /** After a merge, close or reopen: the open-PR cache of `cwd`'s repo is stale. */
   onPrStateChanged: (cwd: string) => void | Promise<void>
+  store: AppStore
+  /** Whether the repo config at `cwd` was approved: its hooks may run on the cleanup's switch. */
+  trusted: (cwd: string) => Promise<boolean>
+  autoMerges: Pick<AutoMergeWatch, 'watch'>
 }
 
 const STATE_CHANGING = new Set<PrAction['type']>(['merge', 'close', 'reopen'])
@@ -161,5 +189,27 @@ export function registerPrIpc(d: PrIpcDeps): void {
     const result = await d.gateway.act(cwd, number, a)
     if (STATE_CHANGING.has(a.type)) await d.onPrStateChanged(cwd)
     return result
+  })
+  d.handle('pr:cleanup', async (cwd, raw) => {
+    assertCwd(cwd)
+    const req = parseCleanupRequest(raw)
+    try {
+      return await cleanupAfterMerge(cwd, req, { gateway: d.gateway, store: d.store, trusted: await d.trusted(cwd) })
+    } finally {
+      clearSharedReads()
+    }
+  })
+  d.handle('pr:deleteLocalBranch', async (repo, branch, headOid) => {
+    assertCwd(repo)
+    const req = parseCleanupRequest({ number: 1, branch, headOid })
+    try {
+      return await deleteMergedBranch(repo, req.branch, req.headOid)
+    } finally {
+      clearSharedReads()
+    }
+  })
+  d.handle('pr:watchAutoMerge', async (cwd, raw) => {
+    assertCwd(cwd)
+    d.autoMerges.watch(cwd, parseAutoMerge(raw))
   })
 }

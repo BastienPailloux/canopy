@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { registerPrIpc, parsePrAction } from '../../../src/main/github/prIpc'
+import { registerPrIpc, parsePrAction, parseCleanupRequest } from '../../../src/main/github/prIpc'
 import type { PrAction } from '../../../src/shared/pr'
 import type { PrGateway } from '../../../src/main/github/gateway'
 
@@ -88,8 +88,13 @@ describe('registerPrIpc', () => {
       branchStates: async () => null,
       act: async (cwd, n, a) => { calls.push(['act', cwd, n, a]); return { ok: true } },
     }
-    registerPrIpc({ handle: (n, f) => { handlers.set(n, f) }, gateway, currentBranch: async () => branch, onPrStateChanged: (cwd) => { changed.push(cwd) } })
-    return { call: (n: string, ...a: unknown[]) => handlers.get(n)!(...a), calls, changed }
+    const watched: unknown[][] = []
+    const autoMerges = { watch: (cwd: string, e: unknown) => { watched.push([cwd, e]) } }
+    registerPrIpc({
+      handle: (n, f) => { handlers.set(n, f) }, gateway, currentBranch: async () => branch, onPrStateChanged: (cwd) => { changed.push(cwd) },
+      store: {} as never, trusted: async () => false, autoMerges
+    })
+    return { call: (n: string, ...a: unknown[]) => handlers.get(n)!(...a), calls, changed, watched }
   }
 
   it('finds by the current branch, null when detached', async () => {
@@ -115,5 +120,52 @@ describe('registerPrIpc', () => {
     await s.call('pr:act', '/r', 3, { type: 'reopen' })
     await s.call('pr:act', '/r', 3, { type: 'merge', method: 'squash', subject: 's', body: '' })
     expect(s.changed).toEqual(['/r', '/r', '/r'])
+  })
+})
+
+describe('cleanup IPC', () => {
+  const oid = 'a'.repeat(40)
+  const req = { number: 87, branch: 'feat/x', headOid: oid }
+
+  it('parses a cleanup request and refuses anything off', () => {
+    expect(parseCleanupRequest(req)).toEqual(req)
+    expect(parseCleanupRequest({ ...req, headOid: 'b'.repeat(64) })).toEqual({ ...req, headOid: 'b'.repeat(64) })
+    const bad: unknown[] = [
+      null, { ...req, number: 0 }, { ...req, branch: '-x' }, { ...req, branch: '' }, { ...req, headOid: 'HEAD' },
+      { ...req, headOid: 'A'.repeat(40) }, { ...req, extra: 1 }, { number: 1, branch: 'b' },
+    ]
+    for (const b of bad) expect(() => parseCleanupRequest(b), JSON.stringify(b)).toThrow('Demande de nettoyage invalide')
+  })
+})
+
+describe('registerPrIpc cleanup handlers', () => {
+  const setup = () => {
+    const handlers = new Map<string, (...a: unknown[]) => unknown>()
+    const watched: unknown[][] = []
+    const gateway = { act: async () => { throw new Error('must not run') } } as unknown as PrGateway
+    registerPrIpc({
+      handle: (n, f) => { handlers.set(n, f) }, gateway, currentBranch: async () => null, onPrStateChanged: () => {},
+      store: {} as never, trusted: async () => false,
+      autoMerges: { watch: (cwd, e) => { watched.push([cwd, e]) } }
+    })
+    return { call: async (n: string, ...a: unknown[]) => handlers.get(n)!(...a), watched }
+  }
+  const req = { number: 87, branch: 'feat/x', headOid: 'a'.repeat(40) }
+
+  it('refuses a relative path or a bad request before touching git', async () => {
+    const s = setup()
+    await expect(s.call('pr:cleanup', 'rel', req)).rejects.toThrow('Chemin invalide')
+    await expect(s.call('pr:cleanup', '/r', { ...req, headOid: 'x' })).rejects.toThrow('invalide')
+    await expect(s.call('pr:deleteLocalBranch', '/r', '-D', req.headOid)).rejects.toThrow('invalide')
+    await expect(s.call('pr:deleteLocalBranch', '/r', 'feat/x', 'HEAD')).rejects.toThrow('invalide')
+  })
+
+  it('watches an auto-merge with its box, and stops with null', async () => {
+    const s = setup()
+    await s.call('pr:watchAutoMerge', '/r', { ...req, cleanup: true })
+    await s.call('pr:watchAutoMerge', '/r', null)
+    expect(s.watched).toEqual([['/r', { ...req, cleanup: true }], ['/r', null]])
+    await expect(s.call('pr:watchAutoMerge', '/r', { ...req, cleanup: 'yes' })).rejects.toThrow('invalide')
+    await expect(s.call('pr:watchAutoMerge', '/r', req)).rejects.toThrow('invalide')
   })
 })

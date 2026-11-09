@@ -344,3 +344,20 @@ describe('branchHistory', () => {
     expect(new AppStore(file).branchHistory('/w')).toEqual([])
   })
 })
+
+describe('autoMerges', () => {
+  const entry = { number: 87, branch: 'feat/x', headOid: 'a'.repeat(40), cleanup: true }
+
+  it('remembers a watched auto-merge across a reload, and forgets it with null', () => {
+    const s = new AppStore(file)
+    s.setAutoMerge('/w', entry)
+    expect(new AppStore(file).autoMerges).toEqual({ '/w': entry })
+    s.setAutoMerge('/w', null)
+    expect(new AppStore(file).autoMerges).toEqual({})
+  })
+
+  it('drops a malformed entry', () => {
+    writeFileSync(file, JSON.stringify({ autoMerges: { '/w': entry, '/a': { ...entry, number: 0 }, '/b': { ...entry, cleanup: 'yes' }, rel: entry, '/c': 3 } }))
+    expect(new AppStore(file).autoMerges).toEqual({ '/w': entry })
+  })
+})

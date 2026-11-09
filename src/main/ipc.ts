@@ -24,6 +24,7 @@ import { parseStash, takeStash } from './update/stash'
 import type { Updater } from './update/updater'
 import type { PrGateway } from './github/gateway'
 import { registerPrIpc } from './github/prIpc'
+import { createAutoMergeWatch } from './github/autoMergeWatch'
 import { folderNeedsAttention, PrCache, type AttentionDeps } from './status'
 import { approveConfig, isConfigTrusted, repoTrust, requireTrustedRoot } from './repoTrust'
 import { findRepos, parseRepoBase, resolveOpenedFolder, scanWorkspace } from './workspace'
@@ -168,9 +169,13 @@ export function registerIpc(
   ipcMain.handle('app:unsaved', (_e, counts: unknown) => { onUnsaved(parseUnsaved(counts)) })
 
   const prs = new PrCache()
+  // Auto-merges enabled from the tab are followed even while the tab is closed, and across restarts.
+  const autoMerges = createAutoMergeWatch({ store, gateway: prGateway, broadcast, setInterval: (fn, ms) => setInterval(fn, ms) })
+  autoMerges.start()
   registerPrIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
-    gateway: prGateway, currentBranch, onPrStateChanged: async (cwd) => { prs.expire(await mainWorktreeRoot(cwd).catch(() => cwd)) }
+    gateway: prGateway, currentBranch, onPrStateChanged: async (cwd) => { prs.expire(await mainWorktreeRoot(cwd).catch(() => cwd)) },
+    store, trusted: (cwd) => isConfigTrusted(store, cwd), autoMerges
   })
   const orphans = new OrphanTracker()
   const live: LiveProcesses = {

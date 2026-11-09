@@ -8,7 +8,7 @@ import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
   LinearListState, LinearStatus, LinearUser, PendingEdit, SaveResult
 } from './linear'
-import type { PrActResult, PrAction, PrDetail, PrOptions, PrSummary } from './pr'
+import type { AutoMergeEntry, CleanupOutcome, CleanupRequest, CleanupStep, PrActResult, PrAction, PrDetail, PrOptions, PrSummary } from './pr'
 import type { Mockup, MockupChanges, MockupFields, MockupList, MockupViewBounds } from './mockups'
 
 export interface RemovalRisks {
@@ -270,6 +270,12 @@ export interface CanopyApi {
   /** The last lines of a failed job's log. */
   prFailedLog(cwd: string, runId: number, jobId: number): Promise<string>
   prAct(cwd: string, number: number, action: PrAction): Promise<PrActResult>
+  /** After a merge from the tab, box checked: remote branch, switch to the next branch (or proposes removal), local branch. */
+  prCleanup(cwd: string, req: CleanupRequest): Promise<CleanupOutcome>
+  /** Once the worktree is removed: deletes the merged branch, only at the PR's head. */
+  prDeleteLocalBranch(repo: string, branch: string, headOid: string): Promise<CleanupStep>
+  /** Follows an auto-merge enabled from the tab (null: stops); `pr:autoMerged` `{ cwd, req }` comes once merged, box checked. */
+  prWatchAutoMerge(cwd: string, entry: AutoMergeEntry | null): Promise<void>
   linearAckDepartures(ids: string[]): Promise<void>
   /** The issue with its sub-issues and comments, read from Linear. */
   linearIssue(id: string): Promise<LinearIssueDetail>

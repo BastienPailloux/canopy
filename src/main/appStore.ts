@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { isAbsolute } from 'node:path'
 import type { LinearLink } from '../shared/linear'
+import type { AutoMergeEntry } from '../shared/pr'
 
 const MAX_RECENT = 10
 const MAX_BRANCH_HISTORY = 50
@@ -36,6 +38,8 @@ interface State {
   linearLinks: Record<string, Record<string, LinearLink>>
   /** Branches checked out in each worktree, most recent last. */
   branchHistory: Record<string, string[]>
+  /** Auto-merges enabled from the PR tab and still pending, by worktree. */
+  autoMerges: Record<string, AutoMergeEntry>
   /** Worktree last selected in each recent folder. */
   lastEntries: Record<string, string>
   prefs: Record<string, unknown>
@@ -52,7 +56,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, branchHistory: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, branchHistory: {}, autoMerges: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -97,6 +101,14 @@ function sanitize(raw: unknown): State {
       if (!Array.isArray(branches)) continue
       const clean = [...new Set(branches.filter((b): b is string => typeof b === 'string' && b !== ''))].slice(-MAX_BRANCH_HISTORY)
       if (clean.length > 0) state.branchHistory[wt] = clean
+    }
+  }
+  if (isRecord(raw.autoMerges)) {
+    for (const [wt, e] of Object.entries(raw.autoMerges)) {
+      if (isAbsolute(wt) && isRecord(e) && typeof e.number === 'number' && Number.isSafeInteger(e.number) && e.number > 0 &&
+        typeof e.branch === 'string' && e.branch !== '' && typeof e.headOid === 'string' && e.headOid !== '' && typeof e.cleanup === 'boolean') {
+        state.autoMerges[wt] = { number: e.number, branch: e.branch, headOid: e.headOid, cleanup: e.cleanup }
+      }
     }
   }
   if (isRecord(raw.lastEntries)) {
@@ -224,6 +236,19 @@ export class AppStore {
   forgetBranchHistory(worktree: string): void {
     if (!Object.hasOwn(this.state.branchHistory, worktree)) return
     delete this.state.branchHistory[worktree]
+    this.save()
+  }
+
+  get autoMerges(): Record<string, AutoMergeEntry> { return { ...this.state.autoMerges } }
+
+  /** Remembers the auto-merge enabled in `worktree`, or forgets it with null. */
+  setAutoMerge(worktree: string, entry: AutoMergeEntry | null): void {
+    if (entry === null) {
+      if (!Object.hasOwn(this.state.autoMerges, worktree)) return
+      delete this.state.autoMerges[worktree]
+    } else {
+      this.state.autoMerges[worktree] = { ...entry }
+    }
     this.save()
   }
 
