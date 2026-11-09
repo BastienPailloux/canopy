@@ -170,6 +170,8 @@ test('a Claude reply shows as Claude via Canopy', async () => {
   await openPr()
   const reply = thread().getByTestId('pr-comment').filter({ hasText: 'Good catch' })
   await expect(reply).toContainText('Claude · via Canopy')
+  // The account it was posted under stays visible.
+  await expect(reply).toContainText('via Canopy (basti)')
   await expect(reply).not.toContainText('— Claude via Canopy')
   // A human comment keeps its login.
   await expect(page.getByTestId('pr-comment').filter({ hasText: 'document the new route' })).toContainText('theo-m')

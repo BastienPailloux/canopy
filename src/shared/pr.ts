@@ -58,7 +58,11 @@ export interface PrOptions { labels: string[]; assignable: string[]; suggested: 
 
 /** Last line of every reply Claude writes from Canopy: how the tab tells them from the user's own. */
 export const CLAUDE_SIGNATURE = '— Claude via Canopy'
-export const isClaudeReply = (body: string): boolean => body.trimEnd().endsWith(CLAUDE_SIGNATURE)
+/** The signature must be the body's own last line: `… — Claude via Canopy` within a sentence is not one. */
+export const isClaudeReply = (body: string): boolean => {
+  const text = body.trimEnd()
+  return text === CLAUDE_SIGNATURE || text.endsWith(`\n${CLAUDE_SIGNATURE}`)
+}
 /** GitHub refuses a body or comment longer than this. */
 export const MAX_PR_BODY = 65_536
 

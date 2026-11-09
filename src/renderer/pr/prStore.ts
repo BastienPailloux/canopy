@@ -100,13 +100,17 @@ export async function act(action: PrAction): Promise<PrActResult | null> {
   }
 }
 
-/** Starts a new Claude session on the followed worktree with `text` and shows it; `threadId`: the thread it handles. */
-export function sendToClaude(text: string, threadId?: string): void {
+/**
+ * Starts a new Claude session on the followed worktree with `text` and shows it; `threadId`: the thread it handles.
+ * False: no worktree followed, nothing started.
+ */
+export function sendToClaude(text: string, threadId?: string): boolean {
   const { cwd } = usePr.getState()
-  if (!cwd) return
+  if (!cwd) return false
   const tabId = askClaudeInNewTab(cwd, text)
   if (threadId) usePr.setState((s) => ({ claudeThreads: { ...s.claudeThreads, [threadId]: tabId } }))
   useApp.getState().setView('sessions')
+  return true
 }
 
 export const setSubTab = (subTab: PrSubTab): void => usePr.setState({ subTab })

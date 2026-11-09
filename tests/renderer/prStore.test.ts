@@ -169,7 +169,7 @@ describe('prStore', () => {
     canopy.repoTrust = vi.fn(() => new Promise(() => undefined))
     usePr.setState({ cwd: '/w', claudeThreads: {} })
     useSessions.setState({ tabs: {}, active: {} })
-    sendToClaude('corrige', 'PRRT_1')
+    expect(sendToClaude('corrige', 'PRRT_1')).toBe(true)
     const tabId = useSessions.getState().active['/w']
     expect(useSessions.getState().tabs[tabId].draft.text).toBe('corrige')
     expect(usePr.getState().claudeThreads).toEqual({ PRRT_1: tabId })
@@ -177,5 +177,7 @@ describe('prStore', () => {
     sendToClaude('autre')
     expect(Object.keys(useSessions.getState().tabs)).toHaveLength(2)
     expect(usePr.getState().claudeThreads).toEqual({ PRRT_1: tabId })
+    usePr.setState({ cwd: null })
+    expect(sendToClaude('perdu')).toBe(false)
   })
 })

@@ -1,9 +1,10 @@
-import { CLAUDE_SIGNATURE, type PrThread } from '../../shared/pr'
+import { CLAUDE_SIGNATURE, isClaudeReply, type PrComment, type PrThread } from '../../shared/pr'
 import type { TabState } from '../sessions/sessionStore'
 
 /** The thread's Claude button, from the state of the session it started (none: never asked). */
 export function claudeThreadLabel(state: TabState | undefined): { label: string; busy: boolean } {
-  if (state === 'draft' || state === 'running' || state === 'waiting') return { label: 'Claude traite le retour', busy: true }
+  // A draft never sent (trust refused, failed start) is not busy: the button must come back.
+  if (state === 'running' || state === 'waiting') return { label: 'Claude traite le retour', busy: true }
   if (state === 'idle' || state === 'stopped') return { label: 'Claude a traité le retour', busy: false }
   return { label: 'Faire corriger par Claude', busy: false }
 }
@@ -14,10 +15,15 @@ export function lineLabel(t: Pick<PrThread, 'line' | 'startLine'>): string {
   return t.startLine !== null && t.startLine !== t.line ? `L${t.startLine}–${t.line}` : `L${t.line}`
 }
 
+/**
+ * Shown as Claude's: anyone can type the signature, so only the viewer's own comments count. Claude replies
+ * through `gh` under the viewer's account.
+ */
+export const isViewerClaudeReply = (c: PrComment, viewerLogin: string): boolean => c.author.login === viewerLogin && isClaudeReply(c.body)
+
 /** A Claude reply without its signature line: the card says who wrote it. */
 export function withoutSignature(body: string): string {
-  const text = body.trimEnd()
-  return text.endsWith(CLAUDE_SIGNATURE) ? text.slice(0, -CLAUDE_SIGNATURE.length).trimEnd() : body
+  return isClaudeReply(body) ? body.trimEnd().slice(0, -CLAUDE_SIGNATURE.length).trimEnd() : body
 }
 
 export interface HunkRow { n: number | null; kind: 'same' | 'add' | 'del'; text: string }
@@ -31,6 +37,8 @@ export function hunkRows(hunk: string, keep: number): HunkRow[] {
   const rows: HunkRow[] = []
   for (const line of head ? lines.slice(1) : lines) {
     const c = line[0]
+    // `\ No newline at end of file`: a marker on the line before, not a line.
+    if (c === '\\') continue
     if (c === '+') {
       rows.push({ n: newN, kind: 'add', text: line.slice(1) })
       if (newN !== null) newN++

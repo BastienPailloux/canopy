@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { isClaudeReply, type CheckOutcome, type PrComment, type PrDetail, type PrReviewState, type PrThread, type PrTimelineItem, type PrUser } from '../../shared/pr'
+import { type CheckOutcome, type PrComment, type PrDetail, type PrReviewState, type PrThread, type PrTimelineItem, type PrUser } from '../../shared/pr'
 import { Markdown } from '../sessions/Markdown'
 import { useSessions } from '../sessions/sessionStore'
-import { claudeThreadLabel, hunkRows, lineLabel, withoutSignature } from './conversationModel'
+import { claudeThreadLabel, hunkRows, isViewerClaudeReply, lineLabel, withoutSignature } from './conversationModel'
 import { commentPrompt, threadPrompt } from './prPrompts'
 import { act, sendToClaude, usePr } from './prStore'
 
@@ -28,16 +28,16 @@ function ClaudeIcon(): React.JSX.Element {
   )
 }
 
-/** Who wrote it: a reply Claude wrote from Canopy shows as Claude's, without its signature line. */
-function CommentBody({ comment, verb }: { comment: PrComment; verb?: string }): React.JSX.Element {
-  const claude = isClaudeReply(comment.body)
+/** Who wrote it: a reply Claude wrote from Canopy shows as Claude's, without its signature line, the account still named. */
+function CommentBody({ comment, verb, viewerLogin }: { comment: PrComment; verb?: string; viewerLogin: string }): React.JSX.Element {
+  const claude = isViewerClaudeReply(comment, viewerLogin)
   return (
     <div className="pr-reply" data-testid="pr-comment">
       <Avatar login={comment.author.login} claude={claude} />
       <div className="pr-reply-main">
         <span>
           {claude
-            ? <><b>Claude</b> <span className="pr-muted">· via Canopy · {when(comment.createdAt)}</span></>
+            ? <><b>Claude</b> <span className="pr-muted">· via Canopy ({comment.author.login}) · {when(comment.createdAt)}</span></>
             : <><b>{comment.author.login}</b> <span className="pr-muted">{verb ? `${verb} · ` : '· '}{when(comment.createdAt)}</span></>}
         </span>
         <div className="pr-md"><Markdown text={claude ? withoutSignature(comment.body) : comment.body} /></div>
@@ -132,7 +132,7 @@ function Thread({ pr, thread }: { pr: PrDetail; thread: PrThread }): React.JSX.E
         <>
           {thread.diffHunk && <Hunk hunk={thread.diffHunk} />}
           <div className="pr-card-body pr-thread-body">
-            {thread.comments.map((c) => <CommentBody key={c.id} comment={c} />)}
+            {thread.comments.map((c) => <CommentBody key={c.id} comment={c} viewerLogin={pr.viewerLogin} />)}
             {reply !== null && (
               <div className="pr-editor">
                 <textarea aria-label="Réponse" rows={3} autoFocus value={reply} onChange={(e) => setReply(e.target.value)} />
@@ -178,10 +178,10 @@ function Item({ pr, item }: { pr: PrDetail; item: PrTimelineItem }): React.JSX.E
       return <Event who="CI" text={`${CI_TEXT[item.outcome]} ${item.sha.slice(0, 7)}`} at={item.at} tone={item.outcome} />
     case 'review':
       return item.body.trim()
-        ? <article className="pr-card"><div className="pr-card-body"><CommentBody comment={reviewComment(item)} verb={REVIEW_TEXT[item.state]} /></div></article>
+        ? <article className="pr-card"><div className="pr-card-body"><CommentBody comment={reviewComment(item)} verb={REVIEW_TEXT[item.state]} viewerLogin={pr.viewerLogin} /></div></article>
         : <Event who={item.author.login} text={REVIEW_TEXT[item.state]} at={item.at} tone={item.state === 'APPROVED' ? 'success' : item.state === 'CHANGES_REQUESTED' ? 'failure' : 'neutral'} />
     case 'comment':
-      return <article className="pr-card"><div className="pr-card-body"><CommentBody comment={item.comment} verb="a commenté" /></div></article>
+      return <article className="pr-card"><div className="pr-card-body"><CommentBody comment={item.comment} verb="a commenté" viewerLogin={pr.viewerLogin} /></div></article>
     case 'thread':
       return <Thread pr={pr} thread={item.thread} />
   }
@@ -202,7 +202,7 @@ function Composer({ pr }: { pr: PrDetail }): React.JSX.Element {
       <textarea id="pr-comment" rows={3} value={text} placeholder="Écris un commentaire (Markdown), ou @mentionne quelqu'un…" onChange={(e) => setText(e.target.value)} />
       <div className="pr-row">
         <span className="pr-muted pr-note">Publié sur GitHub sous ton compte</span>
-        <button className="pr-btn pr-claude pr-push" disabled={empty} onClick={() => { sendToClaude(commentPrompt(pr, text.trim())); setText('') }}>Envoyer à Claude</button>
+        <button className="pr-btn pr-claude pr-push" disabled={empty} onClick={() => { if (sendToClaude(commentPrompt(pr, text.trim()))) setText('') }}>Envoyer à Claude</button>
         <button className="pr-btn pr-primary" disabled={empty || busy !== null} onClick={() => void comment()}>Commenter</button>
       </div>
     </div>
