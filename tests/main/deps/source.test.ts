@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cp, mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
@@ -540,5 +540,69 @@ describe('registry config sources', { timeout: 60_000 }, () => {
     await mkdir(join(home, '.npmrc'))
     expect(priv(await readInventory(repo.path, { home }))).toEqual({ '@corp/ui': true, 'left-pad': true })
   })
-})
 
+  describe('untracked and environment configs only add privacy', () => {
+    const CORP = 'registry=https://npm.corp.example/\n'
+    const setup = async () => {
+      repo = await createRepo()
+      await commitAll(repo, { 'web/package.json': PKG('@pub/x', 'left-pad'), 'web/pnpm-lock.yaml': PNPM('@pub/x', 'left-pad') })
+    }
+    const read = (env: NodeJS.ProcessEnv = {}) => readInventory(repo!.path, { home, env })
+
+    test('an untracked .npmrc in the checkout overrides the default registry', async () => {
+      await setup()
+      await writeFile(join(repo!.path, '.npmrc'), CORP)
+      expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': true })
+    })
+
+    test('an untracked .yarnrc.yml in the unit directory overrides the default registry', async () => {
+      await setup()
+      await writeFile(join(repo!.path, 'web/.yarnrc.yml'), 'npmRegistryServer: "https://npm.corp.example"\n')
+      expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': true })
+    })
+
+    test('an untracked public mapping does not make a scope public', async () => {
+      await setup()
+      await writeFile(join(repo!.path, '.npmrc'), '@pub:registry=https://registry.npmjs.org/\nregistry=https://registry.npmjs.org/\n')
+      expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': false })
+    })
+
+    test('a symlinked or oversized .npmrc fails closed', async () => {
+      await setup()
+      const target = join(home, 'harmless')
+      await writeFile(target, '@pub:registry=https://registry.npmjs.org/\n')
+      await symlink(target, join(repo!.path, 'web/.npmrc'))
+      expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': true })
+      await rm(join(repo!.path, 'web/.npmrc'))
+      await writeFile(join(repo!.path, '.npmrc'), `# ${'x'.repeat(1024 * 1024)}\n`)
+      expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': true })
+    })
+
+    test('npm_config registry variables, any case', async () => {
+      await setup()
+      expect(priv(await read({ NPM_CONFIG_REGISTRY: 'https://npm.corp.example/' }))).toEqual({ '@pub/x': true, 'left-pad': true })
+      expect(priv(await read({ npm_config_registry: 'https://registry.npmjs.org/' }))).toEqual({ '@pub/x': true, 'left-pad': false })
+      await commitAll(repo!, { 'package-lock.json': npmLock('@corp/ui', 'other'), 'package.json': PKG('@corp/ui', 'other') })
+      const all = await read({ 'NPM_CONFIG_@CORP:REGISTRY': 'https://npm.corp.example/' })
+      expect(priv(all)).toMatchObject({ '@corp/ui': true, other: false })
+    })
+
+    test("pnpm's global rc and the npm prefix's etc/npmrc", async () => {
+      await setup()
+      await mkdir(join(home, 'Library/Preferences/pnpm'), { recursive: true })
+      await writeFile(join(home, 'Library/Preferences/pnpm/rc'), CORP)
+      expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': true })
+      await rm(join(home, 'Library'), { recursive: true })
+      const prefix = await mkdtemp(join(tmpdir(), 'deps-prefix-'))
+      await mkdir(join(prefix, 'etc'))
+      await writeFile(join(prefix, 'etc/npmrc'), CORP)
+      try {
+        expect(priv(await read({ npm_config_prefix: prefix }))).toEqual({ '@pub/x': true, 'left-pad': true })
+        expect(priv(await read({ PREFIX: prefix }))).toEqual({ '@pub/x': true, 'left-pad': true })
+        expect(priv(await read())).toEqual({ '@pub/x': true, 'left-pad': false })
+      } finally {
+        await rm(prefix, { recursive: true, force: true })
+      }
+    })
+  })
+})

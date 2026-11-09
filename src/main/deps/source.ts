@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises'
+import { lstat, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, posix } from 'node:path'
+import { isAbsolute, join, posix } from 'node:path'
 import { git as run } from '../git/exec'
 import { resolveBaseRef } from '../git/refs'
 import { mainWorktreeRoot } from '../git/worktrees'
@@ -186,26 +186,85 @@ async function registryConfigs(t: Tracker, tree: Tree, dir: string): Promise<Reg
   return configs
 }
 
+/** A missing file is skipped; one that exists but cannot be read fails closed. Symlinks are followed: these are the user's own files. */
+async function userFile(path: string, parse: (text: string | null) => RegistryConfig): Promise<RegistryConfig | null> {
+  try {
+    return parse(await readFile(path, 'utf8'))
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : parse(null)
+  }
+}
+
+/** Configs read outside the base ref may only make packages private: a public mapping there is ignored. */
+const addOnly = (c: RegistryConfig): RegistryConfig => ({ ...c, publicScopes: [], defaultPublic: false })
+
+const envValue = (env: NodeJS.ProcessEnv, name: string) => Object.entries(env).find(([k, v]) => k.toLowerCase() === name && v !== undefined)?.[1]
+
+/** `npm_config_registry` and `npm_config_@scope:registry`, any case, as npm reads them. */
+function envConfig(env: NodeJS.ProcessEnv): RegistryConfig | null {
+  const lines: string[] = []
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) continue
+    const key = k.toLowerCase()
+    if (key === 'npm_config_registry') lines.push(`registry=${v}`)
+    const scope = /^npm_config_(@[^:]+):registry$/.exec(key)
+    if (scope) lines.push(`${scope[1]}:registry=${v}`)
+  }
+  if (lines.length === 0) return null
+  // A line break in a value would add a line of its own: fail closed rather than read it.
+  return addOnly(parseNpmrc(lines.some((l) => /[\r\n]/.test(l)) ? null : lines.join('\n')))
+}
+
 /**
- * The user's own `~/.npmrc` and `~/.yarnrc.yml`, read from disk: npm, pnpm and yarn use them too.
+ * The user's own `~/.npmrc` and `~/.yarnrc.yml`, read from disk: npm, pnpm and yarn use them too. Then, only adding
+ * privacy: pnpm's global rc, `$PREFIX/etc/npmrc` and the npm_config registry variables.
  * Only registry keys are kept; a file that exists but cannot be read fails closed.
  */
-async function homeConfigs(home: string): Promise<RegistryConfig[]> {
+async function userConfigs(home: string, env: NodeJS.ProcessEnv): Promise<RegistryConfig[]> {
   const configs: RegistryConfig[] = []
   for (const [file, parse] of RC_FILES) {
-    let text: string | null
-    try {
-      text = await readFile(join(home, file), 'utf8')
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
-      text = null
+    const c = await userFile(join(home, file), parse)
+    if (c) configs.push(c)
+  }
+  const extra = [join(home, 'Library/Preferences/pnpm/rc')]
+  const prefix = envValue(env, 'npm_config_prefix') ?? env.PREFIX
+  if (prefix && isAbsolute(prefix)) extra.push(join(prefix, 'etc/npmrc'))
+  for (const path of extra) {
+    const c = await userFile(path, parseNpmrc)
+    if (c) configs.push(addOnly(c))
+  }
+  const fromEnv = envConfig(env)
+  if (fromEnv) configs.push(fromEnv)
+  return configs
+}
+
+const RC_MAX_BYTES = 1024 * 1024
+
+/**
+ * The rc files of the main checkout's working tree, from the unit's directory up to the root: an untracked
+ * `.npmrc` there is what npm and pnpm use, so it may name a private registry the base ref does not.
+ * Only adds privacy. A symlink (it could point anywhere), a non-regular, unreadable or oversized file fails closed.
+ */
+async function checkoutConfigs(root: string, dir: string): Promise<RegistryConfig[]> {
+  const configs: RegistryConfig[] = []
+  for (let d = dir; ; d = posix.dirname(d) === '.' ? '' : posix.dirname(d)) {
+    for (const [file, parse] of RC_FILES) {
+      const path = join(root, d, file)
+      let text: string | null = null
+      try {
+        const st = await lstat(path)
+        if (st.isFile() && st.size <= RC_MAX_BYTES) text = await readFile(path, 'utf8')
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+      }
+      configs.push(addOnly(parse(text)))
     }
-    configs.push(parse(text))
+    if (!d) break
   }
   return configs
 }
 
-async function readDir(root: string, tree: Tree, dir: string, files: string[], home: RegistryConfig[]): Promise<Unit[]> {
+async function readDir(root: string, tree: Tree, dir: string, files: string[], user: RegistryConfig[]): Promise<Unit[]> {
   const path = (f: string) => posix.join(dir, f)
   const units: Unit[] = []
   const parseOrUnreadable = async (file: string, ecosystem: Unit['ecosystem'], t: Tracker, parse: (text: string, t: Tracker) => Unit | Promise<Unit>): Promise<Unit> => {
@@ -222,7 +281,7 @@ async function readDir(root: string, tree: Tree, dir: string, files: string[], h
 
   const js = JS_LOCKS.find((f) => files.includes(f))
   if (js) {
-    // The registry configs apply after the cache: the user's own files are not part of its key.
+    // The registry configs apply after the cache: the user's own and the checkout's files are not part of its key.
     const { unit, configs, strict } = await cached(root, tree, path(js), async (t) => {
       let berry = false
       const unit = await parseOrUnreadable(js, 'npm', t, async (lock) => {
@@ -235,7 +294,7 @@ async function readDir(root: string, tree: Tree, dir: string, files: string[], h
       // pnpm and yarn berry do not record where a package came from.
       return { unit, configs: await registryConfigs(t, tree, dir), strict: js === 'pnpm-lock.yaml' || berry }
     })
-    units.push(applyRegistryConfig(unit, [...configs, ...home], { strictScopes: strict }))
+    units.push(applyRegistryConfig(unit, [...configs, ...user, ...await checkoutConfigs(root, dir)], { strictScopes: strict }))
   }
   if (files.includes('Gemfile.lock')) await read('Gemfile.lock', 'RubyGems', (lock) => parseGemfileLock(dir, lock))
 
@@ -257,7 +316,7 @@ async function readDir(root: string, tree: Tree, dir: string, files: string[], h
 }
 
 /** Fetches the base branch non-interactively, then reads every recognized lockfile at it. */
-export async function readInventory(repo: string, o: { fetch?: boolean; fetchTimeoutMs?: number; home?: string } = {}): Promise<Inventory> {
+export async function readInventory(repo: string, o: { fetch?: boolean; fetchTimeoutMs?: number; home?: string; env?: NodeJS.ProcessEnv } = {}): Promise<Inventory> {
   const root = await mainWorktreeRoot(repo)
   const config = await localConfig(root)
   if (isPartialClone(config)) return { repo: root, baseRef: null, units: [], notes: ['Dépôt partiel : dépendances non vérifiées'] }
@@ -271,13 +330,16 @@ export async function readInventory(repo: string, o: { fetch?: boolean; fetchTim
   }
   if (!base) return { repo: root, baseRef: null, units: [], notes: [...notes, 'Branche de base introuvable'] }
 
-  const read = await readAtRef(root, base.ref, { home: o.home })
+  const read = await readAtRef(root, base.ref, { home: o.home, env: o.env })
   return { ...read, repo: root, notes: [...notes, ...read.notes] }
 }
 
 /** Lists and reads the lockfiles at `ref`. A listing failure (ref gone since it was resolved) is a note, not a throw. */
-/** `home`: where the user's own rc files are (the user's home directory by default). */
-export async function readAtRef(root: string, ref: string, o: { home?: string } = {}): Promise<Inventory> {
+/**
+ * `root`: the main worktree root, whose working tree rc files are read too. `home`: where the user's own rc files are
+ * (the user's home directory by default). `env`: where the npm_config variables are read (process.env by default).
+ */
+export async function readAtRef(root: string, ref: string, o: { home?: string; env?: NodeJS.ProcessEnv } = {}): Promise<Inventory> {
   let listing: string
   try {
     listing = await git(root, ['ls-tree', '-r', '-z', ref])
@@ -300,7 +362,7 @@ export async function readAtRef(root: string, ref: string, o: { home?: string } 
     byDir.set(dir, [...byDir.get(dir) ?? [], segments[segments.length - 1]])
   }
   const units: Unit[] = []
-  const home = await homeConfigs(o.home ?? homedir())
-  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!, home))
+  const user = await userConfigs(o.home ?? homedir(), o.env ?? process.env)
+  for (const dir of [...byDir.keys()].sort()) units.push(...await readDir(root, tree, dir, byDir.get(dir)!, user))
   return { repo: root, baseRef: ref, units, notes: [] }
 }
