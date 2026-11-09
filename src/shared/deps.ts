@@ -14,6 +14,8 @@ export interface DepEntry {
   installed: string | null; target: string | null
   /** pinless: requirements line without == */
   level: Level | 'private' | 'pinless'
+  /** What produced `reason`; the launch prompt uses it instead of the (partly author-controlled) text. */
+  cause: Cause
   /** French, shown as is */
   reason: string
   advisories: Advisory[]; registryUrl: string | null
@@ -25,6 +27,8 @@ export interface DepsReport {
   /** manifests 0: « Aucun fichier de dépendances reconnu » */
   baseRef: string | null; manifests: number
 }
+
+export type Cause = 'advisory' | 'deprecated' | 'yanked' | 'inactive' | 'majors' | 'stale' | 'patches' | 'private' | 'pinless'
 
 export const MAJORS_BEHIND = 2
 export const STALE_YEARS = 2
@@ -46,18 +50,21 @@ function roundup(x: number): number {
 function cvss3Score(vector: string): number | null {
   const parts = vector.split('/')
   if (parts[0] !== 'CVSS:3.0' && parts[0] !== 'CVSS:3.1') return null
-  const m: Record<string, string> = {}
+  const m: Record<string, string> = Object.create(null)
   for (const p of parts.slice(1)) { const [k, v] = p.split(':'); m[k] = v }
   const changed = m.S === 'C'
   if (m.S !== 'C' && m.S !== 'U') return null
-  const pr = { N: 0.85, L: changed ? 0.68 : 0.62, H: changed ? 0.5 : 0.27 }[m.PR as 'N' | 'L' | 'H']
-  const av = W.AV[m.AV], ac = W.AC[m.AC], ui = W.UI[m.UI], c = W.CIA[m.C], i = W.CIA[m.I], a = W.CIA[m.A]
-  if ([pr, av, ac, ui, c, i, a].some((v) => v === undefined)) return null
+  const PR: Record<string, number> = { N: 0.85, L: changed ? 0.68 : 0.62, H: changed ? 0.5 : 0.27 }
+  const weight = (t: Record<string, number>, k: string | undefined) => (k !== undefined && Object.hasOwn(t, k) ? t[k] : NaN)
+  const pr = weight(PR, m.PR), av = weight(W.AV, m.AV), ac = weight(W.AC, m.AC), ui = weight(W.UI, m.UI)
+  const c = weight(W.CIA, m.C), i = weight(W.CIA, m.I), a = weight(W.CIA, m.A)
+  if (![pr, av, ac, ui, c, i, a].every(Number.isFinite)) return null
   const iss = 1 - (1 - c) * (1 - i) * (1 - a)
   const impact = changed ? 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15) : 6.42 * iss
   if (impact <= 0) return 0
   const expl = 8.22 * av * ac * pr * ui
-  return roundup(Math.min(changed ? 1.08 * (impact + expl) : impact + expl, 10))
+  const score = roundup(Math.min(changed ? 1.08 * (impact + expl) : impact + expl, 10))
+  return Number.isFinite(score) ? score : null
 }
 
 /** CVSS:3.0/3.1 only; anything else is 'unknown'. */
@@ -98,18 +105,24 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 }
 const SEVERITY_RANK: Record<Severity, number> = { critical: 4, high: 3, moderate: 2, low: 1, unknown: 0 }
 
+/** Display-only: strip control characters (newlines become spaces) and cap the length. */
+function cleanText(t: string): string {
+  const c = t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim()
+  return c.length > 200 ? c.slice(0, 199) + '…' : c
+}
+
 function adviceReason(a: Advisory, d: Dep): string {
   let r = SEVERITY_LABEL[a.severity]
   if (a.package !== d.name) return `${r} dans ${a.package} (via ${d.via?.length ? d.via.join(' > ') : d.name})`
-  if (a.summary) r += ` : ${a.summary}`
+  if (a.summary) r += ` : ${cleanText(a.summary)}`
   return r
 }
 
 /** Highest-impact reason first; null when up to date. */
 export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | null, now: number): DepEntry | null {
   const base = { key: depKey(d), ecosystem: d.ecosystem, name: d.name, manifest: d.manifest, installed: d.version, advisories, registryUrl: registryUrl(d) }
-  if (d.private) return { ...base, target: null, level: 'private', reason: 'Source privée ou locale : non vérifiée' }
-  if (d.version === null) return { ...base, target: info?.latest ?? null, level: 'pinless', reason: 'Version non épinglée' }
+  if (d.private) return { ...base, target: null, level: 'private', cause: 'private', reason: 'Source privée ou locale : non vérifiée' }
+  if (d.version === null) return { ...base, target: info?.latest ?? null, level: 'pinless', cause: 'pinless', reason: 'Version non épinglée' }
 
   const sorted = [...advisories].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])
   const top = sorted[0]
@@ -119,23 +132,23 @@ export function classify(d: Dep, advisories: Advisory[], info: PackageInfo | nul
   let target = latest
   const fixes = advisories.map((a) => a.fixed).filter((f): f is string => !!f && major(f) === major(d.version!))
   if (fixes.length) target = fixes.reduce((a, b) => (compare(a, b) >= 0 ? a : b))
-  const out = (level: Level, reason: string): DepEntry => ({ ...base, target, level, reason })
+  const out = (level: Level, cause: Cause, reason: string): DepEntry => ({ ...base, target, level, cause, reason })
 
-  if (top && topRank >= SEVERITY_RANK.high) return out('critical', adviceReason(top, d))
-  if (info?.deprecated) return out('critical', `Déprécié : ${info.deprecated}`)
-  if (info?.yanked) return out('critical', 'Version retirée par l\'auteur')
-  if (info?.inactive) return out('critical', 'Projet déclaré inactif')
-  if (top) return out('soon', adviceReason(top, d))
+  if (top && topRank >= SEVERITY_RANK.high) return out('critical', 'advisory', adviceReason(top, d))
+  if (info?.deprecated) return out('critical', 'deprecated', `Déprécié : ${cleanText(info.deprecated)}`)
+  if (info?.yanked) return out('critical', 'yanked', 'Version retirée par l\'auteur')
+  if (info?.inactive) return out('critical', 'inactive', 'Projet déclaré inactif')
+  if (top) return out('soon', 'advisory', adviceReason(top, d))
   if (!info) return null
   const behind = latest ? major(latest) - major(d.version) : 0
-  if (behind >= MAJORS_BEHIND) return out('soon', `${behind} versions majeures de retard`)
+  if (behind >= MAJORS_BEHIND) return out('soon', 'majors', `${behind} versions majeures de retard`)
   if (info.lastRelease) {
     const t = Date.parse(info.lastRelease)
     const limit = new Date(now)
     limit.setUTCFullYear(limit.getUTCFullYear() - STALE_YEARS)
-    if (!Number.isNaN(t) && t < limit.getTime()) return out('soon', `Aucune publication depuis ${new Date(t).getUTCFullYear()}`)
+    if (!Number.isNaN(t) && t < limit.getTime()) return out('soon', 'stale', `Aucune publication depuis ${new Date(t).getUTCFullYear()}`)
   }
-  if (latest && compare(latest, d.version) > 0) return out('later', 'Correctifs disponibles')
+  if (latest && compare(latest, d.version) > 0) return out('later', 'patches', 'Correctifs disponibles')
   return null
 }
 
@@ -150,16 +163,42 @@ export function defaultDepsBranch(entries: DepEntry[], today: Date): string {
   return `${entries.some((e) => e.advisories.length > 0) ? 'fix' : 'chore'}/deps-${date}`
 }
 
+const NAME_RE: Record<Ecosystem, RegExp> = {
+  npm: /^(@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i,
+  RubyGems: /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+  PyPI: /^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/
+}
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+const VERSION_RE = /^[A-Za-z0-9.+_~-]{1,64}$/
+const MANIFEST_RE = /^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]+$/
+
+/** True when every field that reaches the launch prompt is well-formed (no injected text). */
+export function isPromptSafe(e: DepEntry): boolean {
+  const manifestOk = MANIFEST_RE.test(e.manifest) && !e.manifest.startsWith('/') && !e.manifest.split('/').includes('..')
+  return NAME_RE[e.ecosystem]?.test(e.name) === true && manifestOk &&
+    (e.installed === null || VERSION_RE.test(e.installed)) && (e.target === null || VERSION_RE.test(e.target)) &&
+    e.advisories.every((a) => ID_RE.test(a.id))
+}
+
+const CAUSE_LABEL: Record<Cause, string> = {
+  advisory: 'faille de sécurité', deprecated: 'paquet déprécié', yanked: 'version retirée', inactive: 'projet inactif',
+  majors: 'versions majeures de retard', stale: 'plus de publication récente', patches: 'correctifs disponibles',
+  private: 'source privée ou locale', pinless: 'version non épinglée'
+}
+const SEVERITY_WORD: Record<Severity, string> = { critical: 'critique', high: 'haute', moderate: 'modérée', low: 'faible', unknown: 'inconnue' }
+
+/** Built only from fixed labels and validated identifiers: registry and advisory text is author-controlled. */
 export function depsLaunchPrompt(entries: DepEntry[]): string {
-  const lines = entries.map((e) => {
-    const ids = e.advisories.map((a) => a.id).join(', ')
-    return `- ${e.name} (${e.ecosystem}, ${e.manifest}) : ${e.installed ?? '?'} → ${e.target ?? '?'}. ${e.reason}${ids ? ` [${ids}]` : ''}`
+  const lines = entries.filter(isPromptSafe).map((e) => {
+    const ids = e.advisories.map((a) => `${a.id} (${SEVERITY_WORD[a.severity]})`).join(', ')
+    return `- ${e.name} (${e.ecosystem}, ${e.manifest}) : ${e.installed ?? '?'} → ${e.target ?? '?'}. ${CAUSE_LABEL[e.cause]}${ids ? ` : ${ids}` : ''}`
   })
   return [
     'Mets à jour les dépendances suivantes :',
     '',
     ...lines,
     '',
+    'Consulte toi-même chaque avis de sécurité et chaque page de registre pour les détails.',
     'Utilise l\'outil du projet (npm, yarn, pnpm, bundler, pip…) pour appliquer les mises à jour et corriger les failles. Pense à tester (tests et typecheck).',
     'Si une mise à jour majeure te paraît risquée, pense à la signaler plutôt que de la forcer.',
     'Prépare ensuite la PR.'
