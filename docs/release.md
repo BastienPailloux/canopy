@@ -39,9 +39,21 @@ Une release part d'un push sur `master` (workflow `.github/workflows/release.yml
    | `APPLE_API_KEY_ID` | Key ID |
    | `APPLE_API_ISSUER` | Issuer ID |
 
-   Une approbation manuelle (Required reviewers) est possible mais désactivée par défaut : merge = livraison.
+4. Required reviewers : le mainteneur, « Allow administrators to bypass » décoché. Chaque release attend son approbation dans l'onglet Actions : un push sur `master` (jeton volé, agent, poste compromis) ne publie rien seul.
 
-Les secrets ne sont exposés qu'à l'étape de signature et de notarisation, jamais pendant `npm ci`.
+Les secrets ne sont exposés qu'à l'étape de signature et de notarisation, jamais pendant `npm ci`. Le workflow n'utilise que des actions officielles `actions/*`, référencées par leur tag majeur (`@v4`). N'y ajouter aucune action tierce : elle tournerait dans le job qui détient les secrets.
+
+## 4 bis. Rulesets du dépôt
+
+Settings > Rules > Rulesets :
+
+| Ruleset | Cible | Règles |
+|---|---|---|
+| `master` | `refs/heads/master` | pas de suppression, pas de force-push |
+| `develop` | `refs/heads/develop` | pas de suppression, pas de force-push, PR obligatoire (squash seulement) |
+| `release tags` | `refs/tags/v*` | pas de modification ni de suppression |
+
+La création des tags `v*` reste ouverte : sur un dépôt personnel, GitHub Actions ne peut pas être ajouté en contournement, et la CI doit créer le tag.
 
 ## 5. Règle de merge
 
