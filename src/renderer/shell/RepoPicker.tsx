@@ -60,6 +60,55 @@ function useAttention(repo: string | null, folder: string | null): Attention {
   return attention
 }
 
+interface DepsAlerts {
+  /** The recent folders holding a critical dependency update. */
+  critical: Set<string>
+  /** Some folder other than the active repo holds one. */
+  elsewhere: boolean
+}
+
+/** Which repos have critical dependency updates, same shape as `useAttention`, also refreshed when a report changes. */
+function useDepsAlerts(repo: string | null, folder: string | null): DepsAlerts {
+  const [alerts, setAlerts] = useState<DepsAlerts>({ critical: new Set(), elsewhere: false })
+  useEffect(() => {
+    let live = true
+    const ask = (path: string, except?: string): Promise<boolean> => window.canopy.depsCritical(path, except).then((n) => n > 0, () => false)
+    const read = (): void => {
+      void (async () => {
+        const recents = await window.canopy.recentRepos().catch((): string[] => [])
+        const folders = [...new Set([...(folder ? [folder] : []), ...recents])]
+        const [recentFlags, elsewhereFlags] = await Promise.all([
+          Promise.all(recents.map((r) => ask(r))),
+          Promise.all(folders.map((f) => ask(f, repo ?? undefined)))
+        ])
+        if (live) setAlerts({ critical: new Set(recents.filter((_, i) => recentFlags[i])), elsewhere: elsewhereFlags.some(Boolean) })
+      })()
+    }
+    read()
+    const soon = debounce(read, ATTENTION_DEBOUNCE_MS)
+    const stopPolling = poll(read, POLL_HEALTHY_MS)
+    const off = window.canopy.on('deps:changed', soon.call)
+    window.addEventListener('focus', soon.call)
+    return () => {
+      live = false
+      soon.cancel()
+      stopPolling()
+      off()
+      window.removeEventListener('focus', soon.call)
+    }
+  }, [repo, folder])
+  return alerts
+}
+
+function DepsAlertIcon({ label, testId }: { label: string; testId?: string }): React.JSX.Element {
+  return (
+    <svg role="img" aria-label={label} data-testid={testId} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--del)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
+  )
+}
+
 export function RepoPicker(): React.JSX.Element {
   const repo = useApp((s) => s.repo)
   // What was opened: recents and this button speak of folders, the list of the repos inside.
@@ -68,6 +117,7 @@ export function RepoPicker(): React.JSX.Element {
   const [recents, setRecents] = useState<string[]>([])
   const root = useRef<HTMLDivElement>(null)
   const { waiting, elsewhere } = useAttention(repo, folder)
+  const { critical, elsewhere: depsElsewhere } = useDepsAlerts(repo, folder)
 
   useEffect(() => {
     if (!open) return
@@ -99,6 +149,7 @@ export function RepoPicker(): React.JSX.Element {
           <span>Aucun dépôt</span>
         )}
         {elsewhere && <span className="badge" role="img" aria-label="Une session attend ta réponse dans un autre dépôt" data-testid="repo-attention" />}
+        {depsElsewhere && <DepsAlertIcon label="Dépendances critiques dans un autre dépôt" testId="repo-deps-alert" />}
         {chevron}
       </button>
       {open && (
@@ -107,6 +158,7 @@ export function RepoPicker(): React.JSX.Element {
             <button key={r} role="menuitem" onClick={() => { setOpen(false); void selectRepoFlow(r) }}>
               <span>{basename(r)}</span>
               {waiting.has(r) && <span className="badge" role="img" aria-label="Une session attend ta réponse" />}
+              {critical.has(r) && <DepsAlertIcon label="Dépendances critiques à mettre à jour" testId="repo-deps-alert-item" />}
               <span className="muted" title={r}>{r}</span>
             </button>
           ))}
