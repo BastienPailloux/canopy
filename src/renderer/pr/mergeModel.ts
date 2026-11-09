@@ -12,7 +12,8 @@ export interface TabCounts {
 /** What the sub-tabs and the header's « PR » badge count. */
 export function tabCounts(pr: PrDetail): TabCounts {
   const openThreads = pr.timeline.filter((i) => i.kind === 'thread' && !i.thread.resolved).length
-  const ok = pr.checks.filter((c) => c.outcome === 'success').length
+  // GitHub shows a skipped or neutral check as not failing: it counts as passed.
+  const ok = pr.checks.filter((c) => c.outcome === 'success' || c.outcome === 'neutral').length
   return {
     openThreads,
     commits: pr.commits.length,

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { ghGateway } from '../../../src/main/github/gateway'
+import { ghGateway, isGhUnavailable } from '../../../src/main/github/gateway'
 import { PR_QUERY } from '../../../src/main/github/query'
 import type { GhRunner } from '../../../src/main/git/pr'
 
@@ -61,6 +61,22 @@ test('rejects with gh\'s stderr', async () => {
   await expect(ghGateway(run).view('/wt', 9)).rejects.toThrow('HTTP 502')
   const find = runner([[['pr', 'list'], ghFailure('gh auth login required')]]).run
   await expect(ghGateway(find).find('/wt', 'b')).rejects.toThrow('gh auth login required')
+})
+
+test('gh missing or logged out is unavailable, any other failure is not', async () => {
+  const reject = (e: Error) => ghGateway(runner([[['pr', 'list'], e]]).run).find('/wt', 'b').catch((x: unknown) => x)
+  const missing = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
+  expect(isGhUnavailable(await reject(missing))).toBe(true)
+  for (const stderr of [
+    'To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.',
+    'You are not logged into any GitHub hosts. To log in, run: gh auth login',
+    'HTTP 401: Bad credentials (https://api.github.com/graphql)',
+    'none of the git remotes configured for this repository point to a known GitHub host.',
+    'no git remotes found'
+  ]) expect(isGhUnavailable(await reject(ghFailure(stderr))), stderr).toBe(true)
+  for (const stderr of ['HTTP 502: Bad Gateway (https://api.github.com/graphql)', 'error connecting to api.github.com'])
+    expect(isGhUnavailable(await reject(ghFailure(stderr))), stderr).toBe(false)
+  expect(isGhUnavailable(new Error('GitHub (gh) : hors ligne'))).toBe(false)
 })
 
 test('an unreadable answer rejects in French', async () => {

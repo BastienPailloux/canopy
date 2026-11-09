@@ -30,6 +30,18 @@ describe('tabCounts', () => {
     expect(c.alert).toEqual({ conv: true, checks: true })
   })
 
+  it('counts neutral (skipped) checks as passed, as GitHub does', () => {
+    const pr: PrDetail = {
+      ...fixture(),
+      checks: [
+        { name: 'lint', detail: '', outcome: 'success', durationMs: 1, url: null, run: null },
+        { name: 'deploy', detail: '', outcome: 'neutral', durationMs: 1, url: null, run: null }
+      ]
+    }
+    expect(tabCounts(pr).checks).toEqual({ ok: 2, total: 2 })
+    expect(tabCounts(pr).alert.checks).toBe(false)
+  })
+
   it('raises no alert once every thread is resolved and no check failed', () => {
     const pr: PrDetail = {
       ...fixture(),

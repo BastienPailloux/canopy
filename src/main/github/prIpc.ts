@@ -4,7 +4,7 @@ import type { AppStore } from '../appStore'
 import { clearSharedReads } from '../git/sharedReads'
 import type { AutoMergeWatch } from './autoMergeWatch'
 import { cleanupAfterMerge, deleteLocalAfterMerge } from './cleanup'
-import type { PrGateway } from './gateway'
+import { isGhUnavailable, type PrGateway } from './gateway'
 
 const bad = (): Error => new Error('Action invalide')
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -164,8 +164,11 @@ export function registerPrIpc(d: PrIpcDeps): void {
     assertCwd(cwd)
     const branch = await d.currentBranch(cwd)
     if (branch === null || !isBranchName(branch)) return null
-    // gh missing, logged out or offline: the tab simply has no PR to show
-    return d.gateway.find(cwd, branch).catch(() => null)
+    // gh missing or logged out: the tab simply has no PR to show. Offline rejects, so the tab keeps what it shows.
+    return d.gateway.find(cwd, branch).catch((e: unknown) => {
+      if (isGhUnavailable(e)) return null
+      throw e
+    })
   })
   d.handle('pr:view', (cwd, number) => {
     assertCwd(cwd)

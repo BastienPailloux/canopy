@@ -119,3 +119,20 @@ test('a failed action shows GitHub\'s message and keeps the PR', async () => {
   await expect(page.getByTestId('pr-error')).toContainText('hors ligne')
   await expect(header().getByTestId('pr-state')).toHaveText('Ouverte')
 })
+
+test('gh failing keeps the PR tab and shows the error', async () => {
+  await launch()
+  await openPr()
+  await writeFile(failFlag(), '')
+  // Leaving and entering the tab reads the PR again: find fails, the tab and the PR stay.
+  await nav().getByRole('button', { name: 'Code' }).click()
+  await prTab().click()
+  await expect(page.getByTestId('pr-error')).toContainText('hors ligne')
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(prTab()).toBeVisible()
+  await expect(header().getByTestId('pr-state')).toHaveText('Ouverte')
+
+  await rm(failFlag())
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByTestId('pr-error')).toHaveCount(0)
+})

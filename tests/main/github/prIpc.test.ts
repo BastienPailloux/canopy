@@ -76,12 +76,12 @@ describe('fixture', () => {
 })
 
 describe('registerPrIpc', () => {
-  const setup = (branch: string | null = 'feat/x') => {
+  const setup = (branch: string | null = 'feat/x', findError?: Error) => {
     const handlers = new Map<string, (...a: unknown[]) => unknown>()
     const calls: unknown[][] = []
     const changed: string[] = []
     const gateway: PrGateway = {
-      find: async (cwd, b) => { calls.push(['find', cwd, b]); return null },
+      find: async (cwd, b) => { calls.push(['find', cwd, b]); if (findError) throw findError; return null },
       view: async () => { throw new Error('x') },
       options: async () => ({ labels: [], assignable: [], suggested: [] }),
       failedLog: async (cwd, r, j) => { calls.push(['log', cwd, r, j]); return 'l' },
@@ -103,6 +103,13 @@ describe('registerPrIpc', () => {
     expect(s.calls[0]).toEqual(['find', '/r', 'feat/x'])
     const d = setup(null)
     expect(await d.call('pr:find', '/r')).toBeNull()
+  })
+
+  it('find: null when gh is missing or logged out, rejects on any other failure', async () => {
+    const missing = Object.assign(new Error('GitHub (gh) : spawn gh ENOENT'), { code: 'ENOENT' })
+    expect(await setup('feat/x', missing).call('pr:find', '/r')).toBeNull()
+    expect(await setup('feat/x', new Error('GitHub (gh) : You are not logged into any GitHub hosts. To log in, run: gh auth login')).call('pr:find', '/r')).toBeNull()
+    await expect(setup('feat/x', new Error('GitHub (gh) : hors ligne')).call('pr:find', '/r')).rejects.toThrow('hors ligne')
   })
 
   it('refuses a relative cwd and a bad number', async () => {

@@ -56,7 +56,20 @@ const SUMMARY_STATES: Record<string, PrState> = { OPEN: 'open', MERGED: 'merged'
 function ghError(e: unknown): Error {
   const stderr = typeof (e as { stderr?: unknown })?.stderr === 'string' ? ((e as { stderr: string }).stderr).trim() : ''
   const message = stderr || (e instanceof Error ? e.message : String(e))
-  return new Error(`GitHub (gh) : ${message}`)
+  const code = (e as { code?: unknown })?.code
+  return Object.assign(new Error(`GitHub (gh) : ${message}`), typeof code === 'string' ? { code } : {})
+}
+
+// gh's words when it has no account to use, or the repo no GitHub remote to ask.
+const UNAVAILABLE = /gh auth login|not logged in|GH_TOKEN|HTTP 401|Bad credentials|known GitHub host|no git remotes/i
+
+/**
+ * gh missing (ENOENT), logged out, or the repo not on GitHub: there is no PR to show, nothing went wrong.
+ * Anything else (offline, GitHub down) is a failure the tab reports.
+ */
+export function isGhUnavailable(e: unknown): boolean {
+  if ((e as { code?: unknown })?.code === 'ENOENT') return true
+  return e instanceof Error && UNAVAILABLE.test(e.message)
 }
 
 function json(out: string): unknown {

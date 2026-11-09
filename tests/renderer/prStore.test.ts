@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrDetail, PrSummary } from '../../src/shared/pr'
-import { act, followWorktree, pollDelay, refresh, usePr } from '../../src/renderer/pr/prStore'
+import { act, connectPr, followWorktree, pollDelay, refresh, usePr } from '../../src/renderer/pr/prStore'
+import { tabCounts } from '../../src/renderer/pr/mergeModel'
 import { useApp } from '../../src/renderer/store'
 
 const fixture = (): PrDetail => (JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail
@@ -60,12 +61,72 @@ describe('prStore', () => {
     expect(usePr.getState().error).toBe('GitHub (gh) : hors ligne')
   })
 
-  it('does not read the PR detail while another view shows', async () => {
+  it('reads the detail while another view shows: the header badge has its count', async () => {
     useApp.setState({ view: 'code' })
     followWorktree('/w', 'feat/gtin-lookup')
     await flush()
+    const d = usePr.getState().detail
+    expect(d?.number).toBe(pr.number)
+    expect(tabCounts(d!).openThreads).toBe(1)
+  })
+
+  it('a failed find keeps the last PR and shows the error, the next good one clears it', async () => {
+    followWorktree('/w', 'feat/gtin-lookup')
+    await flush()
+    canopy.prFind.mockImplementationOnce(async () => {
+      throw new Error("Error invoking remote method 'pr:find': Error: GitHub (gh) : hors ligne")
+    })
+    await refresh()
     expect(usePr.getState().summary?.number).toBe(pr.number)
-    expect(canopy.prView).not.toHaveBeenCalled()
+    expect(usePr.getState().detail?.number).toBe(pr.number)
+    expect(usePr.getState().error).toBe('GitHub (gh) : hors ligne')
+    await refresh()
+    expect(usePr.getState().error).toBeNull()
+  })
+
+  it('a find answering no PR clears the error too', async () => {
+    followWorktree('/w', 'feat/gtin-lookup')
+    await flush()
+    usePr.setState({ error: 'GitHub (gh) : hors ligne' })
+    canopy.prFind.mockImplementationOnce(async () => null)
+    await refresh()
+    expect(usePr.getState().error).toBeNull()
+    expect(usePr.getState().summary).toBeNull()
+  })
+
+  it('polls the PR every 60 s while another view shows', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal('window', { canopy, addEventListener: vi.fn(), removeEventListener: vi.fn() })
+      vi.stubGlobal('document', { hidden: false, hasFocus: () => true })
+      const done = { ...pr, autoMerge: false, checks: pr.checks.map((c) => ({ ...c, outcome: 'success' as const })) }
+      canopy.prView.mockImplementation(async () => done)
+      useApp.setState({ view: 'code', worktree: '/w', worktrees: [{ path: '/w', branch: 'feat/gtin-lookup', head: 'a', isMain: false }] })
+      // StrictMode connects twice: the second connect follows the same worktree and must still poll.
+      const first = connectPr()
+      await vi.advanceTimersByTimeAsync(0)
+      first()
+      const stop = connectPr()
+      await vi.advanceTimersByTimeAsync(0)
+      canopy.prView.mockClear()
+      await vi.advanceTimersByTimeAsync(60_000)
+      stop()
+      expect(canopy.prView).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a focus with no worktree selected reads nothing', async () => {
+    let focus: (() => void) | undefined
+    vi.stubGlobal('window', { canopy, addEventListener: (e: string, f: () => void) => { if (e === 'focus') focus = f }, removeEventListener: vi.fn() })
+    useApp.setState({ worktree: null, worktrees: [] })
+    const stop = connectPr()
+    focus?.()
+    await flush()
+    stop()
+    expect(focus).toBeDefined()
+    expect(canopy.prFind).not.toHaveBeenCalled()
   })
 
   it('act refreshes after success', async () => {

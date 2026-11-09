@@ -11,7 +11,7 @@ interface PrState {
   branch: string | null
   /** The branch's latest PR, whatever its state; null: no PR, the tab hides. */
   summary: PrSummary | null
-  /** Read only while the tab shows. */
+  /** Read even while the tab is hidden: the header badge counts its open threads. */
   detail: PrDetail | null
   options: PrOptions | null
   error: string | null
@@ -44,7 +44,7 @@ export function followWorktree(cwd: string | null, branch: string | null): void 
 }
 
 /**
- * Finds the branch's PR, and reads it when the tab shows. An answer for a pair no longer followed, or overtaken by a
+ * Finds the branch's PR and reads it. An answer for a pair no longer followed, or overtaken by a
  * later refresh, is dropped. A failure keeps what shows and reports the error.
  */
 export async function refresh(): Promise<void> {
@@ -68,7 +68,6 @@ export async function refresh(): Promise<void> {
     const prev = usePr.getState()
     const other = prev.summary?.number !== summary.number
     usePr.setState(other ? { summary, detail: null, options: null } : { summary })
-    if (useApp.getState().view !== 'pr') return
     const [detail, options] = await Promise.all([
       c.prView(cwd, summary.number),
       // Labels and people change rarely: read once per PR, a failure leaves the pickers empty.
@@ -108,15 +107,15 @@ function selected(): { cwd: string | null; branch: string | null } {
 }
 
 /**
- * Keeps `usePr` on the selected worktree's branch, reads it on window focus and, while the PR tab shows, polls it
- * (`pollDelay`). Returns the stop function.
+ * Keeps `usePr` on the selected worktree's branch: reads it on entering the tab and on window focus, and polls it
+ * (`pollDelay`) even while the tab is hidden, for the header badge. Returns the stop function.
  */
 export function connectPr(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
   const schedule = (): void => {
     if (timer) clearTimeout(timer)
     timer = null
-    if (useApp.getState().view !== 'pr') return
+    if (!usePr.getState().cwd) return
     timer = setTimeout(() => {
       timer = null
       void (isAttended(document) ? refresh() : Promise.resolve()).finally(schedule)
@@ -127,18 +126,17 @@ export function connectPr(): () => void {
     followWorktree(cwd, branch)
   }
   // Also off the tab: a PR opened meanwhile shows its tab.
-  const onFocus = (): void => { void refresh() }
+  const onFocus = (): void => { if (usePr.getState().cwd) void refresh() }
   window.addEventListener('focus', onFocus)
   sync()
+  // A second connect on the same worktree (StrictMode) follows nothing new: the pace must start anyway.
+  schedule()
   const unApp = useApp.subscribe((s, prev) => {
     if (s.worktree !== prev.worktree || s.worktrees !== prev.worktrees) sync()
-    if (s.view !== prev.view) {
-      if (s.view === 'pr') void refresh()
-      schedule()
-    }
+    if (s.view !== prev.view && s.view === 'pr') void refresh()
   })
-  // A faster pace as soon as a check starts or auto-merge goes on.
-  const unPr = usePr.subscribe((s, prev) => { if (s.detail !== prev.detail) schedule() })
+  // A faster pace as soon as a check starts or auto-merge goes on; a new worktree followed starts its own pace.
+  const unPr = usePr.subscribe((s, prev) => { if (s.detail !== prev.detail || s.cwd !== prev.cwd) schedule() })
   return () => {
     unApp(); unPr(); window.removeEventListener('focus', onFocus)
     if (timer) clearTimeout(timer)
