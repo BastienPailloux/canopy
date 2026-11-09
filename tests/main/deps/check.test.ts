@@ -1,0 +1,88 @@
+import { describe, expect, test } from 'vitest'
+import { checkRepo, type CheckDeps } from '../../../src/main/deps/check'
+import { HttpError, type Http } from '../../../src/main/deps/http'
+import type { Inventory } from '../../../src/main/deps/source'
+import { depKey, type Advisory, type Dep, type DepEntry, type DepsReport, type PackageInfo } from '../../../src/shared/deps'
+
+const NOW = Date.parse('2026-11-09T00:00:00Z')
+const dep = (name: string, version: string | null, o: Partial<Dep> = {}): Dep =>
+  ({ ecosystem: 'npm', name, version, manifest: 'package-lock.json', private: false, ...o })
+const info = (o: Partial<PackageInfo> = {}): PackageInfo => ({ latest: '1.0.0', deprecated: null, yanked: false, inactive: false, lastRelease: '2026-06-01T00:00:00Z', ...o })
+const adv = (o: Partial<Advisory> = {}): Advisory => ({ id: 'GHSA-aaaa-bbbb-cccc', package: 'x', severity: 'high', summary: 'Bad', fixed: null, url: 'u', ...o })
+const inv = (units: Inventory['units'], o: Partial<Inventory> = {}): Inventory => ({ repo: '/r', baseRef: 'origin/develop', units, notes: [], ...o })
+const unit = (deps: Dep[], transitive: Dep[] = [], o: object = {}) => ({ dir: '.', ecosystem: 'npm' as const, deps, transitive, ...o })
+const http = {} as Http
+
+function run(inventory: Inventory, o: Partial<CheckDeps> = {}, previous: DepsReport | null = null) {
+  return checkRepo({ http, now: () => NOW, inventory: async () => inventory, packageInfo: async () => info(), advisories: async () => new Map(), ...o }, '/r', previous)
+}
+const prevReport = (entries: DepEntry[]): DepsReport => ({ repo: '/r', checkedAt: 1, entries, errors: [], baseRef: null, manifests: 1 })
+
+describe('checkRepo', () => {
+  test('attaches a transitive advisory to the direct dep of via[0]', async () => {
+    const direct = dep('express', '4.0.0'), other = dep('lodash', '1.0.0')
+    const trans = dep('qs', '1.0.0', { via: ['express', 'qs'] })
+    const r = await run(inv([unit([direct, other], [trans])]), { advisories: async () => new Map([[depKey(trans), [adv({ package: 'qs' })]]]) })
+    const e = r.entries.find((x) => x.name === 'express')!
+    expect(e.level).toBe('critical')
+    expect(e.reason).toBe('Faille haute dans qs (via express)')
+    expect(r.entries.find((x) => x.name === 'lodash')?.level).not.toBe('critical')
+  })
+
+  test('only queries packageInfo for direct deps', async () => {
+    const asked: string[] = []
+    await run(inv([unit([dep('a', '1.0.0')], [dep('t', '1.0.0', { via: ['a'] })])]), { packageInfo: async (_h, d) => { asked.push(d.name); return info() } })
+    expect(asked).toEqual(['a'])
+  })
+
+  test('sorts by level then name', async () => {
+    const deps = [dep('priv', '1.0.0', { private: true }), dep('pin', null), dep('zlater', '0.9.0'), dep('asoon', '0.9.0'), dep('crit', '1.0.0')]
+    const r = await run(inv([unit(deps)]), {
+      packageInfo: async (_h, d) => d.name === 'asoon' ? info({ latest: '3.0.0', lastRelease: '2026-01-01T00:00:00Z' }) : d.name === 'crit' ? info({ deprecated: 'x' }) : info()
+    })
+    expect(r.entries.map((e) => e.name)).toEqual(['crit', 'asoon', 'zlater', 'pin', 'priv'])
+  })
+
+  test('keeps the previous entry when a lookup fails', async () => {
+    const prev: DepEntry = { key: depKey(dep('lodash', '1.0.0')), ecosystem: 'npm', name: 'lodash', manifest: 'package-lock.json', installed: '1.0.0', target: '2.0.0', level: 'soon', cause: 'patches', reason: 'old', advisories: [], registryUrl: null }
+    const r = await run(inv([unit([dep('lodash', '1.0.0')])]), { packageInfo: async () => { throw new HttpError(429, 'https://registry.npmjs.org/lodash') } }, prevReport([prev]))
+    expect(r.entries).toEqual([prev])
+    expect(r.errors).toContain('npm : lodash non vérifié (HTTP 429)')
+  })
+
+  test('formats a registry error without previous entry', async () => {
+    const r = await run(inv([unit([dep('lodash', '1.0.0')])]), { packageInfo: async () => { throw new Error('boom') } })
+    expect(r.errors).toEqual(['npm : lodash non vérifié (boom)'])
+    expect(r.entries).toEqual([])
+  })
+
+  test('OSV failure keeps previous advisories and critical level', async () => {
+    const d = dep('lodash', '1.0.0')
+    const prev: DepEntry = { key: depKey(d), ecosystem: 'npm', name: 'lodash', manifest: 'package-lock.json', installed: '1.0.0', target: null, level: 'critical', cause: 'advisory', reason: 'Faille haute : Bad', advisories: [adv({ package: 'lodash' })], registryUrl: null }
+    const r = await run(inv([unit([d])]), { advisories: async () => { throw new Error('offline') } }, prevReport([prev]))
+    expect(r.entries).toHaveLength(1)
+    expect(r.entries[0].level).toBe('critical')
+    expect(r.entries[0].advisories).toEqual(prev.advisories)
+    expect(r.errors).toEqual(['Failles non vérifiées : offline'])
+  })
+
+  test('a critical previous entry is kept when OSV fails and the registry shows nothing', async () => {
+    const d = dep('lodash', '1.0.0')
+    const prev: DepEntry = { key: depKey(d), ecosystem: 'npm', name: 'lodash', manifest: 'package-lock.json', installed: '1.0.0', target: null, level: 'critical', cause: 'deprecated', reason: 'Déprécié : x', advisories: [], registryUrl: null }
+    const r = await run(inv([unit([d])]), { advisories: async () => { throw new Error('offline') } }, prevReport([prev]))
+    expect(r.entries).toEqual([prev])
+  })
+
+  test('copies unit errors and notes, counts manifests, baseRef and checkedAt', async () => {
+    const r = await run(inv([unit([], [], { error: 'Fichier illisible : yarn.lock' }), unit([dep('a', '1.0.0')])], { notes: ['une note'] }))
+    expect(r.errors).toEqual(['Fichier illisible : yarn.lock', 'une note'])
+    expect(r.manifests).toBe(2)
+    expect(r.baseRef).toBe('origin/develop')
+    expect(r.checkedAt).toBe(NOW)
+    expect(r.repo).toBe('/r')
+  })
+
+  test('propagates an inventory failure', async () => {
+    await expect(checkRepo({ http, now: () => NOW, inventory: async () => { throw new Error('no repo') } }, '/r', null)).rejects.toThrow('no repo')
+  })
+})
