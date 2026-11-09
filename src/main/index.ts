@@ -11,6 +11,10 @@ import { TicketStore } from './tickets/store'
 import { localBranches } from './tickets/ticketIpc'
 import { openExternalUrl } from './externalLinks'
 import { isConfigTrusted } from './repoTrust'
+import { listDepsRepos, registerDepsIpc } from './deps/depsIpc'
+import { checkRepo } from './deps/check'
+import { selectDepsHttp } from './deps/replay'
+import { createDepsService } from './deps/service'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
@@ -161,6 +165,13 @@ void app.whenReady().then(async () => {
     sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
   })
   // ⌘Q and closing the window both end here: one question if something runs, then everything stops.
+  const depsService = createDepsService({
+    check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now }, repo, prev),
+    repos: () => listDepsRepos(store.recentRepos),
+    file: join(userData, 'deps-reports.json'),
+    now: Date.now, setInterval, clearInterval, broadcast
+  })
+  let depsHooks: ReturnType<typeof registerDepsIpc> | null = null
   const quit = createQuitFlow({
     counts: running,
     confirm: async (counts) => {
@@ -172,7 +183,7 @@ void app.whenReady().then(async () => {
       const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
       return response === 0
     },
-    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers() },
+    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
     // Deferred: quitting from inside the `before-quit` that was just cancelled is ignored.
     quit: () => { setImmediate(() => app.quit()) }
   })
@@ -185,7 +196,18 @@ void app.whenReady().then(async () => {
   const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets, new MockupStore())
+    tickets, new MockupStore(),
+    () => { void depsHooks?.onRecentReposChanged().catch((e: unknown) => { console.error('deps check of a new repo failed', e) }) })
+  const launchDeps = {
+    tickets, store,
+    activity: (cwd: string) => sessions.activity(cwd),
+    sessions: (cwd: string) => sessions.liveCount(cwd),
+    trusted: (cwd: string) => isConfigTrusted(store, cwd)
+  }
+  depsHooks = registerDepsIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    service: depsService, store, launch: launchDeps
+  })
   const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
@@ -199,6 +221,8 @@ void app.whenReady().then(async () => {
   })
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
   void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
+  depsService.start()
+  powerMonitor.on('resume', () => { void depsHooks?.recheckAll().catch((e: unknown) => { console.error('deps recheck failed', e) }) })
   // Back from sleep: the network is likely back too; the refresh resends what failed.
   powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')

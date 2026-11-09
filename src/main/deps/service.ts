@@ -117,14 +117,12 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
     report: (repo) => reports[repo] ?? null,
     // Not async: a second call during a check must return the very same promise.
     recheck(repo) {
-      if (!entries) {
-        return refreshEntries().then(() => {
-          if (!listed(repo)) throw new Error('Dépôt inconnu')
-          return runCheck(repo)
-        })
-      }
-      if (!listed(repo)) return Promise.reject(new Error('Dépôt inconnu'))
-      return runCheck(repo)
+      if (entries && listed(repo)) return runCheck(repo)
+      // Unknown, or the list is stale (a repo added since): read it again before refusing.
+      return refreshEntries().then(() => {
+        if (!listed(repo)) throw new Error('Dépôt inconnu')
+        return runCheck(repo)
+      })
     },
     critical(path, except) {
       const list = entries ?? []
