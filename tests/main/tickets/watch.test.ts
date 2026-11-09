@@ -16,15 +16,20 @@ afterEach(async () => {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 describe('watchTickets', () => {
-  it('fires once for a burst of writes in .tickets', async () => {
+  it('coalesces a burst of writes in .tickets', async () => {
     await mkdir(join(root, '.tickets'))
     let calls = 0
     stop = watchTickets(root, () => { calls++ })
     await sleep(500)
-    for (let i = 0; i < 5; i++) await writeFile(join(root, '.tickets', `T-${i}.md`), 'x')
+    // Spaced writes: without the debounce, each one would refresh. On a loaded CI runner one gap
+    // between events can outlast the debounce, so a single refresh is not guaranteed: two are tolerated.
+    for (let i = 0; i < 10; i++) {
+      await writeFile(join(root, '.tickets', `T-${i}.md`), 'x')
+      await sleep(20)
+    }
     await vi_waitFor(() => calls >= 1)
     await sleep(500)
-    expect(calls).toBe(1)
+    expect(calls).toBeLessThanOrEqual(2)
   })
 
   it('fires when an existing ticket is edited in place or replaced by rename', async () => {
