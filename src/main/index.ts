@@ -220,7 +220,8 @@ void app.whenReady().then(async () => {
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
   void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
   depsService.start()
-  powerMonitor.on('resume', () => { void depsHooks?.recheckAll().catch((e: unknown) => { console.error('deps recheck failed', e) }) })
+  // Only what fell due during sleep: a wake every few minutes must not recheck everything.
+  powerMonitor.on('resume', () => { void depsService.checkOverdue() })
   // Back from sleep: the network is likely back too; the refresh resends what failed.
   powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')

@@ -243,4 +243,27 @@ describe('createDepsService', () => {
     expect(t.calls).toEqual(['/a', '/b'])
     await expect(t.svc.recheck('/nope')).rejects.toThrow('Dépôt inconnu')
   })
+
+  test('an overdue pass checks only the repos without a report or with an old one', async () => {
+    const at = (repo: string, checkedAt: number | null) => ({ ...report(repo), checkedAt })
+    writeFileSync(file, JSON.stringify({ version: 1, reports: { '/a': at('/a', 1000), '/dir/x': at('/dir/x', 1000 - CHECK_INTERVAL_MS), '/dir/y': at('/dir/y', null) }, dismissed: {} }))
+    const t = setup({ now: () => 1000, setTimeout: (() => 9) as unknown as typeof setTimeout })
+    t.svc.start()
+    await t.svc.checkOverdue()
+    expect(t.calls).toEqual(['/dir/x', '/dir/y'])
+  })
+
+  test('passes never overlap', async () => {
+    let gate: (() => void) | null = null
+    const t = setup({ check: async (r) => { t.calls.push(r); if (r === '/a') await new Promise<void>((res) => { gate = res }); return report(r) } })
+    t.svc.start()
+    await vi.waitFor(() => { expect(gate).not.toBeNull() })
+    t.tick()
+    const overdue = t.svc.checkOverdue()
+    await overdue
+    gate!()
+    await until(t, 3)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(t.calls).toEqual(['/a', '/dir/x', '/dir/y'])
+  })
 })

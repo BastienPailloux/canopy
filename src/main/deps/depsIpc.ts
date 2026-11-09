@@ -40,8 +40,6 @@ export interface DepsIpcDeps {
 }
 
 export interface DepsIpcHooks {
-  /** After sleep: checks every repo again; failures are logged. */
-  recheckAll(): Promise<void>
   /** After a recent repo was added: checks the repos nobody checked yet. */
   onRecentReposChanged(): Promise<void>
 }
@@ -76,10 +74,6 @@ export function registerDepsIpc(d: DepsIpcDeps): DepsIpcHooks {
   })
 
   return {
-    async recheckAll() {
-      const list = await listDepsRepos(d.store.recentRepos)
-      for (const repo of new Set(list.flatMap((e) => e.repos))) await service.recheck(repo).catch(logFailure(`deps: recheck failed for ${repo}`))
-    },
     async onRecentReposChanged() {
       const list = await listDepsRepos(d.store.recentRepos)
       for (const repo of new Set(list.flatMap((e) => e.repos))) {

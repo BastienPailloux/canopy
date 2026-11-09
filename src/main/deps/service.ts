@@ -31,6 +31,8 @@ export interface DepsService {
   start(): void
   stop(): void
   report(repo: string): DepsReport | null
+  /** After sleep: a pass over the repos whose report is missing or older than CHECK_INTERVAL_MS. Skipped while a pass runs. */
+  checkOverdue(): Promise<void>
   /** Rejects with « Dépôt inconnu » for a repo that is not listed, or with the check's error. */
   recheck(repo: string): Promise<DepsReport>
   /** Critical count of `path` (an entry or a repo), without `except` and its own repos. */
@@ -102,13 +104,23 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
     return p
   }
 
-  async function pass(): Promise<void> {
-    let list: Entries
-    try { list = await refreshEntries() } catch (e) { log('deps: cannot list repos', e); return }
-    for (const repo of new Set(list.flatMap((e) => e.repos))) {
-      try { await runCheck(repo) } catch (e) { log(`deps: check failed for ${repo}`, e) }
+  let passRunning = false
+  /** One pass at a time: a pass that would start during another is dropped, the running one covers it. */
+  async function pass(due: (repo: string) => boolean = () => true): Promise<void> {
+    if (passRunning) return
+    passRunning = true
+    try {
+      let list: Entries
+      try { list = await refreshEntries() } catch (e) { log('deps: cannot list repos', e); return }
+      for (const repo of new Set(list.flatMap((e) => e.repos))) {
+        if (!due(repo)) continue
+        try { await runCheck(repo) } catch (e) { log(`deps: check failed for ${repo}`, e) }
+      }
+    } finally {
+      passRunning = false
     }
   }
+  const overdue = (repo: string) => { const at = reports[repo]?.checkedAt ?? null; return at === null || d.now() - at >= CHECK_INTERVAL_MS }
 
   const count = (repo: string) => { const r = reports[repo]; return r ? criticalKeys(r).length : 0 }
 
@@ -132,6 +144,7 @@ export function createDepsService(d: DepsServiceDeps): DepsService {
       timer = null
     },
     report: (repo) => reports[repo] ?? null,
+    checkOverdue: () => pass(overdue),
     // Not async: a second call during a check must return the very same promise.
     recheck(repo) {
       if (entries && listed(repo)) return runCheck(repo)

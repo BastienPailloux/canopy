@@ -90,8 +90,8 @@ describe('deps ipc', () => {
     expect(list[2]).toEqual({ entry: '/nonexistent/x', repos: [] })
   })
 
-  it('rechecks every repo on demand and when a recent repo is added', async () => {
-    await hooks.recheckAll()
+  it('checks the repos nobody checked yet when a recent repo is added', async () => {
+    await hooks.onRecentReposChanged()
     expect(check).toHaveBeenCalledTimes(1)
     const other = await createRepo({ dirName: 'other' })
     store.addRecentRepo(await realpath(other.path))
