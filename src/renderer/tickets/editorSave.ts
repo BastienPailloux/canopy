@@ -1,6 +1,6 @@
-import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields, type TicketPatch } from '../../shared/tickets'
 
-export interface Saver<F extends object = TicketFields> {
+export interface Saver<F extends object = TicketPatch> {
   /** Merges `c` into the pending changes, key by key, and saves them after a pause of `delayMs` without change. */
   change(c: Partial<F>): void
   /** Saves what is pending now. Resolves once every save asked so far has ended: true if nothing is left pending. */
@@ -23,7 +23,7 @@ export interface SaverOptions {
  * Autosave of the ticket editor: one `save` per pause, one at a time and in order. A failed save reports to `onError`
  * and keeps its changes pending, under the keys not changed since, then is tried again after `retryMs`.
  */
-export function createSaver<F extends object = TicketFields>(save: (changes: Partial<F>) => Promise<void>, delayMs = 500, o: SaverOptions = {}): Saver<F> {
+export function createSaver<F extends object = TicketPatch>(save: (changes: Partial<F>) => Promise<void>, delayMs = 500, o: SaverOptions = {}): Saver<F> {
   type Changes = Partial<F>
   let waiting: Changes = {}
   let inFlight: Changes = {}
@@ -139,7 +139,7 @@ export function quickTicketFields(title: string, description: string): TicketFie
 }
 
 /** The fields the editor changes; the others (id, dates, branch, worktree, base) always come from disk. */
-export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks'] as const
+export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'parent'] as const
 
 /** A newer version from disk over what the editor shows: `keep` (pending or focused) keeps the editor's value. */
 export function mergeDisk<T extends TicketFields>(local: T, disk: T, keep: ReadonlySet<keyof TicketFields>): T {

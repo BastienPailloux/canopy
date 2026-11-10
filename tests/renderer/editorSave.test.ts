@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields } from '../../src/shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields, type TicketPatch } from '../../src/shared/tickets'
 import { closeSaver, createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, quickTicketFields, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
 
-type Changes = Partial<TicketFields>
+type Changes = TicketPatch
 
 describe('createSaver', () => {
   beforeEach(() => { vi.useFakeTimers() })

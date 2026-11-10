@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, STATUSES,
-  type Subtask, type Ticket, type TicketFields, type TicketPriority, type TicketStatus, type TicketTemplate,
+  type Subtask, type Ticket, type TicketFields, type TicketPatch, type TicketPriority, type TicketStatus, type TicketTemplate,
   ticketKey,
 } from '../../shared/tickets'
 import { basename, useApp } from '../store'
@@ -73,7 +73,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     show(mergeDisk(cur, t, keep))
   }
 
-  const save = async (changes: Partial<TicketFields>): Promise<void> => {
+  const save = async (changes: TicketPatch): Promise<void> => {
     let t: Ticket
     if (idRef.current) t = await window.canopy.patchTicket(repo, idRef.current, changes)
     else {
@@ -130,11 +130,13 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     return () => { on = false }
   }, [repo, entries])
 
-  const update = (c: Partial<TicketFields>): void => {
-    const next = { ...(local.current ?? DRAFT), ...c }
+  const update = (c: TicketPatch): void => {
+    const { parent, ...shown } = c
+    const next: Ticket = { ...(local.current ?? DRAFT), ...shown }
+    if ('parent' in c) { if (parent) next.parent = parent; else delete next.parent }
     show(next)
     const { title, ...rest } = c
-    const send: Partial<TicketFields> = title !== undefined && title.trim() !== '' ? c : rest
+    const send: TicketPatch = title !== undefined && title.trim() !== '' ? c : rest
     // A draft is written once it has a title.
     if (!idRef.current && next.title.trim() === '') return
     if (!idRef.current && title === undefined) { saver.current.change({ title: next.title, ...send }); return }
@@ -284,9 +286,13 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
             }} />
           {titleEmpty && <p className="editor-hint">{id ? 'Un ticket garde un titre : l’ancien revient en quittant le champ.' : 'Le ticket est créé dès qu’il a un titre.'}</p>}
 
+          {ticket.parent && <ParentLine id={ticket.parent} entries={entries} />}
+
           <Description value={ticket.description} focus={focus('description')} onChange={(description) => update({ description })} />
 
           <Subtasks items={ticket.subtasks} focus={focus('subtasks')} onChange={(subtasks) => update({ subtasks })} />
+
+          {id && <SubTickets parent={id} entries={entries} />}
 
           {id && <LinkedMockups repo={repo} ticket={id} />}
         </div>
@@ -305,6 +311,7 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
             {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
           </select>
         </label>
+        <ParentSelect self={id} value={ticket.parent} entries={entries} onChange={(p) => update({ parent: p })} />
         <Labels value={ticket.labels} known={labels} focus={focus('labels')} onChange={(l) => update({ labels: l })} />
 
         <section className="dev" aria-labelledby={`${ids}-dev`}>
@@ -330,6 +337,62 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
         <button className="archive" disabled={!id || busy} onClick={() => void archive()}>Archiver le ticket</button>
       </aside>
     </div>
+  )
+}
+
+type Entries = ReturnType<typeof useTickets.getState>['entries']
+
+const liveTickets = (entries: Entries): Ticket[] => entries.flatMap((e) => (e.kind === 'ticket' ? [e.ticket] : []))
+const idNumber = (id: string): number => Number(id.slice(id.lastIndexOf('-') + 1))
+
+/** « Sous-ticket de X · titre », a link to the parent, or its bare id when the list does not have it. */
+function ParentLine(props: { id: string; entries: Entries }): React.JSX.Element {
+  const p = liveTickets(props.entries).find((t) => t.id === props.id)
+  if (!p) return <p className="parent-line">{props.id} (introuvable)</p>
+  return (
+    <button className="parent-line" onClick={() => useApp.getState().setOpenTicket(ticketKey('local', p.id))}>
+      Sous-ticket de {p.id} · {p.title}
+    </button>
+  )
+}
+
+/** The tickets whose parent is `parent`, in the list's order of numbers; empty when it has none. */
+function SubTickets(props: { parent: string; entries: Entries }): React.JSX.Element | null {
+  const items = liveTickets(props.entries).filter((t) => t.parent === props.parent).sort((a, b) => idNumber(a.id) - idNumber(b.id))
+  if (items.length === 0) return null
+  const done = items.filter((c) => c.status === 'done').length
+  return (
+    <section className="subtasks" aria-label="Sous-tickets">
+      <div className="subtasks-head"><h3>Sous-tickets <span className="n">{done} / {items.length}</span></h3></div>
+      {items.map((c) => (
+        <button key={c.id} className="sub-issue" onClick={() => useApp.getState().setOpenTicket(ticketKey('local', c.id))}>
+          <span className="mono">{c.id}</span> <span className="sub-issue-title">{c.title}</span> <span className="status-name">{STATUS_LABEL[c.status]}</span>
+        </button>
+      ))}
+    </section>
+  )
+}
+
+/** « Parent » select: no ticket, or any other ticket that is not a descendant of `self`. */
+function ParentSelect(props: { self: string | null; value: string | undefined; entries: Entries; onChange: (parent: string | null) => void }): React.JSX.Element {
+  const all = liveTickets(props.entries)
+  const banned = new Set<string>(props.self ? [props.self] : [])
+  // Grows until no ticket is added: children of banned tickets are banned too.
+  for (let grew = true; grew;) {
+    grew = false
+    for (const t of all) if (t.parent && banned.has(t.parent) && !banned.has(t.id)) { banned.add(t.id); grew = true }
+  }
+  const options = all.filter((t) => !banned.has(t.id))
+  const missing = props.value && !all.some((t) => t.id === props.value) ? props.value : null
+  return (
+    <label className="prop">
+      <span>Parent</span>
+      <select value={props.value ?? ''} disabled={!props.self} onChange={(e) => props.onChange(e.target.value || null)}>
+        <option value="">Aucun</option>
+        {missing && <option value={missing}>{missing} (introuvable)</option>}
+        {options.map((t) => <option key={t.id} value={t.id}>{t.id} · {t.title}</option>)}
+      </select>
+    </label>
   )
 }
 

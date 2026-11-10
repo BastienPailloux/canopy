@@ -4,7 +4,7 @@ import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashComman
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { DepsReport } from './deps'
 import type { ShortcutContext } from './shortcuts'
-import type { LaunchCandidate, LaunchRequest, LaunchTarget, TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketTemplate } from './tickets'
+import type { LaunchCandidate, LaunchRequest, LaunchTarget, TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketPatch, TicketTemplate } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
@@ -60,10 +60,7 @@ export type BaseContent =
   | { kind: 'tooLarge'; size: number }
   | { kind: 'notBlob' }
 
-export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode
-  /** The session was launched from a Linear issue: warn once if Claude has no Linear MCP. */
-  expectLinear?: boolean
-}
+export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode }
 
 /** Payload of each event emitted by SessionManager, relayed to the renderer as `session:<key>`. */
 export interface SessionEvents {
@@ -74,8 +71,6 @@ export interface SessionEvents {
   /** The session's commands are complete: fetch `sessionCommands` again. */
   commandsChanged: { localId: string }
   state: { localId: string; state: SessionState; sessionId?: string; error?: string }
-  /** A non-blocking remark about the session, shown once. */
-  notice: { localId: string; text: string }
 }
 
 /** What a repo's own config would run or allow in a session. */
@@ -229,7 +224,7 @@ export interface CanopyApi {
   listTickets(repo: string): Promise<TicketListEntry[]>
   getTicket(repo: string, id: string): Promise<Ticket>
   createTicket(repo: string, fields: TicketFields): Promise<Ticket>
-  patchTicket(repo: string, id: string, changes: Partial<TicketFields>): Promise<Ticket>
+  patchTicket(repo: string, id: string, changes: TicketPatch): Promise<Ticket>
   duplicateTicket(repo: string, id: string): Promise<Ticket>
   archiveTicket(repo: string, id: string): Promise<void>
   ticketConfig(repo: string): Promise<{ prefix: string; next: number }>

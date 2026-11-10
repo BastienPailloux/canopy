@@ -515,3 +515,24 @@ describe('LinearEdits change events', () => {
     expect(new Set(seen.flat())).toEqual(new Set(['CAN-2', 'CAN-1']))
   })
 })
+
+describe('replay: creating an issue', () => {
+  const text = (r: { content: { text: string }[] }) => JSON.parse(r.content[0].text) as Record<string, any>
+
+  it('creates CAN-<max+1> assigned to me, unstarted, found by get_issue, list_issues me and parentId', async () => {
+    const f = fakeLinear()
+    const r = await f.callTool('save_issue', { title: 'Child', team: 'Canopy', assignee: 'me', parentId: 'CAN-3' })
+    const issue = text(r as never)
+    expect(issue).toMatchObject({ id: 'CAN-5', title: 'Child', parentId: 'CAN-3', status: 'Todo', statusType: 'unstarted', assignee: 'Bastien', team: 'Canopy', teamId: '78589deb-f061-45b7-b299-bb1c34d4b638' })
+    expect(text(await f.callTool('get_issue', { id: 'CAN-5' }) as never).title).toBe('Child')
+    expect(text(await f.callTool('list_issues', { assignee: 'me', limit: 50 }) as never).issues.map((i: any) => i.id)).toContain('CAN-5')
+    expect(text(await f.callTool('list_issues', { parentId: 'CAN-3', limit: 50 }) as never).issues.map((i: any) => i.id)).toContain('CAN-5')
+    const next = text(await f.callTool('save_issue', { title: 'Other', team: '78589deb-f061-45b7-b299-bb1c34d4b638', state: 'In Progress' }) as never)
+    expect(next).toMatchObject({ id: 'CAN-6', statusType: 'started', assignee: null })
+  })
+
+  it('refuses a creation without team', async () => {
+    const r = await fakeLinear().callTool('save_issue', { title: 'x' })
+    expect(r).toMatchObject({ isError: true, content: [{ text: 'Error: team is required when creating.' }] })
+  })
+})

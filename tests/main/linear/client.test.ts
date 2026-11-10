@@ -301,6 +301,15 @@ describe('LinearClient writes', () => {
     expect((await client.issueBrief('CAN-1')).title).toBe('Renamed')
   })
 
+  it('createIssue sends save_issue without id, assigned to me, and returns the parsed issue', async () => {
+    const { client, fake } = await connected()
+    const created = await client.createIssue({ title: 'New one', team: 'Canopy', priority: 'high', parentId: 'CAN-3' })
+    expect(pages(fake.calls, 'save_issue')[0]).toEqual({ title: 'New one', team: 'Canopy', assignee: 'me', priority: 2, parentId: 'CAN-3' })
+    expect(pages(fake.calls, 'save_issue')[0]).not.toHaveProperty('id')
+    expect(created).toMatchObject({ title: 'New one', priority: 'high', status: { type: 'unstarted' } })
+    expect((await client.issueBrief(created.id)).title).toBe('New one')
+  })
+
   it('a failed patch is a LinearError and saves nothing', async () => {
     const { client } = await connected()
     const before = await client.issueBrief('CAN-1')
