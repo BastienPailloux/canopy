@@ -21,10 +21,11 @@ Dans le périmètre :
 - Des **modèles par type** de ticket (bug, fonctionnalité, refacto…), choisis à la création **[Bastien]**.
 - Modèles **modifiables** par l'utilisateur **[Bastien]**, depuis un **écran dédié** dans Canopy **[Bastien]** : créer, renommer, modifier, supprimer, choisir le modèle par défaut.
 - Un choix de modèle à la création d'un ticket local (« + Nouveau ticket »).
+- Le modèle par défaut s'applique aussi aux autres créations de tickets locaux **[Bastien]** : la création rapide ⇧⌘T (description pré-remplie et modifiable, labels, priorité et sous-tâches du modèle) et l'outil MCP `create_ticket` de Claude (les champs que Claude ne donne pas viennent du modèle ; la description de l'outil lui dit de l'omettre puis de remplir les rubriques).
 
 Hors périmètre :
 
-- Tickets Linear : Canopy ne crée pas de ticket Linear aujourd'hui, il n'y a donc rien à pré-remplir **[Choix conception]**.
+- Tickets Linear, y compris ceux que Claude crée par l'outil MCP : leur structure relève de Linear **[Choix conception]**.
 - Validation de structure : rien n'est imposé ni vérifié à l'enregistrement, on peut effacer des rubriques **[Choix conception]**.
 - Modification de `launchPrompt` : la structure arrive par la description, le prompt reste le même **[Choix conception]**.
 - Appliquer un modèle à un ticket existant.
