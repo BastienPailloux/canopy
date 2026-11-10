@@ -17,6 +17,7 @@ beforeEach(async () => {
       children: vi.fn(async () => []),
       create: vi.fn(async (_root: string, f: { title: string }) => ({ id: 'CAN-9', ...f })),
       patch: vi.fn(),
+      defaultTemplate: vi.fn(async () => null),
     } as unknown as CanopyToolDeps['tickets'],
     mockups: { list: vi.fn(async () => ({ kind: 'ok', mockups: [] })), add: vi.fn(), patch: vi.fn() } as unknown as CanopyToolDeps['mockups'],
     linear: { connection: () => ({ state: 'disconnected', missingTools: [] }) } as unknown as CanopyToolDeps['linear'],

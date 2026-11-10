@@ -5,7 +5,7 @@ import type { LinearSync } from '../linear/sync'
 import type { MockupStore } from '../mockups/store'
 import type { TicketStore } from '../tickets/store'
 import { parseFields } from '../tickets/ticketIpc'
-import { STATUSES, TICKET_ID_RE, ticketKey, type Ticket, type TicketKey, type TicketSource } from '../../shared/tickets'
+import { STATUSES, templateContent, TICKET_ID_RE, ticketKey, type Ticket, type TicketKey, type TicketSource } from '../../shared/tickets'
 import { MOCKUP_ID_RE, MOCKUP_STATUSES, parseArtifactUrl, type Mockup, type MockupStatus } from '../../shared/mockups'
 import { LINEAR_ID_RE, LINEAR_MAX_LABEL, LINEAR_MAX_LABELS, LINEAR_MAX_TITLE, type LinearChange, type LinearIssue, type SaveResult } from '../../shared/linear'
 import { LinearFormatError } from '../linear/parse'
@@ -17,7 +17,7 @@ export const WRITE_TOOLS: CanopyToolName[] = ['create_ticket', 'update_ticket', 
 export interface CanopyToolDeps {
   repoRoot: string
   mode: () => PermissionMode
-  tickets: Pick<TicketStore, 'list' | 'get' | 'children' | 'create' | 'patch'>
+  tickets: Pick<TicketStore, 'list' | 'get' | 'children' | 'create' | 'patch' | 'defaultTemplate'>
   mockups: Pick<MockupStore, 'list' | 'add' | 'patch'>
   linear: Pick<LinearClient, 'connection' | 'issue' | 'issueBrief' | 'teamOptions' | 'createIssue'>
   edits: Pick<LinearEdits, 'save' | 'pending'>
@@ -336,7 +336,9 @@ export function createCanopyTools(deps: CanopyToolDeps): Record<CanopyToolName, 
     const parent = localParent(args.parent)
     const f = parseFields({ ...fieldsOf(args), ...(parent ? { parent } : {}) })
     if (typeof f.title !== 'string') throw new Error('Titre invalide')
-    const t = await deps.tickets.create(repoRoot, { description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...f, title: f.title })
+    // What Claude leaves out comes from the default template, as for a ticket the user creates.
+    const base = templateContent(await deps.tickets.defaultTemplate(repoRoot))
+    const t = await deps.tickets.create(repoRoot, { status: 'backlog', ...base, ...f, title: f.title })
     return { key: ticketKey('local', t.id) }
   }
 

@@ -1,4 +1,4 @@
-import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields, type TicketPatch } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, templateContent, type TicketFields, type TicketPatch, type TicketTemplate } from '../../shared/tickets'
 
 export interface Saver<F extends object = TicketPatch> {
   /** Merges `c` into the pending changes, key by key, and saves them after a pause of `delayMs` without change. */
@@ -130,12 +130,12 @@ export function draftToCreate(local: TicketFields): TicketFields | null {
   return { title, description, status, priority, labels, subtasks }
 }
 
-/** A ticket from the quick dialog (⇧⌘T): the editor's defaults for all but the title and description. */
-export function quickTicketFields(title: string, description: string): TicketFields | null {
+/** A ticket from the quick dialog (⇧⌘T): the title and description typed, the rest from `template` (the default one). */
+export function quickTicketFields(title: string, description: string, template: TicketTemplate | null = null): TicketFields | null {
   const t = title.trim()
   // The same limits the main process checks: past them it would refuse the ticket.
   if (t === '' || t.length > MAX_TITLE || description.length > MAX_DESCRIPTION) return null
-  return { title: t, description, status: 'backlog', priority: 'none', labels: [], subtasks: [] }
+  return { title: t, status: 'backlog', ...templateContent(template), description }
 }
 
 /** The fields the editor changes; the others (id, dates, branch, worktree, base) always come from disk. */

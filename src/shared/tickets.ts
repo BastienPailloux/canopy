@@ -185,3 +185,17 @@ export function sortTemplates(list: TicketTemplate[]): TicketTemplate[] {
     return a.name.localeCompare(b.name, 'fr')
   })
 }
+
+/** What a template puts in a new ticket, whatever creates it: the draft, ⇧⌘T or Claude. */
+export type DraftContent = Pick<TicketFields, 'description' | 'priority' | 'labels' | 'subtasks'>
+
+/** Content a template gives a draft; `null` is « Aucun ». Always fresh arrays, so editing the draft never mutates the template. */
+export function templateContent(t: TicketTemplate | null): DraftContent {
+  if (!t) return { description: '', priority: 'none', labels: [], subtasks: [] }
+  return {
+    description: t.description,
+    priority: t.priority,
+    labels: [...t.labels],
+    subtasks: t.subtasks.map(s => ({ title: s.title, done: false }))
+  }
+}

@@ -288,6 +288,22 @@ describe('canopy read tools', () => {
       expect(await readFile(`${repo.path}/.tickets/CAN-2.md`, 'utf8')).toContain('parent: CAN-1')
     })
 
+    it('create_ticket starts a local ticket from the default template', async () => {
+      await tickets.templates(repo.path)
+      await tickets.setDefaultTemplate(repo.path, 'bug')
+      await tools.create_ticket({ source: 'local', title: 'Plante' })
+      const t = await tickets.get(repo.path, 'CAN-1')
+      expect(t.description).toContain('### Étapes pour reproduire')
+      expect(t).toMatchObject({ status: 'backlog', priority: 'high', labels: ['bug'], subtasks: [{ title: 'Écrire un test qui reproduit le bug', done: false }] })
+    })
+
+    it('create_ticket keeps what Claude gives over the template', async () => {
+      await tickets.templates(repo.path)
+      await tickets.setDefaultTemplate(repo.path, 'bug')
+      await tools.create_ticket({ source: 'local', title: 'Plante', description: 'Texte', priority: 'low', labels: ['x'] })
+      expect(await tickets.get(repo.path, 'CAN-1')).toMatchObject({ description: 'Texte', priority: 'low', labels: ['x'], subtasks: [{ title: 'Écrire un test qui reproduit le bug', done: false }] })
+    })
+
     it('create_ticket refuses a parent of another source and bad fields', async () => {
       await expect(tools.create_ticket({ source: 'local', title: 'x', parent: 'linear:ENG-1' })).rejects.toThrow('Le parent doit venir de la même source que le ticket.')
       await expect(tools.create_ticket({ source: 'local', title: 'x'.repeat(1000) })).rejects.toThrow('Titre invalide')

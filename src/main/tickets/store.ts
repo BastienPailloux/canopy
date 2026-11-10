@@ -326,6 +326,13 @@ export class TicketStore {
     })
   }
 
+  /** The template new tickets start from; null when none is readable. */
+  async defaultTemplate(repo: string): Promise<TicketTemplate | null> {
+    const { entries, defaultSlug } = await this.templates(repo)
+    for (const e of entries) if (e.kind === 'template' && e.template.slug === defaultSlug) return e.template
+    return null
+  }
+
   /** `null` creates a template (slug from the name, `-2`… on collision); otherwise rewrites it keeping its slug. */
   saveTemplate(repo: string, slug: string | null, f: TemplateFields): Promise<TicketTemplate> {
     if (slug !== null) this.checkSlug(slug)
