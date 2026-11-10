@@ -10,6 +10,8 @@ interface Fixture {
   /** Other branches' PR states, for the cleanup tests. The head's own comes from the PR. */
   branchStates?: Record<string, BranchPrState>
   failedLog?: string
+  /** A merge queue takes the PR: `merge` goes through and leaves it open. */
+  mergeQueue?: boolean
 }
 
 export interface FakeGatewayOptions {
@@ -118,7 +120,7 @@ export function fakeGateway(o: FakeGatewayOptions): PrGateway {
         case 'updateBranch':
           break
         case 'merge':
-          pr.state = 'merged'
+          if (!fixture.mergeQueue) pr.state = 'merged'
           break
         case 'autoMerge':
           pr.autoMerge = a.enable

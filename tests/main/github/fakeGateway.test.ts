@@ -38,6 +38,14 @@ describe('fakeGateway', () => {
     expect(await g.act('/r', 87, { type: 'revert' })).toEqual({ ok: true, url: 'https://github.com/acme/passports/pull/999' })
   })
 
+  it('a fixture with mergeQueue leaves a merged PR open, as a merge queue does', async () => {
+    const queued = join(tmp(), 'pr.json')
+    writeFileSync(queued, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), mergeQueue: true }))
+    const g = fakeGateway({ file: queued })
+    await g.act('/r', 87, { type: 'merge', method: 'squash', subject: 's', body: '' })
+    expect((await g.view('/r', 87)).state).toBe('open')
+  })
+
   it('gives each comment its own id', async () => {
     const g = fakeGateway({ file })
     await g.act('/r', 87, { type: 'comment', body: 'a' })

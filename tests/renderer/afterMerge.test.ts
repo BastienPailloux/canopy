@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { CleanupOutcome, PrDetail } from '../../src/shared/pr'
-import { runAfterMerge, type AfterMergeDeps } from '../../src/renderer/pr/afterMerge'
+import { mergeThenFinish, runAfterMerge, type AfterMergeDeps } from '../../src/renderer/pr/afterMerge'
 
 const pr = (): PrDetail => ({ ...(JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail, state: 'merged' })
 
@@ -102,5 +102,25 @@ describe('runAfterMerge', () => {
     const lines = await runAfterMerge({ ...base, pr: pr(), cleanup: true, ticket: { source: 'linear', id: 'CAN-5' } }, d)
     expect(lines).toEqual(['CAN-5 non passé en Done : Linear hors ligne', 'Branche distante conservée : protégée', 'Bascule impossible : conflit'])
     expect(d.api.prCleanup).toHaveBeenCalled()
+  })
+})
+
+describe('mergeThenFinish', () => {
+  it('a merge GitHub only queued finishes nothing: ticket untouched, no cleanup', async () => {
+    const d = deps({ kind: 'switched', branch: 'feat/other', steps: [] })
+    const finish = vi.fn(() => runAfterMerge({ ...base, pr: pr(), cleanup: true, ticket: { source: 'linear', id: 'CAN-5' } }, d).then(() => undefined))
+    // gh exited 0, the refreshed PR is still open: a merge queue holds it.
+    expect(await mergeThenFinish({ merge: async () => true, state: () => 'open', finish })).toBe('queued')
+    expect(finish).not.toHaveBeenCalled()
+    expect(d.api.linearSave).not.toHaveBeenCalled()
+    expect(d.api.prCleanup).not.toHaveBeenCalled()
+  })
+
+  it('finishes once the refreshed PR is merged, never after a failed merge', async () => {
+    const finish = vi.fn(async () => undefined)
+    expect(await mergeThenFinish({ merge: async () => false, state: () => 'merged', finish })).toBe('failed')
+    expect(finish).not.toHaveBeenCalled()
+    expect(await mergeThenFinish({ merge: async () => true, state: () => 'merged', finish })).toBe('merged')
+    expect(finish).toHaveBeenCalledOnce()
   })
 })

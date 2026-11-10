@@ -317,11 +317,11 @@ const localBranches = (): string[] => git(repo.path, 'for-each-ref', '--format=%
  * A commit on the PR branch, and a copy of the fixture whose head is that commit: the local branch is only deleted at
  * the PR's head.
  */
-async function mergeableFixture(): Promise<string> {
+async function mergeableFixture(extra: Record<string, unknown> = {}): Promise<string> {
   await writeFile(join(WORKTREE(), 'gtin.ts'), 'export const gtin = 1\n')
   git(WORKTREE(), 'add', 'gtin.ts')
   git(WORKTREE(), '-c', 'user.name=Canopy Test', '-c', 'user.email=test@canopy.local', '-c', 'commit.gpgsign=false', 'commit', '-m', 'feat: gtin')
-  const fixture = JSON.parse(await readFile(FIXTURE, 'utf8')) as { detail: { headOid: string } }
+  const fixture = { ...(JSON.parse(await readFile(FIXTURE, 'utf8')) as { detail: { headOid: string } }), ...extra }
   fixture.detail.headOid = git(WORKTREE(), 'rev-parse', 'HEAD').trim()
   const file = join(userData, 'pr.json')
   await writeFile(file, JSON.stringify(fixture))
@@ -392,4 +392,18 @@ test('a failed merge cleans nothing', async () => {
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   expect(localBranches()).toContain(BRANCH)
   expect(await loggedActions()).toEqual([])
+})
+
+test('a merge GitHub only queued cleans nothing', async () => {
+  const fixture = await mergeableFixture({ mergeQueue: true })
+  git(repo.path, 'branch', 'feat/other', 'main')
+  await launch({ fixture, history: { [WORKTREE()]: ['feat/other', BRANCH] } })
+  await openPr()
+  await mergePanel().getByRole('button', { name: 'Squash et merger' }).click()
+  await expect(page.getByTestId('pr-merge-status')).toContainText('Merge en file d\'attente sur GitHub')
+  await expect(header().getByTestId('pr-state')).toHaveText('Ouverte')
+  await expect(page.getByTestId('pr-merge-notice')).toHaveCount(0)
+  expect(git(WORKTREE(), 'branch', '--show-current').trim()).toBe(BRANCH)
+  expect(localBranches()).toContain(BRANCH)
+  expect((await loggedActions()).map((l) => l.action.type)).toEqual(['merge'])
 })

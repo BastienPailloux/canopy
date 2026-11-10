@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrCheck, PrDetail, PrThread } from '../../src/shared/pr'
 import type { Ticket, TicketListEntry } from '../../src/shared/tickets'
-import { checksSummary, defaultMethod, defaultSubject, isConventional, linkedTicket, mergeGates, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
+import { checksSummary, defaultMethod, mergeStatus, defaultSubject, isConventional, linkedTicket, mergeGates, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
 
 const fixture = (): PrDetail => (JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail
 const thread = (id: string, resolved: boolean): PrThread =>
@@ -142,6 +142,15 @@ describe('merge panel', () => {
     expect(gate(pr, 'threads')).toMatchObject({ blocking: false })
     const green: PrDetail = { ...pr, reviewDecision: 'APPROVED', checks: [] }
     expect(gate(green, 'threads')).toMatchObject({ ok: false, blocking: true })
+  })
+
+  it('BLOCKED with every gate green says GitHub still blocks, not ready', () => {
+    const green: PrDetail = { ...fixture(), mergeStateStatus: 'BLOCKED', reviewDecision: 'APPROVED', checks: [], timeline: [] }
+    expect(mergeGates(green).some((g) => g.blocking)).toBe(false)
+    expect(mergeStatus(green)).toBe('GitHub bloque encore le merge (règles de protection de la branche)')
+    expect(mergeStatus({ ...green, mergeStateStatus: 'CLEAN' })).toBe('Prêt à merger')
+    expect(mergeStatus({ ...green, mergeStateStatus: 'DIRTY' })).toBe('Merge bloqué tant que les points ci-dessus ne sont pas réglés')
+    expect(mergeStatus({ ...green, autoMerge: true })).toBe('Auto-merge activé : mergera dès que tout est vert')
   })
 
   it('isConventional accepts feat(git)!: x and refuses Update stuff', () => {

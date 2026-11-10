@@ -1,6 +1,6 @@
 import type { CanopyApi } from '../../shared/api'
-import type { CleanupStep, PrDetail } from '../../shared/pr'
-import type { linkedTicket } from './mergeModel'
+import type { CleanupStep, PrDetail, PrState } from '../../shared/pr'
+import { errorText, plural, type linkedTicket } from './mergeModel'
 
 export interface AfterMergeDeps {
   api: Pick<CanopyApi, 'linearIssue' | 'linearTeamOptions' | 'linearSave' | 'patchTicket' | 'prCleanup' | 'prDeleteLocalBranch'>
@@ -21,10 +21,6 @@ export interface AfterMergeInput {
   ticket: ReturnType<typeof linkedTicket>
 }
 
-const messageOf = (e: unknown): string =>
-  (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
-
-const plural = (n: number, word: string): string => `${n} ${word}${n > 1 ? 's' : ''}`
 
 /** Moves the linked ticket to Done: a Linear issue by its status alone (never its description), a local one by its file. */
 async function ticketDone(t: NonNullable<AfterMergeInput['ticket']>, repo: string, api: AfterMergeDeps['api']): Promise<string> {
@@ -40,7 +36,7 @@ async function ticketDone(t: NonNullable<AfterMergeInput['ticket']>, repo: strin
     const saved = await api.linearSave(t.id, { statusId: done.id })
     return saved.kind === 'pending' ? `${t.id} passera en Done dès que Linear répondra` : `${t.id} passé en Done`
   } catch (e) {
-    return `${t.id} non passé en Done : ${messageOf(e)}`
+    return `${t.id} non passé en Done : ${errorText(e)}`
   }
 }
 
@@ -79,7 +75,7 @@ export async function runAfterMerge(o: AfterMergeInput, deps: AfterMergeDeps): P
   try {
     outcome = await deps.api.prCleanup(o.cwd, { number: o.pr.number, branch: o.pr.head, headOid: o.pr.headOid })
   } catch (e) {
-    return [...lines, `Nettoyage impossible : ${messageOf(e)}`]
+    return [...lines, `Nettoyage impossible : ${errorText(e)}`]
   }
   switch (outcome.kind) {
     case 'dirty':
@@ -100,13 +96,24 @@ export async function runAfterMerge(o: AfterMergeInput, deps: AfterMergeDeps): P
       try {
         removed = await deps.confirmRemoval(o.repo, o.cwd)
       } catch (e) {
-        return [...lines, `Worktree conservé : ${messageOf(e)}`]
+        return [...lines, `Worktree conservé : ${errorText(e)}`]
       }
       if (!removed) return [...lines, 'Worktree et branche locale conservés']
       lines.push('Worktree supprimé')
       const step = await deps.api.prDeleteLocalBranch(o.repo, o.pr.head)
-        .catch((e: unknown): CleanupStep => ({ step: 'local', ok: false, message: messageOf(e) }))
+        .catch((e: unknown): CleanupStep => ({ step: 'local', ok: false, message: errorText(e) }))
       return [...lines, ...stepLines([step])]
     }
   }
+}
+
+/**
+ * Sends the merge, then finishes it only once the refreshed PR says it is merged: gh exits 0 for a PR a merge queue
+ * took, still open. `merge`: false when gh refused it; `state`: the PR's state as refreshed after it.
+ */
+export async function mergeThenFinish(o: { merge: () => Promise<boolean>; state: () => PrState | undefined; finish: () => Promise<void> }): Promise<'merged' | 'queued' | 'failed'> {
+  if (!(await o.merge())) return 'failed'
+  if (o.state() !== 'merged') return 'queued'
+  await o.finish()
+  return 'merged'
 }

@@ -52,7 +52,7 @@ describe('AutoMergeWatch', () => {
     tick!()
     await w.poll()
     await w.poll()
-    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req }]])
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req, cleanup: true }]])
     expect(store.autoMerges).toEqual({})
   })
 
@@ -62,7 +62,7 @@ describe('AutoMergeWatch', () => {
     mergedOid = 'b'.repeat(40)
     state = 'merged'
     await w.poll()
-    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req: { ...req, headOid: mergedOid } }]])
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req: { ...req, headOid: mergedOid }, cleanup: true }]])
   })
 
   it('forgets a closed PR silently', async () => {
@@ -74,12 +74,12 @@ describe('AutoMergeWatch', () => {
     expect(store.autoMerges).toEqual({})
   })
 
-  it('a box left unchecked broadcasts nothing', async () => {
+  it('a box left unchecked broadcasts with cleanup false: the ticket still goes to Done', async () => {
     const w = watch()
     w.watch('/r/wt', { ...req, cleanup: false })
     state = 'merged'
     await w.poll()
-    expect(events).toEqual([])
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req, cleanup: false }]])
     expect(store.autoMerges).toEqual({})
   })
 

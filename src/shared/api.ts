@@ -274,7 +274,7 @@ export interface CanopyApi {
   prCleanup(cwd: string, req: CleanupRequest): Promise<CleanupOutcome>
   /** Once the worktree is removed: deletes the branch if GitHub says its PR is merged, only at that PR's head. */
   prDeleteLocalBranch(repo: string, branch: string): Promise<CleanupStep>
-  /** Follows an auto-merge enabled from the tab (null: stops); `pr:autoMerged` `{ cwd, req }` comes once merged, box checked. */
+  /** Follows an auto-merge enabled from the tab (null: stops); `pr:autoMerged` `{ cwd, req, cleanup }` comes once merged. */
   prWatchAutoMerge(cwd: string, entry: AutoMergeEntry | null): Promise<void>
   linearAckDepartures(ids: string[]): Promise<void>
   /** The issue with its sub-issues and comments, read from Linear. */

@@ -21,8 +21,8 @@ export interface AutoMergeWatch {
 }
 
 /**
- * Follows the auto-merges enabled from the tab, across restarts (`AppStore.autoMerges`): once GitHub merges one whose
- * box was checked, the renderer gets `pr:autoMerged` and runs the cleanup. A closed one is just forgotten.
+ * Follows the auto-merges enabled from the tab, across restarts (`AppStore.autoMerges`): once GitHub merges one, the
+ * renderer gets `pr:autoMerged` with the box state (`cleanup`) and runs what follows a merge. A closed one is just forgotten.
  */
 export function createAutoMergeWatch(d: AutoMergeWatchDeps): AutoMergeWatch {
   let running: Promise<void> | null = null
@@ -33,7 +33,7 @@ export function createAutoMergeWatch(d: AutoMergeWatchDeps): AutoMergeWatch {
     if (pr === null || pr.number !== entry.number) return
     if (pr.state !== 'merged' && pr.state !== 'closed') return
     let req: CleanupRequest | null = null
-    if (pr.state === 'merged' && entry.cleanup) {
+    if (pr.state === 'merged') {
       // The head GitHub merged: commits may have been pushed since the auto-merge was enabled. Unread: asked again next time.
       const detail = await d.gateway.view(cwd, entry.number).catch(() => null)
       if (detail === null || detail.state !== 'merged') return
@@ -43,7 +43,8 @@ export function createAutoMergeWatch(d: AutoMergeWatchDeps): AutoMergeWatch {
     const now = d.store.autoMerges[cwd]
     if (now === undefined || now.number !== entry.number || now.branch !== entry.branch) return
     d.store.setAutoMerge(cwd, null)
-    if (req) d.broadcast('pr:autoMerged', { cwd, req })
+    // Unchecked box too: the renderer still moves the ticket to Done, and only cleans up when `cleanup`.
+    if (req) d.broadcast('pr:autoMerged', { cwd, req, cleanup: entry.cleanup })
   }
 
   const poll = (): Promise<void> => {

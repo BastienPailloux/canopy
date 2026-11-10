@@ -85,7 +85,12 @@ export interface MergeGate {
   action?: GateAction
 }
 
-const plural = (n: number, word: string): string => `${n} ${word}${n > 1 ? 's' : ''}`
+/** `n word`, with an `s` past one. */
+export const plural = (n: number, word: string): string => `${n} ${word}${n > 1 ? 's' : ''}`
+
+/** An IPC rejection's message without Electron's « Error invoking remote method » prefix. */
+export const errorText = (e: unknown): string =>
+  (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
 function reviewGate(pr: PrDetail): Omit<MergeGate, 'blocking'> {
   const approved = pr.reviewers.filter((r) => r.status === 'approved').length
@@ -176,4 +181,15 @@ export function mergedHow(method: MergeMethod, commits: number): string {
   if (method === 'squash') return 'Squash en 1 commit'
   if (method === 'rebase') return `Rebase de ${plural(commits, 'commit')}`
   return 'Commit de merge'
+}
+
+/**
+ * The line beside the merge button. BLOCKED with no gate explaining it: a protection rule Canopy cannot see (signed
+ * commits, a required check not reported yet…) still holds the merge.
+ */
+export function mergeStatus(pr: PrDetail): string {
+  if (pr.autoMerge) return 'Auto-merge activé : mergera dès que tout est vert'
+  if (mergeGates(pr).some((g) => g.blocking)) return 'Merge bloqué tant que les points ci-dessus ne sont pas réglés'
+  if (pr.mergeStateStatus === 'BLOCKED') return 'GitHub bloque encore le merge (règles de protection de la branche)'
+  return 'Prêt à merger'
 }

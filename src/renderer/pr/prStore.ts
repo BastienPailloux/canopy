@@ -3,6 +3,7 @@ import type { PrActResult, PrAction, PrDetail, PrOptions, PrSummary } from '../.
 import { useApp } from '../store'
 import { isAttended } from '../shell/polling'
 import { askClaudeInNewTab } from '../sessions/sessionStore'
+import { errorText } from './mergeModel'
 
 export type PrSubTab = 'conv' | 'commits' | 'checks' | 'files'
 
@@ -33,7 +34,6 @@ export const POLL_FAST_MS = 15_000
 export const pollDelay = (detail: PrDetail | null): number =>
   detail && (detail.autoMerge || detail.checks.some((c) => c.outcome === 'pending')) ? POLL_FAST_MS : POLL_MS
 
-const errorText = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') : String(e))
 
 /** Counts the refreshes started: only the latest one's answer applies. */
 let seq = 0

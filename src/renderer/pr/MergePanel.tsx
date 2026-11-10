@@ -8,8 +8,8 @@ import { useApp } from '../store'
 import { rescan } from '../tickets/launchFlow'
 import { useLinear } from '../tickets/linearStore'
 import { useTickets } from '../tickets/ticketStore'
-import { runAfterMerge, type AfterMergeInput } from './afterMerge'
-import { defaultBody, defaultMethod, defaultSubject, isConventional, linkedTicket, mergedHow, mergeGates, METHODS, type GateAction, type GateId, type MergeGate } from './mergeModel'
+import { mergeThenFinish, runAfterMerge, type AfterMergeInput } from './afterMerge'
+import { defaultBody, defaultMethod, defaultSubject, isConventional, linkedTicket, mergedHow, mergeGates, mergeStatus, METHODS, type GateAction, type GateId, type MergeGate } from './mergeModel'
 import { checkPrompt } from './prPrompts'
 import { act, sendToClaude, usePr } from './prStore'
 import './pr.css'
@@ -67,15 +67,20 @@ export async function finishMerge(cwd: string, pr: AfterMergeInput['pr'] & { tit
   await rescan(repo)
 }
 
-/** `pr:autoMerged`: GitHub merged an auto-merge the tab enabled with the box checked. Returns the stop function. */
+/**
+ * `pr:autoMerged`: GitHub merged an auto-merge the tab enabled. The ticket goes to Done whatever the box; the cleanup
+ * runs only if it was checked (`cleanup`). Returns the stop function.
+ */
 export function connectAfterMerge(): () => void {
   return window.canopy.on('pr:autoMerged', (payload) => {
-    const p = payload as { cwd?: unknown; req?: Partial<CleanupRequest> } | null
+    const p = payload as { cwd?: unknown; req?: Partial<CleanupRequest>; cleanup?: unknown } | null
     const req = p?.req
     if (typeof p?.cwd !== 'string' || !req || typeof req.number !== 'number' || typeof req.branch !== 'string' || typeof req.headOid !== 'string') return
+    // Anything but an explicit true cleans nothing.
+    const cleanup = p.cleanup === true
     const shown = usePr.getState().detail
     const same = shown?.number === req.number && usePr.getState().cwd === p.cwd
-    void finishMerge(p.cwd, { number: req.number, head: req.branch, headOid: req.headOid, title: same ? shown.title : '', base: same ? shown.base : '' }, 'Auto-merge', true)
+    void finishMerge(p.cwd, { number: req.number, head: req.branch, headOid: req.headOid, title: same ? shown.title : '', base: same ? shown.base : '' }, 'Auto-merge', cleanup)
   })
 }
 
@@ -200,6 +205,8 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
   const [subject, setSubject] = useState(() => defaultSubject(pr))
   const [body, setBody] = useState(() => defaultBody(pr))
   const [cleanup, setCleanup] = useState(true)
+  /** gh accepted the merge, GitHub has not merged yet (merge queue). */
+  const [queued, setQueued] = useState(false)
   const gates = mergeGates(pr)
   const blocked = gates.some((g) => g.blocking)
   const message = method !== 'rebase'
@@ -209,12 +216,22 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
   const merge = async (): Promise<void> => {
     const cwd = usePr.getState().cwd
     if (!cwd || !ready) return
-    const done = await act({ type: 'merge', method, subject: subject.trim(), body })
-    // A refused merge cleans nothing: `act` showed GitHub's message.
-    if (!done) return
-    // Merged by hand: an auto-merge watched for this PR must not run the cleanup a second time.
-    if (pr.autoMerge) void window.canopy.prWatchAutoMerge(cwd, null).catch(() => undefined)
-    await finishMerge(cwd, pr, mergedHow(method, pr.commits.length), cleanup)
+    setQueued(false)
+    const outcome = await mergeThenFinish({
+      // A refused merge finishes nothing: `act` showed GitHub's message.
+      merge: async () => (await act({ type: 'merge', method, subject: subject.trim(), body })) !== null,
+      // `act` read the PR again: only GitHub saying it is merged moves the ticket and cleans up.
+      state: () => {
+        const s = usePr.getState()
+        return s.cwd === cwd && s.detail?.number === pr.number ? s.detail.state : undefined
+      },
+      finish: async () => {
+        // Merged by hand: an auto-merge watched for this PR must not run the cleanup a second time.
+        if (pr.autoMerge) void window.canopy.prWatchAutoMerge(cwd, null).catch(() => undefined)
+        await finishMerge(cwd, pr, mergedHow(method, pr.commits.length), cleanup)
+      }
+    })
+    if (outcome === 'queued') setQueued(true)
   }
 
   const toggleAuto = async (): Promise<void> => {
@@ -226,9 +243,7 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
     await window.canopy.prWatchAutoMerge(cwd, enable ? { number: pr.number, branch: pr.head, headOid: pr.headOid, cleanup } : null).catch(() => undefined)
   }
 
-  const status = pr.autoMerge
-    ? 'Auto-merge activé : mergera dès que tout est vert'
-    : blocked ? 'Merge bloqué tant que les points ci-dessus ne sont pas réglés' : 'Prêt à merger'
+  const status = queued ? 'Merge en file d\'attente sur GitHub : rien n\'est nettoyé tant qu\'il n\'est pas fait' : mergeStatus(pr)
   return (
     <>
       {gates.map((g) => <Gate key={g.id} pr={pr} gate={g} />)}
@@ -261,7 +276,7 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
               {pr.autoMerge ? 'Désactiver l’auto-merge' : 'Activer l’auto-merge'}
             </button>
           )}
-          <span className="pr-note" data-blocked={blocked ? 'true' : undefined} data-testid="pr-merge-status">{status}</span>
+          <span className="pr-note" data-blocked={blocked || queued ? 'true' : undefined} data-testid="pr-merge-status">{status}</span>
         </div>
       </div>
     </>
