@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrCheck, PrDetail, PrThread } from '../../src/shared/pr'
 import type { Ticket, TicketListEntry } from '../../src/shared/tickets'
-import { checksSummary, linkedTicket, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
+import { checksSummary, defaultMethod, defaultSubject, isConventional, linkedTicket, mergeGates, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
 
 const fixture = (): PrDetail => (JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail
 const thread = (id: string, resolved: boolean): PrThread =>
@@ -98,5 +98,57 @@ describe('sessionText', () => {
     expect(sessionText('running')).toBe('Claude travaille')
     expect(sessionText('draft')).toBe('Aucune session en cours')
     expect(sessionText(undefined)).toBe('Aucune session en cours')
+  })
+})
+
+describe('merge panel', () => {
+  const gate = (pr: PrDetail, id: string) => mergeGates(pr).find((g) => g.id === id)
+
+  it('squash by default, else the first allowed method', () => {
+    const pr = fixture()
+    expect(defaultMethod(pr)).toBe('squash')
+    expect(defaultMethod({ ...pr, repo: { ...pr.repo, methods: ['rebase', 'merge'] } })).toBe('rebase')
+    expect(defaultSubject(pr)).toBe('feat(products): look up passports by GTIN (#87)')
+  })
+
+  it('a BEHIND branch offers updateBranch', () => {
+    const pr: PrDetail = { ...fixture(), mergeStateStatus: 'BEHIND' }
+    expect(gate(pr, 'branch')).toMatchObject({ ok: 'wait', blocking: true, action: 'updateBranch' })
+    // Clean: up to date, no action.
+    expect(gate({ ...pr, mergeStateStatus: 'CLEAN' }, 'branch')).toMatchObject({ ok: true, blocking: false })
+    expect(gate({ ...pr, mergeStateStatus: 'CLEAN' }, 'branch')?.action).toBeUndefined()
+    // Conflicts block whatever else is green.
+    expect(gate({ ...pr, mergeStateStatus: 'DIRTY' }, 'branch')).toMatchObject({ ok: false, blocking: true })
+  })
+
+  it('a draft blocks with ready', () => {
+    const pr: PrDetail = { ...fixture(), state: 'draft', mergeStateStatus: 'DRAFT' }
+    expect(mergeGates(pr)[0]).toMatchObject({ id: 'draft', ok: false, blocking: true, action: 'ready' })
+    expect(gate({ ...pr, state: 'open', mergeStateStatus: 'CLEAN' }, 'draft')).toBeUndefined()
+  })
+
+  it('UNSTABLE blocks nothing: a failing check the repo does not require is informative', () => {
+    const pr = fixture()
+    expect(pr.mergeStateStatus).toBe('UNSTABLE')
+    expect(gate(pr, 'checks')).toMatchObject({ ok: false, blocking: false, action: 'fixChecks' })
+    expect(gate(pr, 'threads')).toMatchObject({ ok: false, blocking: false, action: 'showConversation' })
+    expect(mergeGates(pr).some((g) => g.blocking)).toBe(false)
+  })
+
+  it('BLOCKED: the review and checks block, threads only when nothing else explains it', () => {
+    const pr: PrDetail = { ...fixture(), mergeStateStatus: 'BLOCKED' }
+    expect(gate(pr, 'review')).toMatchObject({ ok: false, blocking: true })
+    expect(gate(pr, 'checks')).toMatchObject({ blocking: true })
+    expect(gate(pr, 'threads')).toMatchObject({ blocking: false })
+    const green: PrDetail = { ...pr, reviewDecision: 'APPROVED', checks: [] }
+    expect(gate(green, 'threads')).toMatchObject({ ok: false, blocking: true })
+  })
+
+  it('isConventional accepts feat(git)!: x and refuses Update stuff', () => {
+    expect(isConventional('feat(git)!: x')).toBe(true)
+    expect(isConventional('fix: handle a 404')).toBe(true)
+    expect(isConventional('Update stuff')).toBe(false)
+    expect(isConventional('feat(Git): x')).toBe(false)
+    expect(isConventional('feat:x')).toBe(false)
   })
 })

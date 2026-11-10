@@ -19,12 +19,13 @@ const git = (cwd: string, ...args: string[]): string => execFileSync('git', args
 const actions = (): string => join(userData, 'fake-gh-actions.jsonl')
 const failFlag = (): string => join(userData, 'fake-gh-down')
 
-async function launch(): Promise<void> {
-  await writeFile(join(userData, 'state.json'), JSON.stringify({ recentRepos: [repo.path], ports: {}, prefs: {} }))
+/** `fixture`: a pr.json to read instead of the shared one; `history`: branches remembered per worktree. */
+async function launch(o: { fixture?: string; history?: Record<string, string[]> } = {}): Promise<void> {
+  await writeFile(join(userData, 'state.json'), JSON.stringify({ recentRepos: [repo.path], ports: {}, prefs: {}, branchHistory: o.history ?? {} }))
   const env = {
     ...process.env,
     CANOPY_FAKE_QUERY: '1',
-    CANOPY_FAKE_GH: FIXTURE,
+    CANOPY_FAKE_GH: o.fixture ?? FIXTURE,
     CANOPY_FAKE_GH_LOG: actions(),
     CANOPY_FAKE_GH_FAIL: failFlag()
   } as Record<string, string>
@@ -306,4 +307,89 @@ test('request Copilot as reviewer, add a label, assign', async () => {
 
   await side.getByRole('button', { name: 'Copier le lien de la PR' }).click()
   await expect(side.getByRole('button', { name: 'Lien copié' })).toBeVisible()
+})
+
+const WORKTREE = (): string => join(repo.path, '.worktrees', 'feat-gtin-lookup')
+const mergePanel = (): Locator => page.getByRole('region', { name: 'Merge' })
+const localBranches = (): string[] => git(repo.path, 'for-each-ref', '--format=%(refname:short)', 'refs/heads').split('\n').filter(Boolean)
+
+/**
+ * A commit on the PR branch, and a copy of the fixture whose head is that commit: the local branch is only deleted at
+ * the PR's head.
+ */
+async function mergeableFixture(): Promise<string> {
+  await writeFile(join(WORKTREE(), 'gtin.ts'), 'export const gtin = 1\n')
+  git(WORKTREE(), 'add', 'gtin.ts')
+  git(WORKTREE(), '-c', 'user.name=Canopy Test', '-c', 'user.email=test@canopy.local', '-c', 'commit.gpgsign=false', 'commit', '-m', 'feat: gtin')
+  const fixture = JSON.parse(await readFile(FIXTURE, 'utf8')) as { detail: { headOid: string } }
+  fixture.detail.headOid = git(WORKTREE(), 'rev-parse', 'HEAD').trim()
+  const file = join(userData, 'pr.json')
+  await writeFile(file, JSON.stringify(fixture))
+  return file
+}
+
+test('merge with squash switches to the other open branch', async () => {
+  const fixture = await mergeableFixture()
+  git(repo.path, 'branch', 'feat/other', 'main')
+  await launch({ fixture, history: { [WORKTREE()]: ['feat/other', BRANCH] } })
+  await openPr()
+  await expect(mergePanel().getByRole('button', { name: 'Squash', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(mergePanel().getByLabel('Message du commit (Conventional Commit, utilisé pour la release)')).toHaveValue('feat(products): look up passports by GTIN (#87)')
+  await expect(mergePanel().getByRole('checkbox', { name: 'Supprimer la branche distante et le worktree après le merge' })).toBeChecked()
+  await mergePanel().getByRole('button', { name: 'Squash et merger' }).click()
+
+  await expect.poll(() => git(WORKTREE(), 'branch', '--show-current').trim(), { timeout: 15_000 }).toBe('feat/other')
+  await expect.poll(localBranches).not.toContain(BRANCH)
+  await expect(page.getByTestId('pr-merge-notice')).toContainText('Worktree basculé sur feat/other')
+  await expect(page.getByTestId('pr-merge-notice')).toContainText('Branche locale supprimée')
+  const logged = (await loggedActions()).map((l) => l.action)
+  expect(logged[0]).toMatchObject({ type: 'merge', method: 'squash', subject: 'feat(products): look up passports by GTIN (#87)' })
+  expect(logged.map((a) => a.type)).toEqual(['merge', 'deleteRemoteBranch'])
+})
+
+test('merge with nothing left proposes removing the worktree', async () => {
+  const fixture = await mergeableFixture()
+  await launch({ fixture })
+  await openPr()
+  await mergePanel().getByRole('button', { name: 'Squash et merger' }).click()
+
+  const dialog = page.getByRole('alertdialog', { name: 'Supprimer le worktree' })
+  await expect(dialog).toBeVisible({ timeout: 15_000 })
+  // The worktree is still there until confirmed, with its branch.
+  expect(localBranches()).toContain(BRANCH)
+  await dialog.getByRole('button', { name: /^Supprimer/ }).click()
+
+  await expect(row(BRANCH)).toHaveCount(0)
+  await expect.poll(localBranches).not.toContain(BRANCH)
+  await expect(page.getByTestId('pr-merge-notice')).toContainText('Worktree supprimé')
+  expect((await loggedActions()).map((l) => l.action.type)).toEqual(['merge', 'deleteRemoteBranch'])
+})
+
+test('a dirty worktree is merged but left alone', async () => {
+  const fixture = await mergeableFixture()
+  git(repo.path, 'branch', 'feat/other', 'main')
+  await launch({ fixture, history: { [WORKTREE()]: ['feat/other', BRANCH] } })
+  await openPr()
+  await writeFile(join(WORKTREE(), 'notes.txt'), 'en cours\n')
+  await mergePanel().getByRole('button', { name: 'Squash et merger' }).click()
+
+  await expect(mergePanel()).toContainText('PR mergée dans main')
+  await expect(mergePanel()).toContainText('1 fichier non commité : nettoyage local non fait')
+  expect(git(WORKTREE(), 'branch', '--show-current').trim()).toBe(BRANCH)
+  expect(localBranches()).toContain(BRANCH)
+  expect((await loggedActions()).map((l) => l.action.type)).toEqual(['merge'])
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+})
+
+test('a failed merge cleans nothing', async () => {
+  const fixture = await mergeableFixture()
+  await launch({ fixture })
+  await openPr()
+  await writeFile(failFlag(), '')
+  await mergePanel().getByRole('button', { name: 'Squash et merger' }).click()
+  await expect(page.getByTestId('pr-error')).toContainText('hors ligne')
+  await rm(failFlag())
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect(localBranches()).toContain(BRANCH)
+  expect(await loggedActions()).toEqual([])
 })

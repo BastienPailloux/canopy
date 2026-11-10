@@ -19,6 +19,7 @@ import { connectMockups } from './mockups/mockupStore'
 import { MockupEditor } from './mockups/MockupEditor'
 import { MockupsScreen } from './mockups/MockupsScreen'
 import { connectPr } from './pr/prStore'
+import { connectAfterMerge, MergeOverlays } from './pr/MergePanel'
 import { PrScreen } from './pr/PrScreen'
 import { basename, useApp, worktreeLabel } from './store'
 import { connectTickets } from './tickets/ticketStore'
@@ -140,6 +141,7 @@ export function App(): React.JSX.Element {
   useEffect(() => connectLinear(), [])
   useEffect(() => connectMockups(), [])
   useEffect(() => connectPr(), [])
+  useEffect(() => connectAfterMerge(), [])
   useEffect(() => window.canopy.on('menu:closeTab', () => {
     const { view, worktree } = useApp.getState()
     // A dialog is the thing in front: ⌘W must not act behind it.
@@ -178,6 +180,7 @@ export function App(): React.JSX.Element {
   return (
     <div className="app">
       <TrustDialog />
+      <MergeOverlays />
       <CommandBar />
       <UpdateBanner />
       <RestoredChip />

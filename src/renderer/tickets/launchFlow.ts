@@ -20,7 +20,7 @@ export function launchText(t: Ticket, mockups: Pick<Mockup, 'title' | 'url'>[] =
  * The worktree list of `repo` and the open folder read again, the way `useWorktrees` does after a creation: the
  * worktree list is not mounted on the Tickets screen. A failed read is left to its next poll: the launch did happen.
  */
-async function rescan(repo: string): Promise<void> {
+export async function rescan(repo: string): Promise<void> {
   const list = await window.canopy.listWorktrees(repo).catch(() => null)
   if (list && useApp.getState().repo === repo) useApp.getState().setWorktrees(list)
   const root = useApp.getState().workspace?.root

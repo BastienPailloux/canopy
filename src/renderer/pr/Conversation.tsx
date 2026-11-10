@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { type CheckOutcome, type PrComment, type PrDetail, type PrReviewState, type PrThread, type PrTimelineItem, type PrUser } from '../../shared/pr'
 import { Markdown } from '../sessions/Markdown'
 import { useSessions } from '../sessions/sessionStore'
+import { MergePanel } from './MergePanel'
 import { claudeThreadLabel, hunkRows, isViewerClaudeReply, lineLabel, withoutSignature } from './conversationModel'
 import { commentPrompt, threadPrompt } from './prPrompts'
 import { act, sendToClaude, usePr } from './prStore'
@@ -233,7 +234,7 @@ function Review({ pr }: { pr: PrDetail }): React.JSX.Element {
   )
 }
 
-/** The « Conversation » sub-tab: description, timeline from oldest to newest, then the comment and review boxes. */
+/** The « Conversation » sub-tab: description, timeline from oldest to newest, then the comment and review boxes and the merge panel. */
 export function Conversation({ pr }: { pr: PrDetail }): React.JSX.Element {
   const live = pr.state === 'open' || pr.state === 'draft'
   return (
@@ -247,6 +248,7 @@ export function Conversation({ pr }: { pr: PrDetail }): React.JSX.Element {
       {pr.timeline.map((item, i) => <Item key={item.kind === 'thread' ? `${item.thread.id}:${item.thread.resolved}` : `${item.kind}:${item.at}:${i}`} pr={pr} item={item} />)}
       <Composer pr={pr} />
       {live && <Review pr={pr} />}
+      <MergePanel pr={pr} />
     </>
   )
 }

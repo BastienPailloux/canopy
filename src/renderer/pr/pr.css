@@ -375,3 +375,115 @@
 .pr-menu [role='option'] { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border: 0; border-radius: 5px; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .pr-menu [role='option']:hover { background: var(--selected); }
 .pr-menu-empty { padding: 5px 8px; }
+
+/* Merge panel (2b): conditions, method, message, cleanup box, merge and auto-merge */
+.pr-merge {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--sidebar);
+  overflow: hidden;
+}
+.pr-merge[data-state='merged'] { border-color: var(--accent-border); }
+.pr-merge[data-state='open']:not([data-blocked]) { border-color: #1f5130; }
+.pr-gate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #1c1f24;
+}
+.pr-gate-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #10241a;
+  color: #7ee2a0;
+}
+.pr-gate[data-tone='bad'] .pr-gate-icon { background: #2a1416; color: #f2b8b5; }
+.pr-gate[data-tone='wait'] .pr-gate-icon { background: #2a2312; color: var(--warn); }
+.pr-gate-text { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pr-merge-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--panel);
+}
+.pr-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.pr-methods button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+}
+.pr-methods button[aria-pressed='true'] { background: var(--selected); }
+.pr-merge-message { display: flex; flex-direction: column; gap: 6px; color: var(--fg-2); }
+.pr-merge-message input, .pr-merge-message textarea {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12.5px;
+  resize: vertical;
+}
+.pr-merge-message input { height: 32px; box-sizing: border-box; }
+.pr-merge-warn { color: var(--warn); }
+.pr-merge-cleanup { display: flex; align-items: center; gap: 8px; color: #c9ced5; cursor: pointer; }
+.pr-merge-cleanup input { accent-color: #7c6ae6; }
+.pr-btn.pr-merge-btn { height: 36px; padding: 0 18px; border: 0; background: #2ea043; color: #fff; font-weight: 600; }
+.pr-btn.pr-merge-btn:disabled { background: #23262d; color: #6b727c; opacity: 1; }
+.pr-btn.pr-merge-auto { height: 36px; padding: 0 14px; }
+[data-testid='pr-merge-status'] { color: #7ee2a0; }
+[data-testid='pr-merge-status'][data-blocked='true'] { color: var(--fg-3); }
+.pr-merged {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+.pr-merged-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pr-merged-text { flex: 1 1 300px; display: flex; flex-direction: column; gap: 2px; }
+.pr-merged-lines { margin: 0; padding: 0; list-style: none; color: var(--fg-2); }
+.pr-revert-link { color: var(--accent-fg); }
+.pr-merge-closed { padding: 16px; color: var(--fg-2); }
+.pr-merge-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
