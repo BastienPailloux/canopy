@@ -110,17 +110,30 @@ describe('mergeThenFinish', () => {
     const d = deps({ kind: 'switched', branch: 'feat/other', steps: [] })
     const finish = vi.fn(() => runAfterMerge({ ...base, pr: pr(), cleanup: true, ticket: { source: 'linear', id: 'CAN-5' } }, d).then(() => undefined))
     // gh exited 0, the refreshed PR is still open: a merge queue holds it.
-    expect(await mergeThenFinish({ merge: async () => true, state: () => 'open', finish })).toBe('queued')
+    const watch = vi.fn(async () => undefined)
+    expect(await mergeThenFinish({ merge: async () => true, state: () => 'open', finish, watch })).toBe('queued')
     expect(finish).not.toHaveBeenCalled()
+    // the auto-merge watch finishes it once GitHub says it is merged
+    expect(watch).toHaveBeenCalledOnce()
     expect(d.api.linearSave).not.toHaveBeenCalled()
     expect(d.api.prCleanup).not.toHaveBeenCalled()
   })
 
+  it('a refresh that failed after the merge leaves it to the watch too', async () => {
+    const finish = vi.fn(async () => undefined)
+    const watch = vi.fn(async () => undefined)
+    expect(await mergeThenFinish({ merge: async () => true, state: () => undefined, finish, watch })).toBe('queued')
+    expect(watch).toHaveBeenCalledOnce()
+    expect(finish).not.toHaveBeenCalled()
+  })
+
   it('finishes once the refreshed PR is merged, never after a failed merge', async () => {
     const finish = vi.fn(async () => undefined)
-    expect(await mergeThenFinish({ merge: async () => false, state: () => 'merged', finish })).toBe('failed')
+    const watch = vi.fn(async () => undefined)
+    expect(await mergeThenFinish({ merge: async () => false, state: () => 'merged', finish, watch })).toBe('failed')
     expect(finish).not.toHaveBeenCalled()
-    expect(await mergeThenFinish({ merge: async () => true, state: () => 'merged', finish })).toBe('merged')
+    expect(await mergeThenFinish({ merge: async () => true, state: () => 'merged', finish, watch })).toBe('merged')
     expect(finish).toHaveBeenCalledOnce()
+    expect(watch).not.toHaveBeenCalled()
   })
 })

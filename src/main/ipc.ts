@@ -170,7 +170,9 @@ export function registerIpc(
 
   const prs = new PrCache()
   // Auto-merges enabled from the tab are followed even while the tab is closed, and across restarts.
-  const autoMerges = createAutoMergeWatch({ store, gateway: prGateway, broadcast, setInterval: (fn, ms) => setInterval(fn, ms) })
+  const autoMerges = createAutoMergeWatch({
+    store, gateway: prGateway, broadcast, repoOf: mainWorktreeRoot, setInterval: (fn, ms) => setInterval(fn, ms)
+  })
   autoMerges.start()
   registerPrIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },

@@ -52,36 +52,50 @@ async function confirmRemoval(repo: string, path: string): Promise<boolean> {
 /**
  * Runs what follows a merge started from the tab (or an auto-merge it enabled) for the worktree at `cwd`, keeps its
  * lines for the panel and the notice, then reads the worktree list again: the worktree may have switched or gone.
+ * `mainRepo`: the main checkout main resolved for `cwd`, which may belong to another folder than the one open.
  */
-export async function finishMerge(cwd: string, pr: AfterMergeInput['pr'] & { title: string; base: string }, how: string, cleanup: boolean): Promise<void> {
+export async function finishMerge(
+  cwd: string, pr: AfterMergeInput['pr'] & { title: string; base: string }, how: string, cleanup: boolean, mainRepo?: string
+): Promise<void> {
   const key = keyOf(cwd, pr.number)
   if (useMerge.getState().results[key]) return
   useMerge.setState((s) => ({ results: { ...s.results, [key]: { cwd, number: pr.number, title: pr.title, base: pr.base, how, lines: null } }, notice: key }))
   const place = placeOf(cwd)
-  // Unknown here: treated as the main checkout, never removed.
-  const repo = place?.repo ?? useApp.getState().repo ?? cwd
-  const tickets = useApp.getState().repo === repo ? useTickets.getState().entries : []
+  const repo = mainRepo ?? place?.repo ?? useApp.getState().repo ?? cwd
+  // Unknown here: treated as the main checkout, never removed, unless main said which checkout it is.
+  const isMain = place?.isMain ?? (mainRepo === undefined || mainRepo === cwd)
+  const tickets = useApp.getState().repo === repo
+    ? useTickets.getState().entries
+    : await window.canopy.listTickets(repo).catch(() => [])
   const ticket = linkedTicket(pr.head, useLinear.getState().links, tickets)
-  const lines = await runAfterMerge({ cwd, repo, isMain: place?.isMain ?? true, pr, cleanup, ticket }, { api: window.canopy, confirmRemoval })
+  const lines = await runAfterMerge({ cwd, repo, isMain, pr, cleanup, ticket }, { api: window.canopy, confirmRemoval })
   useMerge.setState((s) => ({ results: { ...s.results, [key]: { ...s.results[key], lines } } }))
   await rescan(repo)
 }
 
 /**
- * `pr:autoMerged`: GitHub merged an auto-merge the tab enabled. The ticket goes to Done whatever the box; the cleanup
- * runs only if it was checked (`cleanup`). Returns the stop function.
+ * `pr:autoMerged`: GitHub merged an auto-merge the tab enabled (or a merge it queued). The ticket goes to Done whatever
+ * the box; the cleanup runs only if it was checked (`cleanup`). Once done, the watch stops: main sends it again until
+ * then, and a repeat only acknowledges it again.
  */
+async function onAutoMerged(payload: unknown): Promise<void> {
+  const p = payload as { cwd?: unknown; repo?: unknown; req?: Partial<CleanupRequest>; cleanup?: unknown } | null
+  const req = p?.req
+  if (typeof p?.cwd !== 'string' || typeof p.repo !== 'string' || !req || typeof req.number !== 'number' || typeof req.branch !== 'string' || typeof req.headOid !== 'string') return
+  const cwd = p.cwd
+  // Anything but an explicit true cleans nothing.
+  const cleanup = p.cleanup === true
+  const shown = usePr.getState().detail
+  const same = shown?.number === req.number && usePr.getState().cwd === cwd
+  await finishMerge(cwd, { number: req.number, head: req.branch, headOid: req.headOid, title: same ? shown.title : '', base: same ? shown.base : '' }, 'Auto-merge', cleanup, p.repo)
+  // Still running (a repeat while it runs): that run acknowledges it when it ends.
+  if (useMerge.getState().results[keyOf(cwd, req.number)]?.lines == null) return
+  await window.canopy.prWatchAutoMerge(cwd, null).catch(() => undefined)
+}
+
+/** Listens to `pr:autoMerged`. Returns the stop function. */
 export function connectAfterMerge(): () => void {
-  return window.canopy.on('pr:autoMerged', (payload) => {
-    const p = payload as { cwd?: unknown; req?: Partial<CleanupRequest>; cleanup?: unknown } | null
-    const req = p?.req
-    if (typeof p?.cwd !== 'string' || !req || typeof req.number !== 'number' || typeof req.branch !== 'string' || typeof req.headOid !== 'string') return
-    // Anything but an explicit true cleans nothing.
-    const cleanup = p.cleanup === true
-    const shown = usePr.getState().detail
-    const same = shown?.number === req.number && usePr.getState().cwd === p.cwd
-    void finishMerge(p.cwd, { number: req.number, head: req.branch, headOid: req.headOid, title: same ? shown.title : '', base: same ? shown.base : '' }, 'Auto-merge', cleanup)
-  })
+  return window.canopy.on('pr:autoMerged', (payload) => { void onAutoMerged(payload) })
 }
 
 /** The removal dialog the cleanup asks for, and the result of a merge whose PR the tab no longer shows. */
@@ -229,7 +243,9 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
         // Merged by hand: an auto-merge watched for this PR must not run the cleanup a second time.
         if (pr.autoMerge) void window.canopy.prWatchAutoMerge(cwd, null).catch(() => undefined)
         await finishMerge(cwd, pr, mergedHow(method, pr.commits.length), cleanup)
-      }
+      },
+      // Queued, or the refresh failed: the watch finishes it, box as it is now, once GitHub says it is merged.
+      watch: () => window.canopy.prWatchAutoMerge(cwd, { number: pr.number, branch: pr.head, headOid: pr.headOid, cleanup }).catch(() => undefined)
     })
     if (outcome === 'queued') setQueued(true)
   }
@@ -243,7 +259,7 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
     await window.canopy.prWatchAutoMerge(cwd, enable ? { number: pr.number, branch: pr.head, headOid: pr.headOid, cleanup } : null).catch(() => undefined)
   }
 
-  const status = queued ? 'Merge en file d\'attente sur GitHub : rien n\'est nettoyé tant qu\'il n\'est pas fait' : mergeStatus(pr)
+  const status = queued ? 'Merge en file d\'attente sur GitHub : la suite se fera une fois la PR mergée' : mergeStatus(pr)
   return (
     <>
       {gates.map((g) => <Gate key={g.id} pr={pr} gate={g} />)}

@@ -24,7 +24,7 @@ const gateway = (): PrGateway => ({
   act: async () => ({ ok: true }),
 })
 const watch = () => createAutoMergeWatch({
-  store, gateway: gateway(), broadcast: (e, p) => { events.push([e, p]) },
+  store, gateway: gateway(), broadcast: (e, p) => { events.push([e, p]) }, repoOf: async (cwd) => (cwd === '/r/wt' ? '/r' : cwd),
   setInterval: (fn, ms) => { tick = fn; period = ms; return 1 },
 })
 const req = { number: 87, branch: 'feat/x', headOid: 'a'.repeat(40) }
@@ -41,7 +41,7 @@ beforeEach(async () => {
 afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
 
 describe('AutoMergeWatch', () => {
-  it('broadcasts once when the watched PR is merged', async () => {
+  it('broadcasts once per poll when the watched PR is merged, with the main checkout it belongs to', async () => {
     const w = watch()
     w.start()
     expect(period).toBe(60_000)
@@ -51,8 +51,21 @@ describe('AutoMergeWatch', () => {
     state = 'merged'
     tick!()
     await w.poll()
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', repo: '/r', req, cleanup: true }]])
+  })
+
+  it('keeps the entry until the renderer acknowledges it: a broadcast no window heard is sent again', async () => {
+    const w = watch()
+    w.watch('/r/wt', { ...req, cleanup: true })
+    state = 'merged'
     await w.poll()
-    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req, cleanup: true }]])
+    expect(store.autoMerges).toEqual({ '/r/wt': { ...req, cleanup: true } })
+    await w.poll()
+    expect(events).toHaveLength(2)
+    // the renderer finished: it stops the watch
+    w.watch('/r/wt', null)
+    await w.poll()
+    expect(events).toHaveLength(2)
     expect(store.autoMerges).toEqual({})
   })
 
@@ -62,7 +75,7 @@ describe('AutoMergeWatch', () => {
     mergedOid = 'b'.repeat(40)
     state = 'merged'
     await w.poll()
-    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req: { ...req, headOid: mergedOid }, cleanup: true }]])
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', repo: '/r', req: { ...req, headOid: mergedOid }, cleanup: true }]])
   })
 
   it('forgets a closed PR silently', async () => {
@@ -79,8 +92,7 @@ describe('AutoMergeWatch', () => {
     w.watch('/r/wt', { ...req, cleanup: false })
     state = 'merged'
     await w.poll()
-    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', req, cleanup: false }]])
-    expect(store.autoMerges).toEqual({})
+    expect(events).toEqual([['pr:autoMerged', { cwd: '/r/wt', repo: '/r', req, cleanup: false }]])
   })
 
   it('survives a restart and stops with null', async () => {

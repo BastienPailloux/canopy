@@ -109,11 +109,17 @@ export async function runAfterMerge(o: AfterMergeInput, deps: AfterMergeDeps): P
 
 /**
  * Sends the merge, then finishes it only once the refreshed PR says it is merged: gh exits 0 for a PR a merge queue
- * took, still open. `merge`: false when gh refused it; `state`: the PR's state as refreshed after it.
+ * took, still open. `merge`: false when gh refused it; `state`: the PR's state as refreshed after it, undefined when
+ * the refresh failed. Not seen merged: `watch` hands it to the auto-merge watch, which finishes it once GitHub merges.
  */
-export async function mergeThenFinish(o: { merge: () => Promise<boolean>; state: () => PrState | undefined; finish: () => Promise<void> }): Promise<'merged' | 'queued' | 'failed'> {
+export async function mergeThenFinish(o: {
+  merge: () => Promise<boolean>; state: () => PrState | undefined; finish: () => Promise<void>; watch: () => Promise<void>
+}): Promise<'merged' | 'queued' | 'failed'> {
   if (!(await o.merge())) return 'failed'
-  if (o.state() !== 'merged') return 'queued'
+  if (o.state() !== 'merged') {
+    await o.watch()
+    return 'queued'
+  }
   await o.finish()
   return 'merged'
 }
