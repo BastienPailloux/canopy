@@ -10,8 +10,7 @@ import { useLinear } from '../tickets/linearStore'
 import { useTickets } from '../tickets/ticketStore'
 import { mergeThenFinish, runAfterMerge, type AfterMergeInput } from './afterMerge'
 import { defaultBody, defaultMethod, defaultSubject, isConventional, linkedTicket, mergedHow, mergeGates, mergeStatus, METHODS, type GateAction, type GateId, type MergeGate } from './mergeModel'
-import { checkPrompt } from './prPrompts'
-import { act, sendToClaude, usePr } from './prStore'
+import { act, fixCheck, usePr } from './prStore'
 import './pr.css'
 
 /** What a merge from Canopy did, for the « PR mergée » detail; `lines` null while it runs. */
@@ -157,11 +156,8 @@ function Gate({ pr, gate }: { pr: PrDetail; gate: MergeGate }): React.JSX.Elemen
         document.querySelector('[data-testid="pr-thread"]:not([data-resolved="true"])')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
         break
       case 'fixChecks': {
-        const cwd = usePr.getState().cwd
         const check = pr.checks.find((c) => c.outcome === 'failure')
-        if (!cwd || !check) return
-        const log = check.run ? await window.canopy.prFailedLog(cwd, check.run.runId, check.run.jobId).catch(() => '') : ''
-        sendToClaude(checkPrompt(pr, check, log, pr.headOid.slice(0, 7)))
+        if (check) await fixCheck(pr, check)
       }
     }
   }

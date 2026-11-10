@@ -1,9 +1,10 @@
 import { create } from 'zustand'
-import type { PrActResult, PrAction, PrDetail, PrOptions, PrSummary } from '../../shared/pr'
+import type { PrActResult, PrAction, PrCheck, PrDetail, PrOptions, PrSummary } from '../../shared/pr'
 import { useApp } from '../store'
 import { isAttended } from '../shell/polling'
 import { askClaudeInNewTab } from '../sessions/sessionStore'
 import { errorText } from './mergeModel'
+import { checkPrompt } from './prPrompts'
 
 export type PrSubTab = 'conv' | 'commits' | 'checks' | 'files'
 
@@ -111,6 +112,17 @@ export function sendToClaude(text: string, threadId?: string): boolean {
   if (threadId) usePr.setState((s) => ({ claudeThreads: { ...s.claudeThreads, [threadId]: tabId } }))
   useApp.getState().setView('sessions')
   return true
+}
+
+/**
+ * « Corriger avec Claude » on a failed check, from its row or the merge panel: its log (`log` when already read, else
+ * fetched for an Actions job), or its detail and link when there is none. False: no worktree followed.
+ */
+export async function fixCheck(pr: PrDetail, check: PrCheck, log?: string): Promise<boolean> {
+  const cwd = usePr.getState().cwd
+  if (!cwd) return false
+  const text = log ?? (check.run ? await window.canopy.prFailedLog(cwd, check.run.runId, check.run.jobId).catch(() => '') : '')
+  return sendToClaude(checkPrompt(pr, check, text, pr.headOid.slice(0, 7)))
 }
 
 export const setSubTab = (subTab: PrSubTab): void => usePr.setState({ subTab })

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrDetail, PrSummary } from '../../src/shared/pr'
-import { act, connectPr, followWorktree, pollDelay, refresh, sendToClaude, usePr } from '../../src/renderer/pr/prStore'
+import { act, connectPr, fixCheck, followWorktree, pollDelay, refresh, sendToClaude, usePr } from '../../src/renderer/pr/prStore'
 import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { tabCounts } from '../../src/renderer/pr/mergeModel'
 import { useApp } from '../../src/renderer/store'
@@ -179,5 +179,25 @@ describe('prStore', () => {
     expect(usePr.getState().claudeThreads).toEqual({ PRRT_1: tabId })
     usePr.setState({ cwd: null })
     expect(sendToClaude('perdu')).toBe(false)
+  })
+
+  it('fixCheck sends an Actions check with its failed log, another app\'s with its detail and link', async () => {
+    canopy.repoTrust = vi.fn(() => new Promise(() => undefined))
+    canopy.prFailedLog = vi.fn(async () => 'Expected 404, received 422')
+    usePr.setState({ cwd: '/w' })
+    useSessions.setState({ tabs: {}, active: {} })
+    const draft = (): string => useSessions.getState().tabs[useSessions.getState().active['/w']].draft.text
+    expect(await fixCheck(pr, { name: 'e2e', detail: 'Failing after 2m', outcome: 'failure', durationMs: 1, url: null, run: { runId: 5, jobId: 7 } })).toBe(true)
+    expect(canopy.prFailedLog).toHaveBeenCalledWith('/w', 5, 7)
+    expect(draft()).toContain('Expected 404, received 422')
+    canopy.prFailedLog.mockClear()
+    await fixCheck(pr, { name: 'Greptile', detail: '2 issues found', outcome: 'failure', durationMs: null, url: 'https://app.greptile.com/r/1', run: null })
+    expect(canopy.prFailedLog).not.toHaveBeenCalled()
+    expect(draft()).toContain('2 issues found')
+    expect(draft()).toContain('https://app.greptile.com/r/1')
+    // a log already read is not asked again
+    await fixCheck(pr, { name: 'e2e', detail: '', outcome: 'failure', durationMs: 1, url: null, run: { runId: 5, jobId: 7 } }, 'déjà lu')
+    expect(canopy.prFailedLog).not.toHaveBeenCalled()
+    expect(draft()).toContain('déjà lu')
   })
 })

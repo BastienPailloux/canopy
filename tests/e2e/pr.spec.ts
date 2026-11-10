@@ -237,6 +237,23 @@ test('a failed check shows its log and Corriger avec Claude starts a session', a
   expect(await loggedActions()).toEqual([])
 })
 
+test('a failing check of another app offers Corriger avec Claude, with its detail and link', async () => {
+  const fixture = JSON.parse(await readFile(FIXTURE, 'utf8')) as { detail: { checks: { name: string; outcome: string; detail: string; url: string | null }[] } }
+  const greptile = fixture.detail.checks.find((c) => c.name === 'greptile review')!
+  greptile.outcome = 'failure'
+  const file = join(userData, 'pr.json')
+  await writeFile(file, JSON.stringify(fixture))
+  await launch({ fixture: file })
+  await openPr()
+  await page.getByRole('tab', { name: /Checks/ }).click()
+  const greptileRow = page.getByTestId('pr-check').filter({ hasText: 'greptile review' })
+  await greptileRow.getByRole('button', { name: 'Corriger avec Claude' }).click()
+  await expect(nav().getByRole('button', { name: 'Sessions' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('assistant-message').last()).toContainText('greptile review')
+  if (greptile.url) await expect(page.getByTestId('assistant-message').last()).toContainText(greptile.url)
+  expect(await loggedActions()).toEqual([])
+})
+
 test('Relancer les échecs reruns each failing run once', async () => {
   await launch()
   await openPr()

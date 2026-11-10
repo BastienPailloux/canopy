@@ -2,8 +2,7 @@ import { useState } from 'react'
 import type { CheckOutcome, PrCheck, PrDetail } from '../../shared/pr'
 import { useApp } from '../store'
 import { checksSummary } from './mergeModel'
-import { checkPrompt } from './prPrompts'
-import { act, sendToClaude, usePr } from './prStore'
+import { act, fixCheck, usePr } from './prStore'
 
 const rtf = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'auto' })
 
@@ -88,6 +87,10 @@ function CheckRow({ pr, check }: { pr: PrDetail; check: PrCheck }): React.JSX.El
         {check.run && (
           <button className="pr-btn pr-small" disabled={busy !== null} onClick={() => void act({ type: 'rerun', runId: check.run!.runId, jobId: check.run!.jobId })}>Relancer</button>
         )}
+        {/* Another app's check has no log here: Claude gets its detail and link. */}
+        {check.outcome === 'failure' && !check.run && (
+          <button className="pr-btn pr-claude pr-small" onClick={() => void fixCheck(pr, check)}>Corriger avec Claude</button>
+        )}
       </div>
       {open && (
         <div className="pr-check-detail">
@@ -99,8 +102,8 @@ function CheckRow({ pr, check }: { pr: PrDetail; check: PrCheck }): React.JSX.El
           <div>
             <button
               className="pr-btn pr-claude pr-small"
-              disabled={log === null}
-              onClick={() => sendToClaude(checkPrompt(pr, check, log ?? '', pr.headOid.slice(0, 7)))}
+              disabled={log === null && !failed}
+              onClick={() => void fixCheck(pr, check, log ?? undefined)}
             >Corriger avec Claude</button>
           </div>
         </div>
