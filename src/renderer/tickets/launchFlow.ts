@@ -5,6 +5,7 @@ import { branchSlug, launchPrompt, type LaunchRequest, type LaunchTarget, type T
 import { askClaude } from '../sessions/sessionStore'
 import { useApp } from '../store'
 import { reloadLinearLinks } from './linearStore'
+import { useTickets } from './ticketStore'
 
 /** `<type>/<slug of the title>`, `feat` unless told otherwise. */
 export function defaultBranchName(t: Ticket, type?: string): string {
@@ -12,9 +13,17 @@ export function defaultBranchName(t: Ticket, type?: string): string {
 }
 
 /** The launch prompt of `t`, followed by the list of `mockups` to read when there are any. */
-export function launchText(t: Ticket, mockups: Pick<Mockup, 'title' | 'url'>[] = []): string {
+export function launchText(t: Ticket, mockups: Pick<Mockup, 'title' | 'url'>[] = [], parent?: Pick<Ticket, 'id' | 'title'>): string {
   const section = launchMockupsSection(mockups)
-  return section ? `${launchPrompt(t)}\n\n${section}` : launchPrompt(t)
+  const prompt = launchPrompt(t, parent)
+  return section ? `${prompt}\n\n${section}` : prompt
+}
+
+/** The parent of `t` as the ticket list shows it; undefined when it has none or the list does not have it. */
+function parentOf(t: Ticket): Pick<Ticket, 'id' | 'title'> | undefined {
+  if (!t.parent) return undefined
+  for (const e of useTickets.getState().entries) if (e.kind === 'ticket' && e.ticket.id === t.parent) return e.ticket
+  return undefined
 }
 
 /**
@@ -41,17 +50,17 @@ export async function runLaunch(
   const before = useApp.getState().repo
   const result = await window.canopy.launchTicket(repo, req)
   await showLaunched(repo, before, result.worktree)
-  if (o.startClaude) askClaude(result.worktree, launchText(result.ticket, o.mockups))
+  if (o.startClaude) askClaude(result.worktree, launchText(result.ticket, o.mockups, parentOf(result.ticket)))
 }
 
-/** Like `runLaunch` for a Linear issue: nothing is written in Linear, and the session is told to expect its MCP. */
+/** Like `runLaunch` for a Linear issue: nothing is written in Linear. */
 export async function runLinearLaunch(repo: string, req: LinearLaunchRequest, o: { startClaude: boolean }): Promise<void> {
   const before = useApp.getState().repo
   const result = await window.canopy.linearLaunch(repo, req)
   // Main's change event names the issue only when its row changed: the new link is read here.
   void reloadLinearLinks()
   await showLaunched(repo, before, result.worktree)
-  if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue), { expectLinear: true })
+  if (o.startClaude) askClaude(result.worktree, linearLaunchPrompt(result.issue))
 }
 
 /** Like `runLaunch` for a selection of dependencies: nothing is written in the repo, the prompt lists `entries`. */

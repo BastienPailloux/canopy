@@ -144,9 +144,28 @@ export function replayLinear(opts: ReplayOptions = {}): McpCaller {
   }
 
   function saveIssue(args: Raw): CallToolResult {
-    if (typeof args.id !== 'string') return failure('Error: replay: save_issue without id (create) is not supported.')
-    const issue = find(args.id)
-    if (!issue) return unknownIssue()
+    const creating = typeof args.id !== 'string'
+    let issue: Raw
+    if (creating) {
+      if (typeof args.team !== 'string' || args.team === '') return failure('Error: team is required when creating.')
+      const team = issues.map((i) => ({ name: i.team, id: i.teamId })).find((t) => t.name === args.team || t.id === args.team)
+      if (!team) return failure(`Error: unknown team ${args.team}`)
+      if (typeof args.title !== 'string' || args.title === '') return failure('Error: title is required when creating.')
+      const n = Math.max(0, ...issues.map((i) => Number(String(i.id).replace(/^\D+-/, '')) || 0)) + 1
+      const todo = statuses.find((s) => s.type === 'unstarted')
+      const id = `CAN-${n}`
+      const now = new Date().toISOString()
+      issue = {
+        id, uuid: `replay-issue-${n}`, title: args.title, description: '', priority: { value: 0, name: PRIORITY_NAMES[0] },
+        url: `https://linear.app/replay/issue/${id}`, gitBranchName: `replay/${id.toLowerCase()}`, createdAt: now, updatedAt: now,
+        status: todo?.name ?? 'Todo', statusType: 'unstarted', labels: [], assignee: null, assigneeId: null,
+        team: team.name, teamId: team.id, parentId: null, cycleId: null, project: null,
+      }
+    } else {
+      const found = find(args.id)
+      if (!found) return unknownIssue()
+      issue = found
+    }
     const next: Raw = { ...issue }
     if (args.patch !== undefined) {
       if (args.description !== undefined) return failure('Error: pass either description or patch, not both.')
@@ -186,6 +205,10 @@ export function replayLinear(opts: ReplayOptions = {}): McpCaller {
     if (args.parentId !== undefined) next.parentId = args.parentId
     next.updatedAt = new Date().toISOString()
     Object.assign(issue, next)
+    if (creating) {
+      issues.push(issue)
+      comments.set(String(issue.id), [])
+    }
     return answer(issue)
   }
 

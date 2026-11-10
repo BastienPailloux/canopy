@@ -5,13 +5,12 @@ import { PermissionCard } from './PermissionCard'
 import { pinnedLabel, pinnedUserIndex } from './pinnedPrompt'
 import { QuestionCard, questionsOf } from './QuestionCard'
 import { interrupt, type SessionTab, useSessions } from './sessionStore'
+import { FOLLOW_PX, stillFollowing } from './follow'
 import { ToolCard } from './ToolCard'
 import type { TranscriptItem } from './transcript'
 
 const ESTIMATED_ROW_PX = 72
 const OVERSCAN_ROWS = 8
-/** Within this distance of the end, the list keeps following what arrives. */
-const FOLLOW_PX = 48
 
 const Item = memo(function Item(props: { item: TranscriptItem; cwd: string; onInterrupt?: () => void }): React.JSX.Element {
   const { item, cwd, onInterrupt } = props
@@ -65,6 +64,8 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const following = useRef(true)
+  /** Where the last follow left the scroll. */
+  const autoTop = useRef<number | undefined>(undefined)
   const [pinned, setPinned] = useState<number>()
   const rows = useVirtualizer({
     count: items.length,
@@ -79,7 +80,11 @@ export function Conversation(props: { tab: SessionTab }): React.JSX.Element {
 
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && following.current) el.scrollTop = el.scrollHeight
+    if (!el) return
+    following.current = stillFollowing(following.current, el, autoTop.current)
+    if (!following.current) return
+    el.scrollTop = el.scrollHeight
+    autoTop.current = el.scrollTop
   })
 
   const onScroll = (): void => {

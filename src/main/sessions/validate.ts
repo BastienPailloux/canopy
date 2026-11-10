@@ -33,18 +33,16 @@ export function assertContent(c: unknown): asserts c is UserContent {
 /** Keeps known fields only, so nothing else from the renderer reaches `start`. */
 export function parseStartOptions(o: unknown): StartSessionOptions {
   if (!isRecord(o)) throw new Error('Options invalides')
-  const { content, resumeId, model, mode, expectLinear } = o
+  const { content, resumeId, model, mode } = o
   assertContent(content)
   if (resumeId !== undefined && typeof resumeId !== 'string') throw new Error('Identifiant invalide')
   if (model !== undefined) assertId(model)
   if (mode !== undefined) assertMode(mode)
-  if (expectLinear !== undefined && typeof expectLinear !== 'boolean') throw new Error('Option invalide')
   return {
     content,
     ...(resumeId ? { resumeId } : {}),
     ...(model !== undefined ? { model } : {}),
-    ...(mode !== undefined ? { mode } : {}),
-    ...(expectLinear ? { expectLinear } : {})
+    ...(mode !== undefined ? { mode } : {})
   }
 }
 

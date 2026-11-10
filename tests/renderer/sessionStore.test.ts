@@ -270,58 +270,6 @@ describe('askClaude', () => {
     expect(api.startSession.mock.calls[0][1]).toMatchObject({ content: { text: 'bonjour' } })
   })
 
-  describe('expectLinear', () => {
-    const live = (fields: Partial<SessionTab>): string => {
-      ensureTab(CWD)
-      const id = activeTab().id
-      useSessions.setState((s) => ({ tabs: { ...s.tabs, [id]: { ...s.tabs[id], localId: 'live', ...fields } } }))
-      return id
-    }
-    const NOTICE = 'Claude n’a pas accès à Linear dans cette session.'
-
-    it('a reused live tab without a Linear server shows the notice, and sets no flag', () => {
-      const id = live({ mcpServers: [{ name: 'github', status: 'connected' }] })
-      askClaude(CWD, 'x', { expectLinear: true })
-      expect(useSessions.getState().tabs[id].notice).toBe(NOTICE)
-      expect(useSessions.getState().tabs[id].expectLinear).toBeUndefined()
-    })
-
-    it('a reused live tab with a connected Linear server shows no notice', () => {
-      const id = live({ mcpServers: [{ name: 'linear', status: 'connected' }] })
-      askClaude(CWD, 'x', { expectLinear: true })
-      expect(useSessions.getState().tabs[id].notice).toBeUndefined()
-      expect(useSessions.getState().tabs[id].expectLinear).toBeUndefined()
-    })
-
-    it('a live tab with no init yet judges the first init, once', async () => {
-      let onMsg: (p: unknown) => void = () => undefined
-      ;(window.canopy as unknown as Record<string, unknown>).pendingPermissions = async () => []
-      ;(window.canopy as unknown as { on: unknown }).on = (k: string, cb: (p: unknown) => void) => { if (k === 'session:message') onMsg = cb; return () => undefined }
-      const { connectSessions } = await import('../../src/renderer/sessions/sessionStore')
-      const off = connectSessions()
-      const id = live({})
-      askClaude(CWD, 'x', { expectLinear: true })
-      expect(useSessions.getState().tabs[id].expectLinear).toBe(true)
-      onMsg({ localId: 'live', msg: { type: 'system', subtype: 'init', mcp_servers: [] } })
-      expect(useSessions.getState().tabs[id].notice).toBe(NOTICE)
-      expect(useSessions.getState().tabs[id].expectLinear).toBeUndefined()
-      off()
-    })
-
-    it('the flag is cleared once launch passed it: a later resume sends none', async () => {
-      askClaude(CWD, 'x', { expectLinear: true })
-      await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
-      expect(api.startSession.mock.calls[0][1]).toMatchObject({ expectLinear: true })
-      await vi.waitFor(() => expect(activeTab().expectLinear).toBeUndefined())
-      useSessions.setState((s) => ({ tabs: { ...s.tabs, [activeTab().id]: { ...activeTab(), localId: undefined, sessionId: 'sid', resumable: true } } }))
-      void submit(activeTab().id)
-      setDraftText(activeTab().id, 'again')
-      await submit(activeTab().id)
-      await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(2))
-      expect(api.startSession.mock.calls[1][1]).not.toHaveProperty('expectLinear')
-    })
-  })
-
   it('leaves a half-typed draft alone and uses a new tab', async () => {
     ensureTab(CWD)
     const typing = activeTab().id

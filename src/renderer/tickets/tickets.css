@@ -142,6 +142,23 @@
   color: var(--fg-2);
   font-size: 12px;
 }
+.ticket-row .ticket-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ticket-parent { color: var(--fg-2); font-size: 11.5px; }
+.parent-line {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 12.5px;
+}
+button.parent-line:hover { color: var(--fg); text-decoration: underline; }
+.sub-issue .status-name { margin-left: auto; }
 .ticket-row .ticket-title {
   flex: 1 1 auto;
   min-width: 0;
