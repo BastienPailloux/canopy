@@ -4,16 +4,12 @@ import { Markdown } from '../sessions/Markdown'
 import { useSessions } from '../sessions/sessionStore'
 import { MergePanel } from './MergePanel'
 import { claudeThreadLabel, hunkRows, isViewerClaudeReply, lineLabel, withoutSignature } from './conversationModel'
+import { ago, plural } from './mergeModel'
 import { commentPrompt, threadPrompt } from './prPrompts'
 import { act, sendToClaude, usePr } from './prStore'
 
 /** GitHub shows about this many lines of a thread's hunk: the ones ending at the commented line. */
 const HUNK_ROWS = 6
-
-const when = (at: string): string => {
-  const d = new Date(at)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
 
 const initials = (login: string): string => login.split(/[-_.]/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'
 
@@ -38,8 +34,8 @@ function CommentBody({ comment, verb, viewerLogin }: { comment: PrComment; verb?
       <div className="pr-reply-main">
         <span>
           {claude
-            ? <><b>Claude</b> <span className="pr-muted">· via Canopy ({comment.author.login}) · {when(comment.createdAt)}</span></>
-            : <><b>{comment.author.login}</b> <span className="pr-muted">{verb ? `${verb} · ` : '· '}{when(comment.createdAt)}</span></>}
+            ? <><b>Claude</b> <span className="pr-muted">· via Canopy ({comment.author.login}) · {ago(comment.createdAt)}</span></>
+            : <><b>{comment.author.login}</b> <span className="pr-muted">{verb ? `${verb} · ` : '· '}{ago(comment.createdAt)}</span></>}
         </span>
         <div className="pr-md"><Markdown text={claude ? withoutSignature(comment.body) : comment.body} /></div>
       </div>
@@ -58,7 +54,7 @@ function Description({ pr }: { pr: PrDetail }): React.JSX.Element {
     <article className="pr-card" data-testid="pr-description">
       <div className="pr-card-head">
         <Avatar login={pr.author.login} />
-        <b>{pr.author.login}</b><span className="pr-muted">a ouvert la PR · {when(pr.createdAt)}</span>
+        <b>{pr.author.login}</b><span className="pr-muted">a ouvert la PR · {ago(pr.createdAt)}</span>
         {draft === null && <button className="pr-small pr-push" onClick={() => setDraft(pr.body)}>Modifier</button>}
       </div>
       {draft === null
@@ -85,7 +81,7 @@ function Event({ who, text, at, tone }: { who: string; text: string; at: string;
   return (
     <div className="pr-event" data-tone={tone}>
       <span className="pr-event-dot" aria-hidden="true" />
-      <span><b>{who}</b> {text} <span className="pr-muted">· {when(at)}</span></span>
+      <span><b>{who}</b> {text} <span className="pr-muted">· {ago(at)}</span></span>
     </div>
   )
 }
@@ -124,7 +120,7 @@ function Thread({ pr, thread }: { pr: PrDetail; thread: PrThread }): React.JSX.E
         {first && <Avatar login={first.author.login} />}
         {first && <><b>{first.author.login}</b><span className="pr-muted">a commenté</span></>}
         <span className="mono pr-path">{thread.path}</span>
-        <span className="mono pr-muted">{lines ? `${lines} · ` : ''}{first ? when(first.createdAt) : ''}</span>
+        <span className="mono pr-muted">{lines ? `${lines} · ` : ''}{first ? ago(first.createdAt) : ''}</span>
         <span className="pr-push" />
         {thread.outdated && <span className="pr-badge" data-tone="muted">Obsolète</span>}
         {thread.resolved && <span className="pr-badge" data-tone="ok">Résolue</span>}
@@ -174,7 +170,7 @@ function Thread({ pr, thread }: { pr: PrDetail; thread: PrThread }): React.JSX.E
 function Item({ pr, item }: { pr: PrDetail; item: PrTimelineItem }): React.JSX.Element {
   switch (item.kind) {
     case 'push':
-      return <Event who={item.author.login} text={`a poussé ${item.count} commit${item.count > 1 ? 's' : ''}`} at={item.at} tone="push" />
+      return <Event who={item.author.login} text={`a poussé ${plural(item.count, 'commit')}`} at={item.at} tone="push" />
     case 'ci':
       return <Event who="CI" text={`${CI_TEXT[item.outcome]} ${item.sha.slice(0, 7)}`} at={item.at} tone={item.outcome} />
     case 'review':

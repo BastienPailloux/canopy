@@ -2,7 +2,7 @@ import type { PrDetail, PrState } from '../../shared/pr'
 import { Conversation } from './Conversation'
 import { PrSidebar } from './PrSidebar'
 import { ChecksTab, CommitsTab, FilesTab } from './PrTabs'
-import { tabCounts } from './mergeModel'
+import { plural, tabCounts } from './mergeModel'
 import { act, setSubTab, usePr, type PrSubTab } from './prStore'
 import './pr.css'
 
@@ -35,7 +35,7 @@ function PrHeader({ pr }: { pr: PrDetail }): React.JSX.Element {
         <h1>{pr.title} <span className="pr-number">#{pr.number}</span></h1>
         <div className="pr-context">
           <span className="pr-state" data-state={pr.state} data-testid="pr-state"><MergeIcon />{STATE_LABEL[pr.state]}</span>
-          <span><span className="pr-author">{pr.author.login}</span> veut merger {n} commit{n > 1 ? 's' : ''} dans</span>
+          <span><span className="pr-author">{pr.author.login}</span> veut merger {plural(n, 'commit')} dans</span>
           <span className="pr-ref mono">{pr.base}</span>
           <span>depuis</span>
           <span className="pr-ref mono">{pr.head}</span>

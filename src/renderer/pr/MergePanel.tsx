@@ -274,7 +274,7 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
             <input id="pr-merge-subject" className="mono" value={subject} onChange={(e) => setSubject(e.target.value)} />
             <textarea aria-label="Corps du commit" className="mono" rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
             {!isConventional(subject) && (
-              <span className="pr-merge-warn pr-note" role="note">Ce sujet ne suit pas le format Conventional Commit : la PR ne comptera pas dans les notes de release.</span>
+              <span className="pr-merge-warn pr-note" role="note">Ce sujet ne suit pas le format Conventional Commit : les notes de release ignoreront ce merge.</span>
             )}
           </div>
         )}

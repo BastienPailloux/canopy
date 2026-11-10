@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrCheck, PrDetail, PrThread } from '../../src/shared/pr'
 import type { Ticket, TicketListEntry } from '../../src/shared/tickets'
-import { checksSummary, defaultMethod, mergeStatus, defaultSubject, isConventional, linkedTicket, mergeGates, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
+import { parseCommit } from '../../scripts/release/versioning'
+import { ago, checksSummary, defaultMethod, plural, mergeStatus, defaultSubject, isConventional, linkedTicket, mergeGates, reviewerChoices, sessionText, tabCounts } from '../../src/renderer/pr/mergeModel'
 
 const fixture = (): PrDetail => (JSON.parse(readFileSync('tests/fixtures/gh/pr.json', 'utf8')) as { detail: PrDetail }).detail
 const thread = (id: string, resolved: boolean): PrThread =>
@@ -110,6 +111,25 @@ describe('reviewerChoices', () => {
   })
 })
 
+describe('plural', () => {
+  it('agrees the noun and the words after it with the count', () => {
+    expect(plural(1, 'fichier', 'modifié')).toBe('1 fichier modifié')
+    expect(plural(2, 'fichier', 'modifié')).toBe('2 fichiers modifiés')
+    expect(plural(3, 'conversation', 'non résolue')).toBe('3 conversations non résolues')
+    expect(plural(0, 'commit')).toBe('0 commit')
+  })
+})
+
+describe('ago', () => {
+  const now = Date.parse('2026-11-10T12:00:00Z')
+  it('says how long ago, in French', () => {
+    expect(ago('2026-11-10T10:00:00Z', now)).toBe('il y a 2 heures')
+    expect(ago('2026-11-09T12:00:00Z', now)).toBe('hier')
+    expect(ago('2026-11-10T11:59:30Z', now)).toBe('il y a 30 secondes')
+    expect(ago('pas une date', now)).toBe('')
+  })
+})
+
 describe('sessionText', () => {
   it('names the session state and falls back to no session', () => {
     expect(sessionText('running')).toBe('Claude travaille')
@@ -174,7 +194,16 @@ describe('merge panel', () => {
     expect(isConventional('feat(git)!: x')).toBe(true)
     expect(isConventional('fix: handle a 404')).toBe(true)
     expect(isConventional('Update stuff')).toBe(false)
-    expect(isConventional('feat(Git): x')).toBe(false)
     expect(isConventional('feat:x')).toBe(false)
+  })
+
+  it('isConventional reads a subject as the release does', () => {
+    const samples = [
+      'feat(git)!: x', 'fix: a', 'chore: bump', 'revert: feat: x', 'feat(ui.panel): x', 'feat(Git): x', 'docs(claude-md): y',
+      'Update stuff', 'feat:x', 'Merge branch develop', 'feat(git) : x', '', 'feat!: '
+    ]
+    for (const subject of samples) expect(isConventional(subject), subject).toBe(parseCommit({ subject, body: '' }) !== null)
+    expect(isConventional('revert: feat: x')).toBe(true)
+    expect(isConventional('feat(ui.panel): x')).toBe(true)
   })
 })

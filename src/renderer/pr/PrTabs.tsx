@@ -1,21 +1,8 @@
 import { useState } from 'react'
 import type { CheckOutcome, PrCheck, PrDetail } from '../../shared/pr'
 import { useApp } from '../store'
-import { checksSummary } from './mergeModel'
+import { ago, checksSummary, plural } from './mergeModel'
 import { act, fixCheck, usePr } from './prStore'
-
-const rtf = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'auto' })
-
-/** « il y a 2 h »: the commit list's date column. */
-function ago(at: string, now = Date.now()): string {
-  const t = new Date(at).getTime()
-  if (Number.isNaN(t)) return ''
-  const s = Math.round((t - now) / 1000)
-  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
-    if (Math.abs(s) >= size) return rtf.format(Math.round(s / size), unit)
-  }
-  return rtf.format(s, 'second')
-}
 
 const duration = (ms: number | null): string => {
   if (ms === null) return ''
@@ -147,7 +134,7 @@ export function FilesTab({ pr }: { pr: PrDetail }): React.JSX.Element {
   return (
     <div className="pr-card" data-testid="pr-files">
       <div className="pr-card-head">
-        <b>{n} fichier{n > 1 ? 's' : ''} modifié{n > 1 ? 's' : ''} · {viewed} vus</b>
+        <b>{plural(n, 'fichier', 'modifié')} · {viewed} vus</b>
         <button className="pr-btn pr-small pr-push" disabled={n === 0} onClick={openDiff}>Ouvrir le diff complet dans Code</button>
       </div>
       {pr.files.map((f) => {
@@ -156,7 +143,7 @@ export function FilesTab({ pr }: { pr: PrDetail }): React.JSX.Element {
           <div key={f.path} className="pr-list-row" data-testid="pr-file">
             <span className="pr-change mono" data-change={f.change}>{f.change}</span>
             <span className="pr-list-main mono">{f.path}</span>
-            {c > 0 && <span className="pr-badge">{c} conversation{c > 1 ? 's' : ''}</span>}
+            {c > 0 && <span className="pr-badge">{plural(c, 'conversation')}</span>}
             <span className="mono"><span className="pr-add">+{f.additions}</span> <span className="pr-del">−{f.deletions}</span></span>
             <label className="pr-viewed">
               <input

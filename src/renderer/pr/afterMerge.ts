@@ -80,10 +80,10 @@ export async function runAfterMerge(o: AfterMergeInput, deps: AfterMergeDeps): P
   switch (outcome.kind) {
     case 'dirty':
       if (outcome.setAside) {
-        const files = outcome.files > 0 ? `${plural(outcome.files, 'fichier')} non commité${outcome.files > 1 ? 's' : ''} et des` : 'Des'
+        const files = outcome.files > 0 ? `${plural(outcome.files, 'fichier', 'non commité')} et des` : 'Des'
         return [...lines, `${files} modifications mises de côté pour cette branche attendent : nettoyage local non fait`]
       }
-      return [...lines, `${plural(outcome.files, 'fichier')} non commité${outcome.files > 1 ? 's' : ''} : nettoyage local non fait`]
+      return [...lines, `${plural(outcome.files, 'fichier', 'non commité')} : nettoyage local non fait`]
     case 'switched':
       return [...lines, ...stepLines(outcome.steps, outcome.branch)]
     case 'failed':

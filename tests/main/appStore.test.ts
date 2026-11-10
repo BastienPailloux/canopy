@@ -337,6 +337,14 @@ describe('branchHistory', () => {
     expect(b.branchHistory('/x')).toEqual([])
   })
 
+  it('drops a history whose worktree is not an absolute path', () => {
+    writeFileSync(file, JSON.stringify({ branchHistory: { 'rel/wt': ['a'], '': ['b'], '/w': ['c'] } }))
+    const s = new AppStore(file)
+    expect(s.branchHistory('rel/wt')).toEqual([])
+    expect(s.branchHistory('')).toEqual([])
+    expect(s.branchHistory('/w')).toEqual(['c'])
+  })
+
   it("forgets a worktree's history", () => {
     const s = new AppStore(file)
     s.recordBranch('/w', 'a')

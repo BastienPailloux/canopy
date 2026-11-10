@@ -1,6 +1,7 @@
 import type { LinearLink } from '../../shared/linear'
 import { isCopilot, type MergeMethod, type PrCheck, type PrDetail, type PrOptions, type PrReviewer } from '../../shared/pr'
 import type { TicketListEntry } from '../../shared/tickets'
+import { linearIdOf } from '../sessions/panelPrompts'
 
 export interface TabCounts {
   openThreads: number
@@ -29,7 +30,7 @@ export function tabCounts(pr: PrDetail): TabCounts {
 export function checksSummary(checks: PrCheck[]): string {
   const ok = checks.filter((c) => c.outcome === 'success' || c.outcome === 'neutral').length
   const failed = checks.filter((c) => c.outcome === 'failure').length
-  if (failed > 0) return `${failed} check${failed > 1 ? 's' : ''} en échec · ${ok}/${checks.length} réussis`
+  if (failed > 0) return `${plural(failed, 'check')} en échec · ${ok}/${checks.length} réussis`
   if (ok < checks.length) return `Checks en cours · ${ok}/${checks.length} réussis`
   return 'Tous les checks passent'
 }
@@ -40,7 +41,7 @@ export function linkedTicket(
   linear: Record<string, LinearLink>,
   tickets: TicketListEntry[]
 ): { source: 'linear' | 'local'; id: string; title?: string } | null {
-  const id = Object.entries(linear).find(([, l]) => l.branch === head)?.[0]
+  const id = linearIdOf(linear, head)
   if (id) return { source: 'linear', id }
   for (const e of tickets) if (e.kind === 'ticket' && e.ticket.branch === head) return { source: 'local', id: e.ticket.id, title: e.ticket.title }
   return null
@@ -100,8 +101,24 @@ export interface MergeGate {
   action?: GateAction
 }
 
-/** `n word`, with an `s` past one. */
-export const plural = (n: number, word: string): string => `${n} ${word}${n > 1 ? 's' : ''}`
+/** `n word`, with an `s` past one; `after` (« modifié », « non résolue ») agrees too. */
+export const plural = (n: number, word: string, after?: string): string => {
+  const s = n > 1 ? 's' : ''
+  return `${n} ${word}${s}${after ? ` ${after}${s}` : ''}`
+}
+
+const rtf = new Intl.RelativeTimeFormat('fr-FR', { numeric: 'auto' })
+
+/** « il y a 2 heures »: how the PR tab dates everything. Empty for a date it cannot read. */
+export function ago(at: string, now = Date.now()): string {
+  const t = new Date(at).getTime()
+  if (Number.isNaN(t)) return ''
+  const s = Math.round((t - now) / 1000)
+  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]] as const) {
+    if (Math.abs(s) >= size) return rtf.format(Math.round(s / size), unit)
+  }
+  return rtf.format(s, 'second')
+}
 
 /** An IPC rejection's message without Electron's « Error invoking remote method » prefix. */
 export const errorText = (e: unknown): string =>
@@ -147,7 +164,7 @@ export function mergeGates(pr: PrDetail): MergeGate[] {
   const gates: Omit<MergeGate, 'blocking'>[] = [
     reviewGate(pr),
     openThreads > 0
-      ? { id: 'threads', ok: false, detail: `${plural(openThreads, 'conversation')} non résolue${openThreads > 1 ? 's' : ''}`, action: 'showConversation' }
+      ? { id: 'threads', ok: false, detail: plural(openThreads, 'conversation', 'non résolue'), action: 'showConversation' }
       : { id: 'threads', ok: true, detail: 'Toutes les conversations sont résolues' },
     {
       id: 'checks', ok: failed ? false : pending ? 'wait' : true,
@@ -181,9 +198,11 @@ export const defaultSubject = (pr: PrDetail): string => `${pr.title} (#${pr.numb
 /** The squash body GitHub would offer: one line per commit. */
 export const defaultBody = (pr: PrDetail): string => pr.commits.map((c) => `* ${c.message.split('\n')[0]}`).join('\n')
 
-/** The release reads the merged subject: only a Conventional Commit counts (`scripts/release/versioning.ts`). */
-export const isConventional = (subject: string): boolean =>
-  /^(feat|fix|perf|refactor|test|docs|chore|build|ci|style)(\([a-z0-9-]+\))?!?: \S/.test(subject)
+/**
+ * Whether the release parses the merged subject: the same pattern as `CONVENTIONAL` in `scripts/release/versioning.ts`
+ * (a test keeps them in step), any type and scope. A subject it cannot parse is left out of the release notes.
+ */
+export const isConventional = (subject: string): boolean => /^(\w+)(\([^)]*\))?(!)?: (.+)$/.test(subject)
 
 export const METHODS: Record<MergeMethod, { label: string; button: string; hint: (pr: PrDetail) => string }> = {
   squash: { label: 'Squash', button: 'Squash et merger', hint: (pr) => `Un seul commit sur ${pr.base}, titre de la PR comme message` },

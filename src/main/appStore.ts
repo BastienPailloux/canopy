@@ -97,7 +97,7 @@ function sanitize(raw: unknown): State {
   }
   if (isRecord(raw.branchHistory)) {
     for (const [wt, branches] of Object.entries(raw.branchHistory)) {
-      if (!Array.isArray(branches)) continue
+      if (!isAbsolute(wt) || !Array.isArray(branches)) continue
       const clean = [...new Set(branches.filter((b): b is string => typeof b === 'string' && b !== ''))].slice(-MAX_BRANCH_HISTORY)
       if (clean.length > 0) state.branchHistory[wt] = clean
     }
