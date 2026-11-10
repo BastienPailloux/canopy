@@ -91,6 +91,15 @@ export interface RepoConfig {
   /** Config files that exist but could not be read or parsed: anything may be in them. */
   unknownFiles: string[]
 }
+export interface CanopyService {
+  name: string
+  command: string
+  /** The variable that receives the service's port. */
+  portEnv: string
+}
+/** What « Tester la PR » runs: commands to run once, then long-running services. From `.canopy/config.json` or the repo's settings. */
+export interface CanopyConfig { setup: string[]; services: CanopyService[] }
+
 export type TerminalKind = 'shell' | 'setup' | 'service'
 export interface TerminalInfo {
   id: string
@@ -343,9 +352,13 @@ export interface CanopyApi {
   removeTerminal(id: string): Promise<void>
   /** The last 2000 lines and the `end` of the `terminal:data` events they include. */
   terminalSnapshot(id: string): Promise<{ data: string; end: number }>
+  /** The « Tester la PR » config set in the settings for `cwd`'s repo, or null when `.canopy/config.json` applies. */
+  launchConfig(cwd: string): Promise<CanopyConfig | null>
+  /** Sets that config for `cwd`'s repo, or removes it with null. Rejects with a readable message if it is not valid. */
+  setLaunchConfig(cwd: string, config: CanopyConfig | null): Promise<void>
   /**
-   * Runs the `setup` commands of `.canopy/config.json` in one terminal. Null if there are none.
-   * Rejects with `REPO_NOT_TRUSTED` unless that exact config was approved with `trustRepo`.
+   * Runs the `setup` commands in one terminal: those of the repo's setting if set, else of `.canopy/config.json`. Null if there are none.
+   * Rejects with `REPO_NOT_TRUSTED` when the file is used and that exact config was not approved with `trustRepo`.
    */
   runSetup(cwd: string): Promise<TerminalInfo | null>
   /**

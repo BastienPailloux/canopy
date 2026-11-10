@@ -153,7 +153,7 @@ export async function configHash(dir: string): Promise<string> {
  * `cwd`'s own `.git` picks the root it reports, so a directory could claim any repo.
  * Only the repo's list, read from its root, says what belongs to it.
  */
-async function isWorktreeOf(root: string, cwd: string): Promise<boolean> {
+export async function isWorktreeOf(root: string, cwd: string): Promise<boolean> {
   const real = await realpath(cwd)
   const paths = await Promise.all((await listWorktrees(root)).map((w) => realpath(w.path).catch(() => w.path)))
   return paths.includes(real)

@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { CanopyConfig } from '../shared/api'
 import type { LinearLink } from '../shared/linear'
+import { validateConfig } from './terminal/config'
 
 const MAX_RECENT = 10
 
@@ -33,6 +35,8 @@ interface State {
   branchBases: Record<string, Record<string, string>>
   /** Launched Linear issues, by main worktree root then issue id. */
   linearLinks: Record<string, Record<string, LinearLink>>
+  /** « Tester la PR » config set in the settings, by main worktree root. Replaces `.canopy/config.json`. */
+  launchConfigs: Record<string, CanopyConfig>
   /** Worktree last selected in each recent folder. */
   lastEntries: Record<string, string>
   prefs: Record<string, unknown>
@@ -49,7 +53,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, launchConfigs: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -87,6 +91,15 @@ function sanitize(raw: unknown): State {
         }
       }
       if (Object.keys(clean).length > 0) state.linearLinks[root] = clean
+    }
+  }
+  if (isRecord(raw.launchConfigs)) {
+    for (const [root, config] of Object.entries(raw.launchConfigs)) {
+      try {
+        state.launchConfigs[root] = validateConfig(config, 'Réglage')
+      } catch {
+        // Dropped: the repo falls back to its file.
+      }
     }
   }
   if (isRecord(raw.lastEntries)) {
@@ -218,6 +231,18 @@ export class AppStore {
       }
     }
     if (changed) this.save()
+  }
+
+  /** The « Tester la PR » config set in the settings for this repo, or null. */
+  launchConfig(root: string): CanopyConfig | null {
+    return Object.hasOwn(this.state.launchConfigs, root) ? this.state.launchConfigs[root] : null
+  }
+
+  /** Sets the repo's config, or forgets it with null so that `.canopy/config.json` applies again. */
+  setLaunchConfig(root: string, config: CanopyConfig | null): void {
+    if (config === null) delete this.state.launchConfigs[root]
+    else this.state.launchConfigs[root] = config
+    this.save()
   }
 
   /** Remembers the worktree selected in `folder`. Folders that left the recents are dropped: nothing reopens them. */

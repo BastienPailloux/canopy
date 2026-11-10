@@ -115,6 +115,8 @@ const api: CanopyApi = {
   killTerminal: (id) => ipcRenderer.invoke('terminal:kill', id),
   removeTerminal: (id) => ipcRenderer.invoke('terminal:remove', id),
   terminalSnapshot: (id) => ipcRenderer.invoke('terminal:snapshot', id),
+  launchConfig: (cwd) => ipcRenderer.invoke('terminal:launchConfig', cwd),
+  setLaunchConfig: (cwd, config) => ipcRenderer.invoke('terminal:setLaunchConfig', cwd, config),
   runSetup: (cwd) => ipcRenderer.invoke('terminal:runSetup', cwd),
   runServices: (cwd, name) => ipcRenderer.invoke('terminal:runServices', cwd, name),
   on(event, cb) {

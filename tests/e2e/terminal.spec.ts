@@ -162,6 +162,44 @@ test('« Tester la PR » asks to trust the commands, runs setup then the service
   expect(violations).toEqual([])
 })
 
+test('commands set in Réglages replace .canopy/config.json for « Tester la PR », with no trust prompt', async () => {
+  await mkdir(join(featPath, '.canopy'))
+  await writeFile(join(featPath, '.canopy', 'config.json'), JSON.stringify({ services: [{ name: 'file', command: 'echo from-file; sleep 60' }] }))
+  await launch()
+  await worktree('feat/a').click()
+
+  await page.getByRole('button', { name: 'Réglages' }).click()
+  const settings = page.getByTestId('launch-settings')
+  await expect(settings).toContainText('utilise .canopy/config.json')
+  await settings.getByTestId('launch-setup').fill('echo settings-setup')
+  await settings.getByLabel('Nom du service').fill('api')
+  await settings.getByLabel('Commande du service').fill('echo api-on-$API_PORT; sleep 60')
+  await settings.getByLabel('Variable du port').fill('API_PORT')
+  await settings.getByRole('button', { name: 'Enregistrer le lancement' }).click()
+  await expect(page.getByText('Lancement enregistré.')).toBeVisible()
+  await expect(settings).toContainText('remplace .canopy/config.json')
+  await page.getByRole('dialog', { name: 'Réglages' }).getByRole('button', { name: 'Fermer' }).click()
+
+  await page.getByRole('button', { name: /^Tester la PR/ }).click()
+  await expect(tab('api')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(panel().getByRole('tab', { name: /file/ })).toHaveCount(0)
+  const port = ((await panel().getByTestId('terminal-link').innerText()).match(/localhost:(\d+)/)?.[1]) ?? ''
+  await tab('api').click()
+  await expect(screen()).toContainText(`api-on-${port}`, { timeout: 15_000 })
+  await tab('setup').click()
+  await expect(screen()).toContainText('settings-setup')
+
+  // A setting that breaks the rules is refused with the reason.
+  await page.getByRole('button', { name: 'Réglages' }).click()
+  await settings.getByLabel('Variable du port').fill('PATH')
+  await settings.getByRole('button', { name: 'Enregistrer le lancement' }).click()
+  await expect(page.getByTestId('launch-error')).toContainText('Réglage invalide')
+  await settings.getByRole('button', { name: 'Revenir au fichier' }).click()
+  await expect(settings).toContainText('utilise .canopy/config.json')
+  expect(violations).toEqual([])
+})
+
 test('the main process refuses scripts for a config that was not approved', async () => {
   await mkdir(join(featPath, '.canopy'))
   await writeFile(join(featPath, '.canopy', 'config.json'), JSON.stringify({ setup: ['touch pwned'], services: [] }))
