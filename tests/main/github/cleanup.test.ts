@@ -41,9 +41,17 @@ let ghHead: string | null
 let trusted: boolean
 /** The latest PR of feat/x as `find` returns it; null: #87 in `ghState`. */
 let latest: PrSummary | null
+/** The remote tip of feat/x; null: the merged head. An Error: unreadable. */
+let remoteTip: string | Error | null
+/** The latest PR of other branches as `find` returns it. */
+let finds: Map<string, PrSummary>
 
 const gateway = (): PrGateway => ({
-  find: async (_cwd, b) => (b === 'feat/x' ? latest ?? { number: 87, state: ghState, title: 't', url: 'u' } : null),
+  find: async (_cwd, b) => (b === 'feat/x' ? latest ?? { number: 87, state: ghState, title: 't', url: 'u' } : finds.get(b) ?? null),
+  remoteTip: async () => {
+    if (remoteTip instanceof Error) throw remoteTip
+    return remoteTip ?? ghHead ?? headOid
+  },
   view: async (_cwd, n) => ({ number: n, state: ghState, head: 'feat/x', headOid: ghHead ?? headOid } as PrDetail),
   options: async () => ({ labels: [], assignable: [], suggested: [] }),
   failedLog: async () => '',
@@ -71,6 +79,8 @@ beforeEach(async () => {
   ghHead = null
   trusted = false
   latest = null
+  remoteTip = null
+  finds = new Map()
 })
 afterEach(async () => {
   await repo.cleanup()
@@ -186,6 +196,52 @@ describe('cleanupAfterMerge', () => {
     expect(out.steps[0]).toEqual({ step: 'remote', ok: false, message: 'GitHub (gh) : Reference update failed (protected)' })
     expect(out.steps.slice(1)).toEqual([{ step: 'switch', ok: true }, { step: 'local', ok: true }])
     expect(await branchExists(repo.path, 'feat/x')).toBe(false)
+  })
+})
+
+describe('cleanupAfterMerge remote branch', () => {
+  it('a remote branch that received commits after the merge is kept', async () => {
+    store.recordBranch(wt, 'feat/x')
+    remoteTip = 'a'.repeat(40)
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toEqual({ kind: 'proposeRemoval', steps: [{ step: 'remote', ok: false, message: 'Branche distante conservée : elle a reçu des commits après le merge' }] })
+    expect(acts).toEqual([])
+  })
+
+  it('an unreadable remote tip keeps the branch', async () => {
+    store.recordBranch(wt, 'feat/x')
+    remoteTip = new Error('GitHub (gh) : hors ligne')
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toMatchObject({ kind: 'proposeRemoval', steps: [{ step: 'remote', ok: false }] })
+    expect(acts).toEqual([])
+  })
+
+  it('a remote branch at the merged head is deleted', async () => {
+    store.recordBranch(wt, 'feat/x')
+    await cleanupAfterMerge(wt, req(), deps())
+    expect(acts).toEqual([{ type: 'deleteRemoteBranch', branch: 'feat/x' }])
+  })
+})
+
+describe('cleanupAfterMerge next branch', () => {
+  it('a branch beyond the listed PRs is looked up on its own: merged, it is not chosen', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    await git(repo.path, ['branch', 'feat/old', 'main'])
+    for (const b of ['feat/y', 'feat/old', 'feat/x']) store.recordBranch(wt, b)
+    // feat/old's PR is older than the 200 the repo-wide list returns
+    states = new Map<string, BranchPrState>([['feat/y', 'open'], ['feat/x', 'merged']])
+    finds.set('feat/old', { number: 3, state: 'merged', title: 't', url: 'u' })
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toMatchObject({ kind: 'switched', branch: 'feat/y' })
+  })
+
+  it('a branch with no PR at all stays in progress', async () => {
+    await git(repo.path, ['branch', 'feat/y', 'main'])
+    await git(repo.path, ['branch', 'feat/new', 'main'])
+    for (const b of ['feat/y', 'feat/new', 'feat/x']) store.recordBranch(wt, b)
+    states = new Map<string, BranchPrState>([['feat/y', 'open'], ['feat/x', 'merged']])
+    const out = await cleanupAfterMerge(wt, req(), deps())
+    expect(out).toMatchObject({ kind: 'switched', branch: 'feat/new' })
   })
 })
 

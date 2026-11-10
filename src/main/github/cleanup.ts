@@ -5,6 +5,7 @@ import { git } from '../git/exec'
 import { cachedBaseRef } from '../git/sharedReads'
 import { currentBranch, dirtyCount, hasSetAsideFor, switchBranch } from '../git/switchBranch'
 import { hasRef, listWorktrees } from '../git/worktrees'
+import type { BranchPrState } from '../git/pr'
 import type { PrGateway } from './gateway'
 
 export interface NextBranchInput {
@@ -118,6 +119,40 @@ async function pendingWork(cwd: string, branch: string): Promise<CleanupOutcome 
   return files > 0 ? { kind: 'dirty', files } : null
 }
 
+const REMOTE_MOVED = 'Branche distante conservée : elle a reçu des commits après le merge'
+
+/**
+ * Deletes the remote `branch` only while its tip is the merged head: a delayed cleanup (auto-merge) may run after a
+ * collaborator pushed to it, or recreated it. GitHub's ref deletion takes no expected oid, and a lease push would run
+ * the repo's hooks: read then delete, a push landing between the two is the residual race.
+ */
+async function deleteRemoteBranch(gateway: PrGateway, cwd: string, number: number, branch: string, headOid: string): Promise<CleanupStep> {
+  try {
+    if ((await gateway.remoteTip(cwd, branch)) !== headOid) return { step: 'remote', ok: false, message: REMOTE_MOVED }
+    await gateway.act(cwd, number, { type: 'deleteRemoteBranch', branch })
+    return { step: 'remote', ok: true }
+  } catch (e) {
+    return { step: 'remote', ok: false, message: messageOf(e) }
+  }
+}
+
+/**
+ * The PR state of each history branch: the repo-wide list only covers its newest PRs, so a branch missing from it is
+ * asked on its own, lazily and most recent first, until one in progress is found. Bounded by the history (50 at most).
+ */
+async function nextInProgress(gateway: PrGateway, cwd: string, input: Omit<NextBranchInput, 'prState'>, states: Map<string, BranchPrState> | null): Promise<string | null> {
+  // gh unavailable: every branch counts as in progress, none as merged
+  if (states === null) return nextBranch({ ...input, prState: () => null })
+  const known = new Map<string, BranchPrState | null>(states)
+  for (;;) {
+    const next = nextBranch({ ...input, prState: (b) => known.get(b) ?? null })
+    if (next === null || known.has(next)) return next
+    // a failed lookup leaves it in progress, never merged
+    const pr = await gateway.find(cwd, next).catch(() => null)
+    known.set(next, pr === null ? null : pr.state === 'draft' ? 'open' : pr.state)
+  }
+}
+
 const realOrSelf = (p: string): Promise<string> => realpath(p).catch(() => p)
 
 /**
@@ -134,8 +169,7 @@ export async function cleanupAfterMerge(cwd: string, req: CleanupRequest, d: Cle
   if (pending) return pending
   const steps: CleanupStep[] = []
   // a protected branch, or one GitHub already deleted: reported, the rest goes on
-  steps.push(await d.gateway.act(cwd, req.number, { type: 'deleteRemoteBranch', branch: req.branch })
-    .then((): CleanupStep => ({ step: 'remote', ok: true }), (e: unknown): CleanupStep => ({ step: 'remote', ok: false, message: messageOf(e) })))
+  steps.push(await deleteRemoteBranch(d.gateway, cwd, req.number, req.branch, headOid))
 
   const [top, worktrees, current, base] = await Promise.all([
     git(cwd, ['rev-parse', '--show-toplevel']).then((s) => s.trim()), listWorktrees(cwd), currentBranch(cwd), baseOf(cwd)
@@ -151,12 +185,8 @@ export async function cleanupAfterMerge(cwd: string, req: CleanupRequest, d: Cle
   const isMain = selfIndex < 0 || worktrees[selfIndex].isMain
   const heldElsewhere = new Set(worktrees.flatMap((w, i) => (i !== selfIndex && w.branch !== null ? [w.branch] : [])))
   const locals = new Set((await git(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).split('\n').filter((b) => b !== ''))
-  // gh unavailable: every branch counts as in progress, none as merged
   const states = await d.gateway.branchStates(cwd).catch(() => null)
-  const next = nextBranch({
-    history: d.store.branchHistory(cwd), current, locals, base: base?.local ?? null, heldElsewhere,
-    prState: (b) => states?.get(b) ?? null
-  })
+  const next = await nextInProgress(d.gateway, cwd, { history: d.store.branchHistory(cwd), current, locals, base: base?.local ?? null, heldElsewhere }, states)
 
   let target = next
   if (target === null && isMain) {

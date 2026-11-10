@@ -90,6 +90,7 @@ describe('registerPrIpc', () => {
       view: async () => { throw new Error('x') },
       options: async () => ({ labels: [], assignable: [], suggested: [] }),
       failedLog: async (cwd, r, j) => { calls.push(['log', cwd, r, j]); return 'l' },
+      remoteTip: async () => { throw new Error('x') },
       branchStates: async () => null,
       act: async (cwd, n, a) => { calls.push(['act', cwd, n, a]); return { ok: true } },
     }

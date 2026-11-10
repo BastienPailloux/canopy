@@ -17,6 +17,13 @@ describe('fakeGateway', () => {
     expect((await g.branchStates('/r'))?.get('feat/gtin-lookup')).toBe('open')
   })
 
+  it('the remote tip of the head branch is the PR head', async () => {
+    const g = fakeGateway({ file })
+    const pr = await g.view('/r', 87)
+    expect(await g.remoteTip('/r', pr.head)).toBe(pr.headOid)
+    await expect(g.remoteTip('/r', 'other')).rejects.toThrow()
+  })
+
   it('applies a comment and logs it', async () => {
     const logFile = join(tmp(), 'log')
     const g = fakeGateway({ file, logFile })

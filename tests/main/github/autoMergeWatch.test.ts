@@ -20,6 +20,7 @@ const gateway = (): PrGateway => ({
   view: async (_cwd, n) => ({ number: n, state, head: 'feat/x', headOid: mergedOid } as PrDetail),
   options: async () => ({ labels: [], assignable: [], suggested: [] }),
   failedLog: async () => '',
+  remoteTip: async () => mergedOid,
   branchStates: async () => null,
   act: async () => ({ ok: true }),
 })

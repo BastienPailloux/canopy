@@ -137,3 +137,16 @@ test('branchStates reads every PR of the repo', async () => {
   const { run } = runner([[['pr', 'list'], JSON.stringify([{ headRefName: 'feat/a', state: 'MERGED', isCrossRepository: false, updatedAt: '2026-11-08T10:00:00Z' }])]])
   expect(await ghGateway(run).branchStates('/repo')).toEqual(new Map([['feat/a', 'merged']]))
 })
+
+test('remoteTip reads the exact ref of the branch on GitHub', async () => {
+  const sha = 'c'.repeat(40)
+  const { run, calls } = runner([REPO, [['api', 'repos/BastienPailloux/canopy/git/ref/heads/feat%2Fx'], JSON.stringify({ ref: 'refs/heads/feat/x', object: { sha, type: 'commit' } })]])
+  expect(await ghGateway(run).remoteTip('/wt', 'feat/x')).toBe(sha)
+  expect(calls.at(-1)?.args).toEqual(['api', 'repos/BastienPailloux/canopy/git/ref/heads/feat%2Fx'])
+})
+
+test('remoteTip rejects an empty branch or an answer without a sha', async () => {
+  await expect(ghGateway(runner([REPO]).run).remoteTip('/wt', '')).rejects.toThrow()
+  const { run } = runner([REPO, [['api'], JSON.stringify([{ ref: 'refs/heads/feat/xy' }])]])
+  await expect(ghGateway(run).remoteTip('/wt', 'feat/x')).rejects.toThrow()
+})

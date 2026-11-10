@@ -58,6 +58,11 @@ export function fakeGateway(o: FakeGatewayOptions): PrGateway {
         'at tests/e2e/products.spec.ts:41',
       ].join('\n')
     },
+    async remoteTip(_cwd, branch) {
+      guard()
+      if (branch !== pr.head) throw new Error('GitHub (gh) : HTTP 404 Not Found')
+      return pr.headOid
+    },
     async branchStates() {
       guard()
       const states = new Map<string, BranchPrState>(Object.entries(fixture.branchStates ?? {}))

@@ -13,6 +13,8 @@ export interface PrGateway {
   failedLog(cwd: string, runId: number, jobId: number): Promise<string>
   /** Changes the PR: one `gh` run per action (two for reviewers when Copilot is among them). */
   act(cwd: string, number: number, a: PrAction): Promise<PrActResult>
+  /** The commit `branch` points to on GitHub; rejects when it cannot be read (gone, offline). */
+  remoteTip(cwd: string, branch: string): Promise<string>
   /** The state of every branch's latest PR in the repo of `repo`; null when gh cannot tell. */
   branchStates(repo: string): Promise<Map<string, BranchPrState> | null>
 }
@@ -285,6 +287,15 @@ export function ghGateway(run: GhRunner = runGh): PrGateway {
     async failedLog(cwd, runId, jobId) {
       const out = await gh(['run', 'view', String(runId), '--job', String(jobId), '--log-failed'], cwd)
       return out.split('\n').filter((l) => l.trim() !== '').slice(-FAILED_LOG_LINES).join('\n')
+    },
+
+    async remoteTip(cwd, branch) {
+      if (branch === '') throw new Error('Nom de branche vide')
+      const { owner, name } = await repoOf(cwd)
+      // `git/ref` (singular) matches the ref exactly: `git/refs` would also list `feat/xy` for `feat/x`.
+      const r = json(await gh(['api', `repos/${owner}/${name}/git/ref/heads/${encodeURIComponent(branch)}`], cwd))
+      if (!isObj(r) || !isObj(r.object) || typeof r.object.sha !== 'string') throw unreadable()
+      return r.object.sha
     },
 
     branchStates(repo) {
