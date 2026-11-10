@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { open, type FileHandle } from 'node:fs/promises'
 
 export type RegularFileRead = { kind: 'file'; bytes: Buffer } | { kind: 'tooLarge'; size: number } | { kind: 'notFile' }
 
@@ -13,22 +13,27 @@ export async function readRegularFile(path: string, opts: { maxBytes: number; no
   const flags = constants.O_RDONLY | constants.O_NONBLOCK | (opts.noFollow ? constants.O_NOFOLLOW : 0)
   const fh = await open(path, flags)
   try {
-    const st = await fh.stat()
-    if (!st.isFile()) return { kind: 'notFile' }
-    if (st.size > opts.maxBytes) return { kind: 'tooLarge', size: st.size }
-    // Read up to EOF but never past maxBytes + 1: it may have grown since the fstat.
-    const chunks: Buffer[] = []
-    let n = 0
-    while (n <= opts.maxBytes) {
-      const want = Math.min(Math.max(st.size - n, 64 * 1024 - 1) + 1, opts.maxBytes + 1 - n)
-      const chunk = Buffer.alloc(want)
-      const { bytesRead } = await fh.read(chunk, 0, want, n)
-      if (bytesRead === 0) break
-      chunks.push(chunk.subarray(0, bytesRead))
-      n += bytesRead
-    }
-    return n > opts.maxBytes ? { kind: 'tooLarge', size: n } : { kind: 'file', bytes: Buffer.concat(chunks, n) }
+    return await readOpened(fh, opts.maxBytes)
   } finally {
     await fh.close()
   }
+}
+
+/** Same checks and bounded read as `readRegularFile`, on a descriptor the caller keeps (to write through it next). */
+export async function readOpened(fh: FileHandle, maxBytes: number): Promise<RegularFileRead> {
+  const st = await fh.stat()
+  if (!st.isFile()) return { kind: 'notFile' }
+  if (st.size > maxBytes) return { kind: 'tooLarge', size: st.size }
+  // Read up to EOF but never past maxBytes + 1: it may have grown since the fstat.
+  const chunks: Buffer[] = []
+  let n = 0
+  while (n <= maxBytes) {
+    const want = Math.min(Math.max(st.size - n, 64 * 1024 - 1) + 1, maxBytes + 1 - n)
+    const chunk = Buffer.alloc(want)
+    const { bytesRead } = await fh.read(chunk, 0, want, n)
+    if (bytesRead === 0) break
+    chunks.push(chunk.subarray(0, bytesRead))
+    n += bytesRead
+  }
+  return n > maxBytes ? { kind: 'tooLarge', size: n } : { kind: 'file', bytes: Buffer.concat(chunks, n) }
 }

@@ -182,6 +182,17 @@ describe('writeFileSafe', () => {
     await expect(within(writeFileSafe(repo.path, 'pipe', 'x'))).rejects.toThrow(notFile)
   })
 
+  it('refuses to write over a directory, forced or not', async () => {
+    await mkdir(join(repo.path, 'dir'))
+    await expect(writeFileSafe(repo.path, 'dir', 'x')).rejects.toThrow('Ce chemin n\'est pas un fichier')
+    await expect(writeFileSafe(repo.path, 'dir', 'x', { expectedVersion: EXPECT_ABSENT })).rejects.toThrow('Ce chemin n\'est pas un fichier')
+  })
+
+  it('creates an absent file only if it is still absent, and leaves nothing behind on a version mismatch', async () => {
+    await expect(writeFileSafe(repo.path, 'gone.txt', 'x', { expectedVersion: 'some-old-version' })).rejects.toThrow(FILE_CHANGED)
+    await expect(readFile(join(repo.path, 'gone.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('accepts the write when only the timestamp changed', async () => {
     const opened = await readFileSafe(repo.path, 'README.md')
     if (opened.kind !== 'text') throw new Error('expected text')

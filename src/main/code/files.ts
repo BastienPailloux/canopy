@@ -2,12 +2,12 @@ import chokidar, { type FSWatcher } from 'chokidar'
 import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, realpath } from 'node:fs/promises'
+import { lstat, mkdir, open, realpath, type FileHandle } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileContent } from '../../shared/api'
 import { EXPECT_ABSENT, FILE_CHANGED } from '../../shared/errors'
 import { git } from '../git/exec'
-import { readRegularFile } from '../safeRead'
+import { readOpened, readRegularFile } from '../safeRead'
 
 /** Files of the working tree relative to `cwd`: tracked and untracked, without ignored ones. */
 export async function listTree(cwd: string): Promise<string[]> {
@@ -64,7 +64,7 @@ async function resolveInside(cwd: string, rel: unknown): Promise<string> {
 /** Text of a file of the worktree. Binary files and files over 5 MB are reported, not read. */
 export async function readFileSafe(cwd: string, path: string): Promise<FileContent> {
   const real = await resolveInside(cwd, path)
-  const read = await withoutLink(readRegularFile(real, { maxBytes: MAX_TEXT_BYTES, noFollow: true }))
+  const read = await readRegularFile(real, { maxBytes: MAX_TEXT_BYTES, noFollow: true }).catch((e) => { throw fileError(e) })
   if (read.kind === 'notFile') throw new Error(NOT_A_FILE)
   if (read.kind === 'tooLarge') return read
   const { bytes } = read
@@ -80,26 +80,42 @@ export async function writeFileSafe(
   cwd: string, path: string, content: string, opts: { expectedVersion?: string } = {}
 ): Promise<string> {
   const real = await resolveInside(cwd, path)
-  let found = EXPECT_ABSENT
+  const bytes = Buffer.from(content, 'utf8')
+  // One descriptor for the version check and the write: checking a path then writing it again by path would write
+  // over whatever was swapped in between (a link, a FIFO, or a newer file renamed over it).
+  const fh = await openFile(real, constants.O_RDWR)
+  if (!fh) {
+    if (opts.expectedVersion !== undefined && opts.expectedVersion !== EXPECT_ABSENT) throw new Error(FILE_CHANGED)
+    await mkdir(dirname(real), { recursive: true })
+    // O_EXCL: a file created meanwhile is someone else's, not overwritten.
+    const created = await openFile(real, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL).catch((e) => {
+      throw (e as NodeJS.ErrnoException).code === 'EEXIST' ? new Error(FILE_CHANGED) : e
+    })
+    if (!created) throw new Error(FILE_CHANGED)
+    return writeThrough(created, real, bytes)
+  }
   try {
-    const read = await withoutLink(readRegularFile(real, { maxBytes: MAX_TEXT_BYTES, noFollow: true }))
+    const read = await readOpened(fh, MAX_TEXT_BYTES)
     if (read.kind === 'notFile') throw new Error(NOT_A_FILE)
-    // A file too large to open was never shown: no version of it can match, and no lossy decoding of it is written back.
-    found = read.kind === 'tooLarge' ? TOO_LARGE : versionOf(read.bytes)
     // What was shown is a lossy decoding: writing it back would replace every byte it could not read.
     if (read.kind === 'file' && !read.bytes.subarray(0, 8192).includes(0) && !isUtf8(read.bytes)) throw new Error('Fichier non UTF-8 : modification refusée')
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-  }
-  if (opts.expectedVersion !== undefined && found !== opts.expectedVersion) throw new Error(FILE_CHANGED)
-  await mkdir(dirname(real), { recursive: true })
-  const bytes = Buffer.from(content, 'utf8')
-  // Same descriptor checks as the read: a link or a FIFO swapped in since then is not written through.
-  const fh = await withoutLink(open(real, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK))
-  try {
-    if (!(await fh.stat()).isFile()) throw new Error(NOT_A_FILE)
+    // A file too large to open was never shown: no version of it can match.
+    const found = read.kind === 'tooLarge' ? TOO_LARGE : versionOf(read.bytes)
+    if (opts.expectedVersion !== undefined && found !== opts.expectedVersion) throw new Error(FILE_CHANGED)
     await fh.truncate(0)
-    await fh.writeFile(bytes)
+  } catch (e) {
+    await fh.close()
+    throw e
+  }
+  return writeThrough(fh, real, bytes)
+}
+
+/** Writes and closes. A path that no longer leads to this file (renamed over meanwhile) means the write was lost. */
+async function writeThrough(fh: FileHandle, real: string, bytes: Buffer): Promise<string> {
+  try {
+    await fh.write(bytes, 0, bytes.length, 0)
+    const [mine, now] = [await fh.stat(), await lstat(real).catch(() => null)]
+    if (!now || now.ino !== mine.ino || now.dev !== mine.dev) throw new Error(FILE_CHANGED)
   } finally {
     await fh.close()
   }
@@ -109,14 +125,24 @@ export async function writeFileSafe(
 const NOT_A_FILE = 'Ce chemin n\'est pas un fichier'
 const TOO_LARGE = 'too-large'
 
-/** `real` has no link left: one appearing now was swapped in since the check (O_NOFOLLOW gives ELOOP). */
-async function withoutLink<T>(p: Promise<T>): Promise<T> {
+/**
+ * Opens `real`, which has no link left. O_NONBLOCK keeps a FIFO from blocking. Resolves to null when it is absent.
+ */
+async function openFile(real: string, flags: number): Promise<FileHandle | null> {
   try {
-    return await p
+    return await open(real, flags | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('Lien symbolique invalide')
-    throw e
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw fileError(e)
   }
+}
+
+/** A link appearing now was swapped in since the check (O_NOFOLLOW gives ELOOP); a directory or a FIFO without reader is not a file. */
+function fileError(e: unknown): unknown {
+  const code = (e as NodeJS.ErrnoException).code
+  if (code === 'ELOOP') return new Error('Lien symbolique invalide')
+  if (code === 'EISDIR' || code === 'ENXIO') return new Error(NOT_A_FILE)
+  return e
 }
 
 const DEBOUNCE_MS = 300
