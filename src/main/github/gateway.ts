@@ -1,4 +1,4 @@
-import type { PrAction, PrActResult, MergeMethod, PrOptions, PrState, PrSummary, PrDetail } from '../../shared/pr'
+import { isCopilot, type PrAction, type PrActResult, type MergeMethod, type PrOptions, type PrState, type PrSummary, type PrDetail } from '../../shared/pr'
 import { branchPrStates, runGh, type BranchPrState, type GhRunner } from '../git/pr'
 import { PR_QUERY, isObj, parsePrDetail, unreadable, viewerOf } from './query'
 
@@ -47,7 +47,6 @@ const MUTATIONS = {
 
 /** Copilot's review is requested as this bot through REST: gh 2.61's `--add-reviewer` only knows users and teams. Not verified live. */
 const COPILOT_REVIEWER = 'copilot-pull-request-reviewer[bot]'
-const isCopilot = (login: string): boolean => login.toLowerCase() === 'copilot'
 const METHOD_FLAGS: Record<MergeMethod, string> = { squash: '--squash', merge: '--merge', rebase: '--rebase' }
 
 const SUMMARY_STATES: Record<string, PrState> = { OPEN: 'open', MERGED: 'merged', CLOSED: 'closed' }

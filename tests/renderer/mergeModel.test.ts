@@ -86,10 +86,27 @@ describe('reviewerChoices', () => {
 
   it('offers Copilot, keeps people who already reviewed, drops pending ones and filters', () => {
     const current = [{ login: 'camille-r', kind: 'user' as const, status: 'approved' as const }, { login: 'acme/core', kind: 'team' as const, status: 'pending' as const }]
-    const logins = (q: string): string[] => reviewerChoices(suggested, current, q).map((c) => c.login)
+    const logins = (q: string): string[] => reviewerChoices({ suggested, assignable: [] }, current, q).map((c) => c.login)
     expect(logins('')).toEqual(['camille-r', 'copilot'])
     expect(logins('COP')).toEqual(['copilot'])
     expect(logins('modifié')).toEqual(['camille-r'])
+  })
+
+  it('offers the collaborators too, each once, after the suggestions', () => {
+    const choices = reviewerChoices({ suggested, assignable: ['Camille-R', 'theo', 'basti'] }, [{ login: 'basti', kind: 'user', status: 'pending' }], '')
+    expect(choices).toEqual([
+      ...suggested,
+      { login: 'theo', kind: 'user', hint: 'Collaborateur' },
+      { login: 'copilot', kind: 'bot', hint: 'Relecture par Copilot' }
+    ])
+    expect(reviewerChoices({ suggested, assignable: ['theo'] }, [], 'collab').map((c) => c.login)).toEqual(['theo'])
+  })
+
+  it('hides Copilot while its review is pending, under the bot login GitHub reports', () => {
+    for (const login of ['copilot-pull-request-reviewer', 'copilot-pull-request-reviewer[bot]', 'Copilot']) {
+      const choices = reviewerChoices({ suggested: [], assignable: [] }, [{ login, kind: 'bot', status: 'pending' }], '')
+      expect(choices.map((c) => c.login), login).toEqual([])
+    }
   })
 })
 

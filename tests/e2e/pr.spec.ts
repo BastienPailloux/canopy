@@ -279,6 +279,9 @@ test('request Copilot as reviewer, add a label, assign', async () => {
   await expect(side.getByRole('region', { name: 'Ticket lié' })).toHaveCount(0)
 
   await side.getByRole('button', { name: 'Demander une review', exact: true }).click()
+  // the collaborators GitHub did not suggest are offered too
+  await page.getByRole('textbox', { name: 'Filtrer' }).fill('collaborateur')
+  await expect(page.getByRole('option', { name: /basti.*Collaborateur/ })).toBeVisible()
   await page.getByRole('textbox', { name: 'Filtrer' }).fill('cop')
   await expect(page.getByRole('option')).toHaveCount(1)
   await page.getByRole('option', { name: /copilot/ }).click()

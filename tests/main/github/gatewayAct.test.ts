@@ -83,6 +83,14 @@ test('reviewers: users and teams through pr edit', async () => {
   expect(all.map((c) => c.args)).toEqual([['pr', 'edit', '7', '--add-reviewer=alice', '--add-reviewer=acme/core', '--remove-reviewer=bob']])
 })
 
+test('reviewers: Copilot asked again under its bot login goes through REST too', async () => {
+  for (const login of ['copilot-pull-request-reviewer', 'copilot-pull-request-reviewer[bot]']) {
+    const { all } = await act({ type: 'reviewers', add: [login], remove: [] })
+    expect(all.map((c) => c.args[0]), login).toEqual(['api'])
+    expect(JSON.parse(all[0].input!)).toEqual({ reviewers: ['copilot-pull-request-reviewer[bot]'] })
+  }
+})
+
 test('reviewers: copilot goes through the REST requested_reviewers endpoint', async () => {
   const added = await act({ type: 'reviewers', add: ['copilot', 'alice'], remove: [] })
   expect(added.all.map((c) => c.args)).toEqual([

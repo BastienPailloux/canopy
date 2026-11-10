@@ -57,6 +57,9 @@ export type PrAction =
 export type PrActResult = { ok: true } | { ok: true; url: string }
 export interface PrOptions { labels: string[]; assignable: string[]; suggested: { login: string; kind: 'user' | 'team' | 'bot'; hint: string }[] }
 
+/** Copilot as the picker names it (`copilot`) or as GitHub reports it once requested (its bot, `[bot]` or not). */
+export const isCopilot = (login: string): boolean => /^(copilot|copilot-pull-request-reviewer(\[bot\])?)$/i.test(login)
+
 /** Last line of every reply Claude writes from Canopy: how the tab tells them from the user's own. */
 export const CLAUDE_SIGNATURE = '— Claude via Canopy'
 /** The signature must be the body's own last line: `… — Claude via Canopy` within a sentence is not one. */

@@ -40,9 +40,9 @@ const matches = (q: string, ...texts: string[]): boolean => {
 
 function Reviewers({ pr }: { pr: PrDetail }): React.JSX.Element {
   const busy = usePr((s) => s.busy !== null)
-  const suggested = usePr((s) => s.options?.suggested ?? [])
+  const options = usePr((s) => s.options)
   const [query, setQuery] = useState('')
-  const choices = reviewerChoices(suggested, pr.reviewers, query).map((s) => ({ id: s.login, label: s.login, hint: s.hint }))
+  const choices = reviewerChoices({ suggested: options?.suggested ?? [], assignable: options?.assignable ?? [] }, pr.reviewers, query).map((s) => ({ id: s.login, label: s.login, hint: s.hint }))
   const again = (r: PrReviewer): boolean => r.status !== 'pending'
   return (
     <section className="pr-side-section" aria-label="Reviewers">

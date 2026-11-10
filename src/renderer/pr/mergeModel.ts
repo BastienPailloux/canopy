@@ -1,5 +1,5 @@
 import type { LinearLink } from '../../shared/linear'
-import type { MergeMethod, PrCheck, PrDetail, PrOptions, PrReviewer } from '../../shared/pr'
+import { isCopilot, type MergeMethod, type PrCheck, type PrDetail, type PrOptions, type PrReviewer } from '../../shared/pr'
 import type { TicketListEntry } from '../../shared/tickets'
 
 export interface TabCounts {
@@ -49,12 +49,27 @@ export function linkedTicket(
 /** GitHub's list does not carry Copilot: the picker adds it, as a reviewer (never as an assignee). */
 const COPILOT: PrOptions['suggested'][number] = { login: 'copilot', kind: 'bot', hint: 'Relecture par Copilot' }
 
-/** The « Demander une review » picker: suggestions plus Copilot, minus who is already waited on, filtered by `query`. */
-export function reviewerChoices(suggested: PrOptions['suggested'], current: PrReviewer[], query: string): PrOptions['suggested'] {
-  const waited = new Set(current.filter((r) => r.status === 'pending').map((r) => r.login.toLowerCase()))
-  const all = suggested.some((s) => s.login.toLowerCase() === COPILOT.login) ? suggested : [...suggested, COPILOT]
+/**
+ * The « Demander une review » picker: GitHub's suggestions and teams, the collaborators, then Copilot, each once,
+ * minus who is already waited on, filtered by `query`.
+ */
+export function reviewerChoices(options: Pick<PrOptions, 'suggested' | 'assignable'>, current: PrReviewer[], query: string): PrOptions['suggested'] {
+  const waited = current.filter((r) => r.status === 'pending').map((r) => r.login)
+  const seen = new Set<string>()
+  const all = [
+    ...options.suggested,
+    ...options.assignable.map((login) => ({ login, kind: 'user' as const, hint: 'Collaborateur' })),
+    COPILOT
+  ].filter((s) => {
+    const key = isCopilot(s.login) ? COPILOT.login : s.login.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const isWaited = (login: string): boolean =>
+    waited.some((w) => (isCopilot(login) ? isCopilot(w) : w.toLowerCase() === login.toLowerCase()))
   const q = query.trim().toLowerCase()
-  return all.filter((s) => !waited.has(s.login.toLowerCase()) && (!q || s.login.toLowerCase().includes(q) || s.hint.toLowerCase().includes(q)))
+  return all.filter((s) => !isWaited(s.login) && (!q || s.login.toLowerCase().includes(q) || s.hint.toLowerCase().includes(q)))
 }
 
 export const REVIEWER_STATUS: Record<PrReviewer['status'], string> = {
