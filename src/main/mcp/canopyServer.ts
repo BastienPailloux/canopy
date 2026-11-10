@@ -21,6 +21,8 @@ const DESCRIPTIONS: Record<CanopyToolName, string> = {
   list_mockups: 'Lists the mockups of this repo (claude.ai artifacts), optionally those of one local ticket (`ticket`) or the unlinked ones.',
   create_ticket:
     'Creates a ticket, or a sub-ticket with `parent` (a key of the same source). Search with `list_tickets` first to avoid a duplicate. ' +
+    'A local ticket starts from the repo\'s default ticket template: the fields you leave out (description, priority, labels, sub-tasks) come from it. ' +
+    'To keep its structure, omit `description`, then read the ticket with `get_ticket` and fill its sections with `update_ticket`. ' +
     'Local statuses: backlog, todo, in_progress, in_review, done; a Linear status is given by its name. ' +
     'A Linear issue is assigned to the user and goes in the team of its parent, else the only team of the user\'s issues, ' +
     'else the one named by `team` (Linear team name), which is required when the user has no assigned Linear issue and no parent is given. Returns the new key.',

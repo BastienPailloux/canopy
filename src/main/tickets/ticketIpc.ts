@@ -7,6 +7,7 @@ import { mainWorktreeRoot } from '../git/worktrees'
 import { clearSharedReads } from '../git/sharedReads'
 import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, STATUSES, TICKET_ID_RE } from '../../shared/tickets'
 import type { LaunchRequest, LaunchTarget, TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
+import { assertTemplateSlug, parseTemplateFields } from './templates'
 import { branchBaseAt } from './branchBase'
 import { launchCandidates, launchTicket, type LaunchDeps } from './launch'
 import type { TicketStore } from './store'
@@ -112,6 +113,14 @@ export function registerTicketIpc(tickets: TicketStore, store: AppStore, live: L
     return tickets.setPrefix(repo, prefix)
   })
   handle('labels', (repo) => { assertPath(repo); return tickets.labels(repo) })
+  handle('templates', (repo) => { assertPath(repo); return tickets.templates(repo) })
+  handle('saveTemplate', (repo, slug, fields) => {
+    assertPath(repo)
+    if (slug !== null) assertTemplateSlug(slug)
+    return tickets.saveTemplate(repo, slug, parseTemplateFields(fields))
+  })
+  handle('deleteTemplate', (repo, slug) => { assertPath(repo); assertTemplateSlug(slug); return tickets.deleteTemplate(repo, slug) })
+  handle('setDefaultTemplate', (repo, slug) => { assertPath(repo); assertTemplateSlug(slug); return tickets.setDefaultTemplate(repo, slug) })
   handle('launchCandidates', (repo) => { assertPath(repo); return launchCandidates(launchDeps, repo) })
   handle('launch', async (repo, req) => {
     assertPath(repo)

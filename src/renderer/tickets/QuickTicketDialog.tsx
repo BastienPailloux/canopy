@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MAX_DESCRIPTION, MAX_TITLE, ticketKey } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, ticketKey, type TicketTemplate } from '../../shared/tickets'
 import { useModal } from '../shell/useModal'
 import { useApp } from '../store'
 import { quickTicketFields } from './editorSave'
@@ -13,7 +13,19 @@ export function QuickTicketDialog({ repo, onCreated }: { repo: string; onCreated
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const fields = quickTicketFields(title, description)
+  const [template, setTemplate] = useState<TicketTemplate | null>(null)
+  // The default template, like in the ticket draft; a description already typed stays.
+  useEffect(() => {
+    let on = true
+    window.canopy.ticketTemplates(repo).then((list) => {
+      const t = list.entries.flatMap((e) => (e.kind === 'template' && e.template.slug === list.defaultSlug ? [e.template] : []))[0] ?? null
+      if (!on || !t) return
+      setTemplate(t)
+      setDescription((d) => (d === '' ? t.description : d))
+    }, () => {})
+    return () => { on = false }
+  }, [repo])
+  const fields = quickTicketFields(title, description, template)
   const close = (): void => { if (!busy) setDialog(null) }
 
   const submit = async (e?: React.FormEvent): Promise<void> => {

@@ -4,7 +4,7 @@ import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashComman
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
 import type { DepsReport } from './deps'
 import type { ShortcutContext } from './shortcuts'
-import type { LaunchCandidate, LaunchRequest, LaunchTarget, Ticket, TicketFields, TicketListEntry, TicketPatch } from './tickets'
+import type { LaunchCandidate, LaunchRequest, LaunchTarget, TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketPatch, TicketTemplate } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
@@ -239,6 +239,12 @@ export interface CanopyApi {
   ticketConfig(repo: string): Promise<{ prefix: string; next: number }>
   setTicketPrefix(repo: string, prefix: string): Promise<void>
   ticketLabels(repo: string): Promise<string[]>
+  /** Ticket templates of the repo (built-ins are written on first use) and the default one. Changes emit `tickets:changed`. */
+  ticketTemplates(repo: string): Promise<TemplateList>
+  /** Creates a template (`slug: null`, slug derived from the name) or updates one in place; the slug never changes. */
+  saveTicketTemplate(repo: string, slug: string | null, fields: TemplateFields): Promise<TicketTemplate>
+  deleteTicketTemplate(repo: string, slug: string): Promise<void>
+  setDefaultTicketTemplate(repo: string, slug: string): Promise<void>
   /** Worktrees of `repo` a launch could use, and the branch most ahead of the default one (null: none ahead). */
   launchCandidates(repo: string): Promise<{ worktrees: LaunchCandidate[]; advanced: { branch: string; ahead: number } | null }>
   /**

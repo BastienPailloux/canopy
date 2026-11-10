@@ -65,6 +65,8 @@ export function useModal(ref: RefObject<HTMLElement | null>, onEscape: () => voi
     const onKey = (e: KeyboardEvent): void => {
       if (open[open.length - 1] !== token) return
       if (e.key === 'Escape') {
+        // A field that answers Escape itself (a label or subtask being typed) cancels its edit, not the dialog.
+        if (e.defaultPrevented) return
         e.preventDefault()
         escape.current()
       } else if (e.key === 'Tab') {

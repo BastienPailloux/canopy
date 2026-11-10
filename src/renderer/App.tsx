@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Workspace } from '../shared/types'
 import type { Stash } from '../shared/update'
 import { CodeScreen } from './code/CodeScreen'
@@ -28,6 +28,7 @@ import { connectTickets } from './tickets/ticketStore'
 import { connectLinear } from './tickets/linearStore'
 import { LinearEditor } from './tickets/LinearEditor'
 import { parseTicketKey, type TicketKey } from '../shared/tickets'
+import { TemplatesDialog } from './tickets/TemplatesDialog'
 import { TicketEditor } from './tickets/TicketEditor'
 import { TicketsScreen } from './tickets/TicketsScreen'
 import { QuickTicketDialog, QuickTicketNotice } from './tickets/QuickTicketDialog'
@@ -120,11 +121,17 @@ function Main(): React.JSX.Element {
 
 /** The editor of the open ticket, local or Linear. */
 function OpenTicket({ k }: { k: TicketKey | 'new' }): React.JSX.Element | null {
-  if (k === 'new') return <TicketEditor id="new" />
-  const p = parseTicketKey(k)
-  if (p?.source === 'local') return <TicketEditor id={p.id} />
+  const repo = useApp((s) => s.repo)
+  const [templates, setTemplates] = useState(false)
+  const p = k === 'new' ? null : parseTicketKey(k)
   if (p?.source === 'linear') return <LinearEditor id={p.id} />
-  return null
+  if (k !== 'new' && p?.source !== 'local') return null
+  return (
+    <>
+      <TicketEditor id={p?.id ?? 'new'} onManageTemplates={() => setTemplates(true)} />
+      {templates && repo && <TemplatesDialog repo={repo} onClose={() => setTemplates(false)} />}
+    </>
+  )
 }
 
 /** Dialogs a shortcut opens from any screen. The sidebar shows the new worktree one itself where it is mounted. */

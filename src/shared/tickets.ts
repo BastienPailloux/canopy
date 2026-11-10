@@ -133,3 +133,69 @@ export function parseTicketKey(k: string): { source: TicketSource; id: string } 
   const m = /^(local|linear):(.+)$/.exec(k)
   return m ? { source: m[1] as TicketSource, id: m[2] } : null
 }
+
+/** Template names and slugs (file names under `.tickets/templates/`). */
+export const MAX_TEMPLATE_NAME = 50
+export const TEMPLATE_SLUG_RE = /^[a-z0-9-]{1,50}$/
+
+/** What a template pre-fills in a new ticket: everything but the title and the status. */
+export interface TemplateFields {
+  name: string
+  /** Position in menus; templates without one come after, alphabetically. */
+  order?: number
+  description: string
+  priority: TicketPriority
+  labels: string[]
+  subtasks: Subtask[]
+}
+
+export interface TicketTemplate extends TemplateFields {
+  slug: string
+}
+
+/** A template file that could not be read is listed by name, never overwritten. */
+export type TemplateListEntry =
+  | { kind: 'template'; template: TicketTemplate }
+  | { kind: 'unreadable'; file: string; error: string }
+
+export interface TemplateList {
+  entries: TemplateListEntry[]
+  /** `null` only when there is no readable template. */
+  defaultSlug: string | null
+}
+
+/** File-name slug of a template name. The caller adds a suffix on collision, keeping within 50 characters. */
+export function templateSlug(name: string): string {
+  const slug = name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_TEMPLATE_NAME)
+    .replace(/-+$/, '')
+  return slug || 'modele'
+}
+
+/** Ordered templates first (by `order`), then the others alphabetically. */
+export function sortTemplates(list: TicketTemplate[]): TicketTemplate[] {
+  return [...list].sort((a, b) => {
+    if (a.order !== undefined && b.order !== undefined && a.order !== b.order) return a.order - b.order
+    if ((a.order !== undefined) !== (b.order !== undefined)) return a.order !== undefined ? -1 : 1
+    return a.name.localeCompare(b.name, 'fr')
+  })
+}
+
+/** What a template puts in a new ticket, whatever creates it: the draft, ⇧⌘T or Claude. */
+export type DraftContent = Pick<TicketFields, 'description' | 'priority' | 'labels' | 'subtasks'>
+
+/** Content a template gives a draft; `null` is « Aucun ». Always fresh arrays, so editing the draft never mutates the template. */
+export function templateContent(t: TicketTemplate | null): DraftContent {
+  if (!t) return { description: '', priority: 'none', labels: [], subtasks: [] }
+  return {
+    description: t.description,
+    priority: t.priority,
+    labels: [...t.labels],
+    subtasks: t.subtasks.map(s => ({ title: s.title, done: false }))
+  }
+}

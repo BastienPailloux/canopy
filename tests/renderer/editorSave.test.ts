@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields, type TicketPatch } from '../../src/shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, type TicketFields, type TicketPatch, type TicketTemplate } from '../../src/shared/tickets'
 import { closeSaver, createSaver, createVersionFilter, draftToCreate, flushSavers, mergeDisk, notifySavers, onSaversChange, quickTicketFields, trackSaver, unsavedTickets } from '../../src/renderer/tickets/editorSave'
 
 type Changes = TicketPatch
@@ -271,6 +271,15 @@ describe('quickTicketFields', () => {
     expect(quickTicketFields('a'.repeat(MAX_TITLE + 1), '')).toBeNull()
     expect(quickTicketFields('Bug', 'd'.repeat(MAX_DESCRIPTION + 1))).toBeNull()
     expect(quickTicketFields('a'.repeat(MAX_TITLE), 'd'.repeat(MAX_DESCRIPTION))).not.toBeNull()
+  })
+
+  it('takes the priority, labels and subtasks of the template, the description typed', () => {
+    const bug: TicketTemplate = {
+      slug: 'bug', name: 'Bug', description: '### Contexte', priority: 'high', labels: ['bug'], subtasks: [{ title: 'Test', done: true }]
+    }
+    expect(quickTicketFields('Plante', 'Mon texte', bug)).toEqual({
+      title: 'Plante', description: 'Mon texte', status: 'backlog', priority: 'high', labels: ['bug'], subtasks: [{ title: 'Test', done: false }]
+    })
   })
 
   it('takes the trimmed title and the editor defaults', () => {

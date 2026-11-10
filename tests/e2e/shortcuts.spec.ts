@@ -96,6 +96,8 @@ test('⌘⇧T creates a local ticket without leaving the screen', async () => {
   await press('view-code')
   await press('new-ticket')
   await page.getByLabel('Titre').fill('Idée rapide')
+  // The default template comes first, like in the ticket draft.
+  await expect(page.getByLabel('Description')).toHaveValue(/### Contexte/)
   await page.getByLabel('Description').fill('Notée depuis Code')
   await page.keyboard.press('Meta+Enter')
   const notice = page.getByTestId('quick-ticket-notice')

@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL, STATUSES,
-  type Subtask, type Ticket, type TicketFields, type TicketPatch, type TicketPriority, type TicketStatus,
+  type Subtask, type Ticket, type TicketFields, type TicketPatch, type TicketPriority, type TicketStatus, type TicketTemplate,
   ticketKey,
 } from '../../shared/tickets'
 import { basename, useApp } from '../store'
 import { applyFormat, type Format } from './descriptionTools'
 import { closeSaver, createSaver, createVersionFilter, draftToCreate, mergeDisk, notifySavers, trackSaver, type Saver } from './editorSave'
 import { LinkedMockups } from './LinkedMockups'
+import { applyTemplate, type DraftContent, isUntouched, TEMPLATES_CHANGED, templateContent } from './templateDraft'
 import { useTickets } from './ticketStore'
 import { linkedWorktree, useRepoRefs } from './TicketsScreen'
 
@@ -22,16 +23,17 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
  * Screen 3b: one ticket, saved as it is edited. `id` `'new'` is a draft: nothing is written before it has a title, then
  * the same editor goes on under the id it got.
  */
-export function TicketEditor({ id }: { id: string }): React.JSX.Element | null {
+export function TicketEditor({ id, onManageTemplates }: { id: string; onManageTemplates?: () => void }): React.JSX.Element | null {
   const repo = useApp((s) => s.repo)
   const adopted = useRef<string | null>(null)
   const key = useRef({ id, n: 0 })
   if (key.current.id !== id) key.current = { id, n: id === adopted.current ? key.current.n : key.current.n + 1 }
   if (!repo) return null
-  return <Editor key={`${repo}\0${key.current.n}`} repo={repo} id={id} onCreated={(created) => { adopted.current = created }} />
+  return <Editor key={`${repo}\0${key.current.n}`} repo={repo} id={id} onManageTemplates={onManageTemplates}
+    onCreated={(created) => { adopted.current = created }} />
 }
 
-function Editor(props: { repo: string; id: string; onCreated: (id: string) => void }): React.JSX.Element {
+function Editor(props: { repo: string; id: string; onCreated: (id: string) => void; onManageTemplates?: () => void }): React.JSX.Element {
   const { repo } = props
   const ids = useId()
   const [ticket, setTicket] = useState<Ticket | null>(props.id === 'new' ? DRAFT : null)
@@ -128,6 +130,65 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
     return () => { on = false }
   }, [repo, entries])
 
+  const update = (c: TicketPatch): void => {
+    const { parent, ...shown } = c
+    const next: Ticket = { ...(local.current ?? DRAFT), ...shown }
+    if ('parent' in c) { if (parent) next.parent = parent; else delete next.parent }
+    show(next)
+    const { title, ...rest } = c
+    const send: TicketPatch = title !== undefined && title.trim() !== '' ? c : rest
+    // A draft is written once it has a title.
+    if (!idRef.current && next.title.trim() === '') return
+    if (!idRef.current && title === undefined) { saver.current.change({ title: next.title, ...send }); return }
+    if (Object.keys(send).length > 0) saver.current.change(send)
+  }
+
+  /** Readable templates offered to the draft; null before they are read, or for a ticket that has an id. */
+  const [templates, setTemplates] = useState<TicketTemplate[] | null>(null)
+  /** Slug of the template applied, `''` for « Aucun ». */
+  const [picked, setPicked] = useState('')
+  /** What the last template put in the draft: while the draft still equals it, another one replaces it silently. */
+  const applied = useRef<DraftContent>(templateContent(null))
+  const defaultApplied = useRef(false)
+  // Through `update`, so a draft that already has a title also sends the template to the saver.
+  const pick = (t: TicketTemplate | null): void => {
+    const { description, priority, labels, subtasks, status } = applyTemplate(local.current ?? DRAFT, t)
+    applied.current = templateContent(t)
+    setPicked(t?.slug ?? '')
+    update({ description, priority, labels, subtasks, status })
+  }
+  const choose = (slug: string): void => {
+    const t = templates?.find((x) => x.slug === slug) ?? null
+    const cur = local.current ?? DRAFT
+    if (!isUntouched(cur, applied.current)
+      && !window.confirm(`Remplacer le contenu par le modèle « ${t?.name ?? 'Aucun'} » ? Ce que tu as écrit sera perdu.`)) return
+    pick(t)
+  }
+  const [templatesRev, setTemplatesRev] = useState(0)
+  useEffect(() => {
+    const bump = (): void => setTemplatesRev((n) => n + 1)
+    window.addEventListener(TEMPLATES_CHANGED, bump)
+    return () => window.removeEventListener(TEMPLATES_CHANGED, bump)
+  }, [])
+  // Read again on `tickets:changed`, which templates changes also emit; the default is applied once only.
+  useEffect(() => {
+    if (props.id !== 'new' || idRef.current) return
+    let on = true
+    window.canopy.ticketTemplates(repo).then((list) => {
+      if (!on || idRef.current) return
+      const ts = list.entries.flatMap((e) => (e.kind === 'template' ? [e.template] : []))
+      setTemplates(ts)
+      // The template picked was deleted: the select names another, the draft keeps what it holds.
+      setPicked((p) => (p === '' || ts.some((t) => t.slug === p) ? p : (ts.find((t) => t.slug === list.defaultSlug) ?? ts[0])?.slug ?? ''))
+      if (defaultApplied.current) return
+      defaultApplied.current = true
+      const def = ts.find((t) => t.slug === list.defaultSlug) ?? null
+      // Something typed before the templates came stays, under « Aucun ».
+      if (def && isUntouched(local.current ?? DRAFT, applied.current)) pick(def)
+    }, () => {})
+    return () => { on = false }
+  }, [repo, entries, templatesRev])
+
   const app = useApp.getState()
   const back = (): void => app.setOpenTicket(null)
 
@@ -147,18 +208,6 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
   if (!ticket) return <div className="ticket-editor"><p className="editor-loading">Chargement…</p></div>
 
   const id = idRef.current
-  const update = (c: TicketPatch): void => {
-    const { parent, ...shown } = c
-    const next: Ticket = { ...(local.current ?? DRAFT), ...shown }
-    if ('parent' in c) { if (parent) next.parent = parent; else delete next.parent }
-    show(next)
-    const { title, ...rest } = c
-    const send: TicketPatch = title !== undefined && title.trim() !== '' ? c : rest
-    // A draft is written once it has a title.
-    if (!idRef.current && next.title.trim() === '') return
-    if (!idRef.current && title === undefined) { saver.current.change({ title: next.title, ...send }); return }
-    if (Object.keys(send).length > 0) saver.current.change(send)
-  }
   /** Leaving field `k`: a version that came while the user was in it, and not overridden by them, now shows. */
   const leave = (k: keyof TicketFields): void => {
     if (focused.current === k) focused.current = null
@@ -211,6 +260,19 @@ function Editor(props: { repo: string; id: string; onCreated: (id: string) => vo
           </div>
           {saveError && <p className="editor-error" role="alert">Enregistrement impossible : {saveError}</p>}
           {actionError && <p className="editor-error" role="alert">{actionError}</p>}
+
+          {!id && templates && (
+            <div className="editor-template">
+              <label className="editor-label" htmlFor={`${ids}-template`}>Modèle</label>
+              <select id={`${ids}-template`} value={picked} onChange={(e) => choose(e.target.value)}>
+                {templates.map((t) => <option key={t.slug} value={t.slug}>{t.name}</option>)}
+                <option value="">Aucun</option>
+              </select>
+              {props.onManageTemplates && (
+                <button className="secondary editor-btn" onClick={props.onManageTemplates}>Gérer les modèles…</button>
+              )}
+            </div>
+          )}
 
           <label className="editor-label" htmlFor={`${ids}-title`}>Titre</label>
           <input id={`${ids}-title`} className="editor-title" value={ticket.title} placeholder="Titre du ticket"
@@ -389,7 +451,7 @@ export function Description(props: {
   )
 }
 
-function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items: Subtask[]) => void }): React.JSX.Element {
+export function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items: Subtask[]) => void }): React.JSX.Element {
   const { items } = props
   /** The row being renamed; `items.length`: a new one. */
   const [editing, setEditingState] = useState<{ index: number; text: string } | null>(null)
@@ -448,7 +510,7 @@ function Subtasks(props: { items: Subtask[]; focus: FocusProps; onChange: (items
   )
 }
 
-function Labels(props: { value: string[]; known: string[]; focus: FocusProps; onChange: (l: string[]) => void }): React.JSX.Element {
+export function Labels(props: { value: string[]; known: string[]; focus: FocusProps; onChange: (l: string[]) => void }): React.JSX.Element {
   const ids = useId()
   const [adding, setAddingState] = useState<string | null>(null)
   // Enter adds, then the blur of the input going away must not add again.
