@@ -1,14 +1,12 @@
-import type { TicketFields } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_TITLE, templateContent, type TicketFields, type TicketPatch, type TicketTemplate } from '../../shared/tickets'
 
-type Changes = Partial<TicketFields>
-
-export interface Saver {
+export interface Saver<F extends object = TicketPatch> {
   /** Merges `c` into the pending changes, key by key, and saves them after a pause of `delayMs` without change. */
-  change(c: Changes): void
+  change(c: Partial<F>): void
   /** Saves what is pending now. Resolves once every save asked so far has ended: true if nothing is left pending. */
   flush(): Promise<boolean>
   /** Keys changed and not yet written: waiting for the pause, or being saved. */
-  pending(): Set<keyof TicketFields>
+  pending(): Set<keyof F>
   /** Stops the timers: nothing is saved on its own any more. */
   dispose(): void
 }
@@ -25,7 +23,8 @@ export interface SaverOptions {
  * Autosave of the ticket editor: one `save` per pause, one at a time and in order. A failed save reports to `onError`
  * and keeps its changes pending, under the keys not changed since, then is tried again after `retryMs`.
  */
-export function createSaver(save: (changes: Changes) => Promise<void>, delayMs = 500, o: SaverOptions = {}): Saver {
+export function createSaver<F extends object = TicketPatch>(save: (changes: Partial<F>) => Promise<void>, delayMs = 500, o: SaverOptions = {}): Saver<F> {
+  type Changes = Partial<F>
   let waiting: Changes = {}
   let inFlight: Changes = {}
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -67,7 +66,7 @@ export function createSaver(save: (changes: Changes) => Promise<void>, delayMs =
       o.onPending?.()
     },
     flush: run,
-    pending: () => new Set([...Object.keys(inFlight), ...Object.keys(waiting)] as (keyof TicketFields)[]),
+    pending: () => new Set([...Object.keys(inFlight), ...Object.keys(waiting)] as (keyof F)[]),
     dispose() {
       disposed = true
       if (timer) { clearTimeout(timer); timer = null }
@@ -104,7 +103,7 @@ export function onSaversChange(l: () => void): () => void {
  * tried again with a growing pause, up to `maxMs`, until it works. `closed` false after the write: the editor came back
  * (StrictMode remount) and keeps its saver as it was.
  */
-export async function closeSaver(s: Saver, closed: () => boolean, backoff = { firstMs: 3000, maxMs: 60_000 }): Promise<void> {
+export async function closeSaver<F extends object>(s: Saver<F>, closed: () => boolean, backoff = { firstMs: 3000, maxMs: 60_000 }): Promise<void> {
   let ok = await s.flush()
   if (!closed()) return
   // Its own retry stops: this loop takes over, with a pause that grows.
@@ -115,7 +114,7 @@ export async function closeSaver(s: Saver, closed: () => boolean, backoff = { fi
     wait = Math.min(wait * 2, backoff.maxMs)
     ok = await s.flush()
   }
-  open.delete(s)
+  open.delete(s as Saver)
   notifySavers()
 }
 
@@ -131,8 +130,16 @@ export function draftToCreate(local: TicketFields): TicketFields | null {
   return { title, description, status, priority, labels, subtasks }
 }
 
+/** A ticket from the quick dialog (⇧⌘T): the title and description typed, the rest from `template` (the default one). */
+export function quickTicketFields(title: string, description: string, template: TicketTemplate | null = null): TicketFields | null {
+  const t = title.trim()
+  // The same limits the main process checks: past them it would refuse the ticket.
+  if (t === '' || t.length > MAX_TITLE || description.length > MAX_DESCRIPTION) return null
+  return { title: t, status: 'backlog', ...templateContent(template), description }
+}
+
 /** The fields the editor changes; the others (id, dates, branch, worktree, base) always come from disk. */
-export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks'] as const
+export const EDITED_KEYS = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'parent'] as const
 
 /** A newer version from disk over what the editor shows: `keep` (pending or focused) keeps the editor's value. */
 export function mergeDisk<T extends TicketFields>(local: T, disk: T, keep: ReadonlySet<keyof TicketFields>): T {

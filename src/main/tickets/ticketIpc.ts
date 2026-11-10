@@ -5,15 +5,15 @@ import type { AppStore } from '../appStore'
 import { git } from '../git/exec'
 import { mainWorktreeRoot } from '../git/worktrees'
 import { clearSharedReads } from '../git/sharedReads'
-import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, STATUSES } from '../../shared/tickets'
+import { MAX_DESCRIPTION, MAX_LABEL, MAX_LABELS, MAX_SUBTASKS, MAX_TITLE, PRIORITIES, STATUSES, TICKET_ID_RE } from '../../shared/tickets'
 import type { LaunchRequest, LaunchTarget, TicketFields, TicketPriority, TicketStatus } from '../../shared/tickets'
+import { assertTemplateSlug, parseTemplateFields } from './templates'
 import { branchBaseAt } from './branchBase'
 import { launchCandidates, launchTicket, type LaunchDeps } from './launch'
 import type { TicketStore } from './store'
 import { watchTickets } from './watch'
 
-const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
-const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base']
+const FIELD_KEYS: (keyof TicketFields)[] = ['title', 'description', 'status', 'priority', 'labels', 'subtasks', 'branch', 'worktree', 'base', 'parent']
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const bad = (what: string): Error => new Error(`${what} invalide`)
@@ -23,15 +23,15 @@ function assertPath(p: unknown): asserts p is string {
 }
 
 function assertId(id: unknown): asserts id is string {
-  if (typeof id !== 'string' || !ID_RE.test(id)) throw bad('Identifiant')
+  if (typeof id !== 'string' || !TICKET_ID_RE.test(id)) throw bad('Identifiant')
 }
 
 
 /** Checks the fields present in `raw`; unknown keys are refused. */
-function parseFields(raw: unknown): Partial<TicketFields> {
+export function parseFields(raw: unknown): Partial<TicketFields> {
   if (!isObject(raw)) throw bad('Ticket')
   for (const k of Object.keys(raw)) if (!(FIELD_KEYS as string[]).includes(k)) throw bad(`Champ ${k}`)
-  const { title, description, status, priority, labels, subtasks, branch, worktree, base } = raw
+  const { title, description, status, priority, labels, subtasks, branch, worktree, base, parent } = raw
   if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > MAX_TITLE)) throw bad('Titre')
   if (description !== undefined && (typeof description !== 'string' || description.length > MAX_DESCRIPTION)) throw bad('Description')
   if (status !== undefined && !STATUSES.includes(status as TicketStatus)) throw bad('Statut')
@@ -46,14 +46,18 @@ function parseFields(raw: unknown): Partial<TicketFields> {
   if (branch !== undefined && typeof branch !== 'string') throw bad('Branche')
   if (worktree !== undefined && (typeof worktree !== 'string' || !isAbsolute(worktree))) throw bad('Worktree')
   if (base !== undefined && (typeof base !== 'string' || base === '' || base.startsWith('-'))) throw bad('Base')
+  if (parent !== undefined && parent !== null && (typeof parent !== 'string' || !TICKET_ID_RE.test(parent))) throw bad('Parent')
   const out: Record<string, unknown> = {}
   for (const k of FIELD_KEYS) if (raw[k] !== undefined) out[k] = k === 'subtasks'
     ? (raw[k] as { title: string; done: boolean }[]).map((s) => ({ title: s.title, done: s.done }))
     : raw[k]
+  // null from the renderer means "remove the parent": a key present with value undefined.
+  if (parent === null) out.parent = undefined
   return out as Partial<TicketFields>
 }
 
-function parseNewTicket(raw: unknown): TicketFields {
+/** Like parseFields, with a required title and defaults for a new ticket. */
+export function parseNewTicket(raw: unknown): TicketFields {
   const f = parseFields(raw)
   if (typeof f.title !== 'string' || f.title.trim() === '') throw bad('Titre')
   return { description: '', status: 'backlog', priority: 'none', labels: [], subtasks: [], ...f, title: f.title }
@@ -61,19 +65,24 @@ function parseNewTicket(raw: unknown): TicketFields {
 
 const isRefArg = (v: unknown): v is string => typeof v === 'string' && v !== '' && !v.startsWith('-')
 
+/** Checks a `LaunchTarget`: a base ref, and for an existing worktree its absolute path. */
+export function parseLaunchTarget(target: unknown): LaunchTarget {
+  if (!isObject(target) || !isRefArg(target.base)) throw bad('Base')
+  if (target.kind === 'new') return { kind: 'new', base: target.base }
+  if (target.kind === 'existing') {
+    if (typeof target.worktree !== 'string' || !isAbsolute(target.worktree)) throw bad('Worktree')
+    return { kind: 'existing', worktree: target.worktree, base: target.base }
+  }
+  throw bad('Cible')
+}
+
 function parseLaunch(raw: unknown): LaunchRequest {
   if (!isObject(raw)) throw bad('Lancement')
   const { id, branch, target, setInProgress } = raw
   assertId(id)
   if (!isRefArg(branch)) throw bad('Branche')
   if (typeof setInProgress !== 'boolean') throw bad('Statut')
-  if (!isObject(target) || !isRefArg(target.base)) throw bad('Base')
-  let t: LaunchTarget
-  if (target.kind === 'new') t = { kind: 'new', base: target.base }
-  else if (target.kind === 'existing') {
-    if (typeof target.worktree !== 'string' || !isAbsolute(target.worktree)) throw bad('Worktree')
-    t = { kind: 'existing', worktree: target.worktree, base: target.base }
-  } else throw bad('Cible')
+  const t = parseLaunchTarget(target)
   return { id, branch, target: t, setInProgress }
 }
 
@@ -104,6 +113,14 @@ export function registerTicketIpc(tickets: TicketStore, store: AppStore, live: L
     return tickets.setPrefix(repo, prefix)
   })
   handle('labels', (repo) => { assertPath(repo); return tickets.labels(repo) })
+  handle('templates', (repo) => { assertPath(repo); return tickets.templates(repo) })
+  handle('saveTemplate', (repo, slug, fields) => {
+    assertPath(repo)
+    if (slug !== null) assertTemplateSlug(slug)
+    return tickets.saveTemplate(repo, slug, parseTemplateFields(fields))
+  })
+  handle('deleteTemplate', (repo, slug) => { assertPath(repo); assertTemplateSlug(slug); return tickets.deleteTemplate(repo, slug) })
+  handle('setDefaultTemplate', (repo, slug) => { assertPath(repo); assertTemplateSlug(slug); return tickets.setDefaultTemplate(repo, slug) })
   handle('launchCandidates', (repo) => { assertPath(repo); return launchCandidates(launchDeps, repo) })
   handle('launch', async (repo, req) => {
     assertPath(repo)

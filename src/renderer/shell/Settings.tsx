@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { PREFIX_RE } from '../../shared/tickets'
 import { useApp } from '../store'
 import { ACCOUNT_CHANGED } from './AccountFooter'
+import { LaunchSettings } from './LaunchSettings'
 import { useLinear } from '../tickets/linearStore'
 import type { LinearConnection } from '../../shared/linear'
 import { useModal } from './useModal'
+import { TemplatesDialog } from '../tickets/TemplatesDialog'
 
 interface KeyStatus { set: boolean; encryptionAvailable: boolean; readable: boolean }
 
@@ -85,7 +87,7 @@ export function LinearSettingsView({ connection }: { connection: LinearConnectio
   )
 }
 
-/** Settings: the API key, which goes to the keychain and is never shown again, and the repos trusted so far. */
+/** Settings: the API key, which goes to the keychain and is never shown again, the repos trusted so far, and the current repo's tickets and « Tester la PR » commands. */
 export function Settings({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [status, setStatus] = useState<KeyStatus | null>(null)
   const [key, setKey] = useState('')
@@ -164,10 +166,11 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
 
   const dialog = useRef<HTMLFormElement>(null)
   useModal(dialog, () => { onClose() })
+  const [templates, setTemplates] = useState(false)
 
   return (
     <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <form ref={dialog} className="dialog" role="dialog" aria-modal="true" aria-label="Réglages"
+      <form ref={dialog} className="dialog settings" role="dialog" aria-modal="true" aria-label="Réglages"
         onSubmit={(e) => { e.preventDefault(); if (trimmed !== '' && !busy) void save(trimmed) }}>
         <h2>Réglages</h2>
         <label>
@@ -220,8 +223,10 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
             )}
             <span style={{ color: 'var(--fg-3)', fontSize: 12, lineHeight: 1.5 }}>S'applique aux nouveaux tickets.</span>
             {prefixNotice && <span role="status" style={{ color: 'var(--add)', fontSize: 12 }}>{prefixNotice}</span>}
+            <button type="button" className="secondary" onClick={() => setTemplates(true)}>Modèles de tickets…</button>
           </div>
         )}
+        {repo && <LaunchSettings repo={repo} />}
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <span role="status" style={{ color: 'var(--add)', fontSize: 12 }}>{notice}</span>}
         <div className="actions">
@@ -230,6 +235,8 @@ export function Settings({ onClose }: { onClose: () => void }): React.JSX.Elemen
           <button type="submit" className="primary" disabled={trimmed === '' || busy || !canStore}>Enregistrer</button>
         </div>
       </form>
+      {/* Outside the form, whose submit its fields must not trigger; opened last, it is the modal Escape closes. */}
+      {templates && repo && <TemplatesDialog repo={repo} onClose={() => setTemplates(false)} />}
     </div>
   )
 }

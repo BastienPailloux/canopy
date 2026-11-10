@@ -2,7 +2,9 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
-import type { LaunchCandidate, LaunchRequest, Ticket, TicketFields, TicketListEntry } from './tickets'
+import type { DepsReport } from './deps'
+import type { ShortcutContext } from './shortcuts'
+import type { LaunchCandidate, LaunchRequest, LaunchTarget, TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketPatch, TicketTemplate } from './tickets'
 import type { ReleaseNotes, Stash, UpdateState } from './update'
 import type {
   LinearChange, LinearComment, LinearConnection, LinearField, LinearIssue, LinearIssueDetail, LinearLaunchRequest, LinearLink,
@@ -59,10 +61,7 @@ export type BaseContent =
   | { kind: 'tooLarge'; size: number }
   | { kind: 'notBlob' }
 
-export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode
-  /** The session was launched from a Linear issue: warn once if Claude has no Linear MCP. */
-  expectLinear?: boolean
-}
+export interface StartSessionOptions { content: UserContent; resumeId?: string; model?: string; mode?: PermissionMode }
 
 /** Payload of each event emitted by SessionManager, relayed to the renderer as `session:<key>`. */
 export interface SessionEvents {
@@ -73,8 +72,6 @@ export interface SessionEvents {
   /** The session's commands are complete: fetch `sessionCommands` again. */
   commandsChanged: { localId: string }
   state: { localId: string; state: SessionState; sessionId?: string; error?: string }
-  /** A non-blocking remark about the session, shown once. */
-  notice: { localId: string; text: string }
 }
 
 /** What a repo's own config would run or allow in a session. */
@@ -95,6 +92,15 @@ export interface RepoConfig {
   /** Config files that exist but could not be read or parsed: anything may be in them. */
   unknownFiles: string[]
 }
+export interface CanopyService {
+  name: string
+  command: string
+  /** The variable that receives the service's port. */
+  portEnv: string
+}
+/** What « Tester la PR » runs: commands to run once, then long-running services. From `.canopy/config.json` or the repo's settings. */
+export interface CanopyConfig { setup: string[]; services: CanopyService[] }
+
 export type TerminalKind = 'shell' | 'setup' | 'service'
 export interface TerminalInfo {
   id: string
@@ -171,6 +177,10 @@ export interface CanopyApi {
   orphanedWorktrees(root: string): Promise<OrphanedWorktree[]>
   /** Tells the main process what quitting would lose: unsaved editor buffers, composer drafts, ticket edits not written. */
   reportUnsaved(counts: { buffers: number; drafts: number; tickets: number; comments: number }): Promise<void>
+  /** Tells the main process what is active, so that it greys the shortcuts that would do nothing. */
+  reportShortcutContext(ctx: ShortcutContext): Promise<void>
+  /** Opens macOS dictation on the focused field. */
+  startDictation(): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
@@ -224,12 +234,18 @@ export interface CanopyApi {
   listTickets(repo: string): Promise<TicketListEntry[]>
   getTicket(repo: string, id: string): Promise<Ticket>
   createTicket(repo: string, fields: TicketFields): Promise<Ticket>
-  patchTicket(repo: string, id: string, changes: Partial<TicketFields>): Promise<Ticket>
+  patchTicket(repo: string, id: string, changes: TicketPatch): Promise<Ticket>
   duplicateTicket(repo: string, id: string): Promise<Ticket>
   archiveTicket(repo: string, id: string): Promise<void>
   ticketConfig(repo: string): Promise<{ prefix: string; next: number }>
   setTicketPrefix(repo: string, prefix: string): Promise<void>
   ticketLabels(repo: string): Promise<string[]>
+  /** Ticket templates of the repo (built-ins are written on first use) and the default one. Changes emit `tickets:changed`. */
+  ticketTemplates(repo: string): Promise<TemplateList>
+  /** Creates a template (`slug: null`, slug derived from the name) or updates one in place; the slug never changes. */
+  saveTicketTemplate(repo: string, slug: string | null, fields: TemplateFields): Promise<TicketTemplate>
+  deleteTicketTemplate(repo: string, slug: string): Promise<void>
+  setDefaultTicketTemplate(repo: string, slug: string): Promise<void>
   /** Worktrees of `repo` a launch could use, and the branch most ahead of the default one (null: none ahead). */
   launchCandidates(repo: string): Promise<{ worktrees: LaunchCandidate[]; advanced: { branch: string; ahead: number } | null }>
   /**
@@ -244,6 +260,15 @@ export interface CanopyApi {
    * and is forgotten after this answer. Null: none.
    */
   branchBase(cwd: string): Promise<{ base: string } | { lost: string } | null>
+  /** The last report of the repo holding `repo` (main root); null before its first check. Emits `deps:changed` `{ repo }`. */
+  depsReport(repo: string): Promise<DepsReport | null>
+  depsRecheck(repo: string): Promise<DepsReport>
+  /** Critical dependencies in `path` (a recent entry or a repo), without `except`. */
+  depsCritical(path: string, except?: string): Promise<number>
+  depsBanner(repo: string): Promise<boolean>
+  depsDismissBanner(repo: string): Promise<void>
+  /** Starts `req.branch` like a ticket launch; nothing is written in the repo. */
+  depsLaunch(repo: string, req: { branch: string; target: LaunchTarget }): Promise<{ worktree: string }>
   /**
    * The Linear connection. Emits `linear:changed` `{ ids }` on a list or queue change (the issues touched, maybe none)
    * and `{}` on a connection change (anything may have changed).
@@ -350,9 +375,13 @@ export interface CanopyApi {
   removeTerminal(id: string): Promise<void>
   /** The last 2000 lines and the `end` of the `terminal:data` events they include. */
   terminalSnapshot(id: string): Promise<{ data: string; end: number }>
+  /** The « Tester la PR » config set in the settings for `cwd`'s repo, or null when `.canopy/config.json` applies. */
+  launchConfig(cwd: string): Promise<CanopyConfig | null>
+  /** Sets that config for `cwd`'s repo, or removes it with null. Rejects with a readable message if it is not valid. */
+  setLaunchConfig(cwd: string, config: CanopyConfig | null): Promise<void>
   /**
-   * Runs the `setup` commands of `.canopy/config.json` in one terminal. Null if there are none.
-   * Rejects with `REPO_NOT_TRUSTED` unless that exact config was approved with `trustRepo`.
+   * Runs the `setup` commands in one terminal: those of the repo's setting if set, else of `.canopy/config.json`. Null if there are none.
+   * Rejects with `REPO_NOT_TRUSTED` when the file is used and that exact config was not approved with `trustRepo`.
    */
   runSetup(cwd: string): Promise<TerminalInfo | null>
   /**

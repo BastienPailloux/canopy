@@ -424,6 +424,33 @@ test('a long conversation keeps few rows in the page and follows the end', async
   expect(messages).toEqual([])
 })
 
+test('a long reply keeps the message it answers pinned on top, and a click goes back to it', async () => {
+  await launch(true)
+  await send('long')
+  await expect(page.getByText('Réponse 400', { exact: true })).toBeVisible({ timeout: 20_000 })
+  const pinned = page.getByTestId('pinned-prompt')
+  await expect(pinned).toHaveText('long')
+  await expect(page.getByTestId('user-message')).toHaveCount(0)
+
+  await pinned.click()
+  await expect(page.getByTestId('user-message')).toBeInViewport()
+  await expect(pinned).toHaveCount(0)
+})
+
+test('going back to a later message does not pin the one before it', async () => {
+  await launch(true)
+  await send('long')
+  await expect(page.getByText('Réponse 400', { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => page.evaluate((r) => window.canopy.sessionActivity(r), repo.path)).toBe('idle')
+  await send('long encore')
+  await expect(page.getByTestId('pinned-prompt')).toHaveText('long encore', { timeout: 20_000 })
+  await expect.poll(() => page.evaluate((r) => window.canopy.sessionActivity(r), repo.path)).toBe('idle')
+
+  await page.getByTestId('pinned-prompt').click()
+  await expect(page.getByTestId('user-message').filter({ hasText: 'long encore' })).toBeInViewport()
+  await expect(page.getByTestId('pinned-prompt')).toHaveCount(0)
+})
+
 test('removing a worktree with a live session says so, then stops it', async () => {
   await launch(true)
   await worktree('feat/a').click()

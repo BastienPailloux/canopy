@@ -1,16 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { join } from 'node:path'
+import type { CanopyConfig, CanopyService } from '../../shared/api'
 import type { AppStore } from '../appStore'
 
-export interface CanopyService {
-  name: string
-  command: string
-  /** The variable that receives the service's port. */
-  portEnv: string
-}
-/** What `.canopy/config.json` declares: commands to run once, then long-running services. */
-export interface CanopyConfig { setup: string[]; services: CanopyService[] }
+export type { CanopyConfig, CanopyService }
 
 export const CONFIG_FILE = join('.canopy', 'config.json')
 const FIRST_PORT = 4100
@@ -23,7 +17,7 @@ export const DEFAULT_PORT_ENV = 'PORT'
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
-const invalid = (why: string): Error => new Error(`.canopy/config.json invalide : ${why}`)
+const FILE_LABEL = '.canopy/config.json'
 
 /** Reads the shape of the file. Throws a readable error for anything else. */
 export function parseConfig(raw: string): CanopyConfig {
@@ -31,8 +25,14 @@ export function parseConfig(raw: string): CanopyConfig {
   try {
     data = JSON.parse(raw)
   } catch (err) {
-    throw invalid(`JSON illisible (${(err as Error).message})`)
+    throw new Error(`${FILE_LABEL} invalide : JSON illisible (${(err as Error).message})`)
   }
+  return validateConfig(data, FILE_LABEL)
+}
+
+/** Checks a config wherever it comes from (the file, the settings): same rules, errors prefixed with `label`. */
+export function validateConfig(data: unknown, label: string): CanopyConfig {
+  const invalid = (why: string): Error => new Error(`${label} invalide : ${why}`)
   if (!isRecord(data)) throw invalid('un objet est attendu')
   const { setup = [], services = [] } = data
   if (!Array.isArray(setup) || !setup.every((c) => typeof c === 'string' && c.trim() !== '')) {
@@ -64,7 +64,7 @@ export async function readConfig(cwd: string): Promise<CanopyConfig> {
     raw = await readFile(join(cwd, CONFIG_FILE), 'utf8')
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { setup: [], services: [] }
-    throw invalid((err as Error).message)
+    throw new Error(`${FILE_LABEL} invalide : ${(err as Error).message}`)
   }
   return parseConfig(raw)
 }

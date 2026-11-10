@@ -13,7 +13,7 @@ let app: ElectronApplication | undefined
 let page: Page
 
 const FIXTURES = resolve('tests/fixtures/linear')
-const MCP_NOTE = 'Le reste du ticket (commentaires, sous-tickets, pièces jointes) est accessible via le MCP Linear.'
+const MCP_NOTE = 'Sous-tickets et détails : outil `get_ticket` de Canopy. Commentaires et pièces jointes : MCP Linear s\'il est configuré.'
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
 
 const calls = (): string => join(userData, 'fake-linear-calls.jsonl')
@@ -211,6 +211,8 @@ test('launch a Linear ticket in a new worktree', async () => {
   await expect(nav('Sessions')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('worktree').filter({ hasText: 'feat/can-1-get-familiar-with-linear' })).toBeVisible()
   await expect(page.getByTestId('user-message').first()).toContainText(MCP_NOTE)
+  // Every session has Canopy's own Linear tools: the old « no Linear MCP » warning is gone.
+  await expect(page.getByText('Claude n’a pas accès à Linear')).toHaveCount(0)
   expect(git(repo.path, 'branch', '--list', 'feat/can-1-get-familiar-with-linear')).toContain('feat/can-1-get-familiar-with-linear')
 })
 

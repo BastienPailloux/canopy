@@ -1,7 +1,9 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute } from 'node:path'
+import type { CanopyConfig } from '../shared/api'
 import type { LinearLink } from '../shared/linear'
 import type { AutoMergeEntry } from '../shared/pr'
+import { validateConfig } from './terminal/config'
 
 const MAX_RECENT = 10
 const MAX_BRANCH_HISTORY = 50
@@ -39,6 +41,8 @@ interface State {
   branchHistory: Record<string, string[]>
   /** Auto-merges enabled from the PR tab and still pending, by worktree. */
   autoMerges: Record<string, AutoMergeEntry>
+  /** « Tester la PR » config set in the settings, by main worktree root. Replaces `.canopy/config.json`. */
+  launchConfigs: Record<string, CanopyConfig>
   /** Worktree last selected in each recent folder. */
   lastEntries: Record<string, string>
   prefs: Record<string, unknown>
@@ -55,7 +59,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, branchHistory: {}, autoMerges: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, branchHistory: {}, autoMerges: {}, launchConfigs: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -107,6 +111,15 @@ function sanitize(raw: unknown): State {
       if (isAbsolute(wt) && isRecord(e) && typeof e.number === 'number' && Number.isSafeInteger(e.number) && e.number > 0 &&
         typeof e.branch === 'string' && e.branch !== '' && typeof e.headOid === 'string' && e.headOid !== '' && typeof e.cleanup === 'boolean') {
         state.autoMerges[wt] = { number: e.number, branch: e.branch, headOid: e.headOid, cleanup: e.cleanup }
+      }
+    }
+  }
+  if (isRecord(raw.launchConfigs)) {
+    for (const [root, config] of Object.entries(raw.launchConfigs)) {
+      try {
+        state.launchConfigs[root] = validateConfig(config, 'Réglage')
+      } catch {
+        // Dropped: the repo falls back to its file.
       }
     }
   }
@@ -273,6 +286,18 @@ export class AppStore {
       }
     }
     if (changed) this.save()
+  }
+
+  /** The « Tester la PR » config set in the settings for this repo, or null. */
+  launchConfig(root: string): CanopyConfig | null {
+    return Object.hasOwn(this.state.launchConfigs, root) ? this.state.launchConfigs[root] : null
+  }
+
+  /** Sets the repo's config, or forgets it with null so that `.canopy/config.json` applies again. */
+  setLaunchConfig(root: string, config: CanopyConfig | null): void {
+    if (config === null) delete this.state.launchConfigs[root]
+    else this.state.launchConfigs[root] = config
+    this.save()
   }
 
   /** Remembers the worktree selected in `folder`. Folders that left the recents are dropped: nothing reopens them. */

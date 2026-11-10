@@ -369,3 +369,26 @@ describe('autoMerges', () => {
     expect(new AppStore(file).autoMerges).toEqual({ '/w': entry })
   })
 })
+
+describe('launchConfigs', () => {
+  it('keeps a launch config per repo, and forgets it with null', () => {
+    const a = new AppStore(file)
+    const config = { setup: ['npm ci'], services: [{ name: 'web', command: 'npm run dev', portEnv: 'PORT' }] }
+    expect(a.launchConfig('/r/one')).toBeNull()
+    a.setLaunchConfig('/r/one', config)
+    expect(new AppStore(file).launchConfig('/r/one')).toEqual(config)
+    expect(new AppStore(file).launchConfig('/r/two')).toBeNull()
+    a.setLaunchConfig('/r/one', null)
+    expect(new AppStore(file).launchConfig('/r/one')).toBeNull()
+  })
+
+  it('drops a stored launch config that is not valid', () => {
+    writeFileSync(file, JSON.stringify({ launchConfigs: {
+      '/r/bad': { services: [{ name: 'web', command: 'x', portEnv: 'PATH' }] },
+      '/r/ok': { setup: [], services: [] }
+    } }))
+    const s = new AppStore(file)
+    expect(s.launchConfig('/r/bad')).toBeNull()
+    expect(s.launchConfig('/r/ok')).toEqual({ setup: [], services: [] })
+  })
+})

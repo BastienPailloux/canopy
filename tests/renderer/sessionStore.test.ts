@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -28,7 +28,7 @@ let storage: Map<string, string>
 beforeEach(() => {
   storage = new Map()
   vi.stubGlobal('localStorage', { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v) } })
-  useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null })
+  useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null, focusRequest: null })
   api = {
     repoTrust: vi.fn(async () => TRUSTED),
     trustRepo: vi.fn(async () => undefined),
@@ -270,58 +270,6 @@ describe('askClaude', () => {
     expect(api.startSession.mock.calls[0][1]).toMatchObject({ content: { text: 'bonjour' } })
   })
 
-  describe('expectLinear', () => {
-    const live = (fields: Partial<SessionTab>): string => {
-      ensureTab(CWD)
-      const id = activeTab().id
-      useSessions.setState((s) => ({ tabs: { ...s.tabs, [id]: { ...s.tabs[id], localId: 'live', ...fields } } }))
-      return id
-    }
-    const NOTICE = 'Claude n’a pas accès à Linear dans cette session.'
-
-    it('a reused live tab without a Linear server shows the notice, and sets no flag', () => {
-      const id = live({ mcpServers: [{ name: 'github', status: 'connected' }] })
-      askClaude(CWD, 'x', { expectLinear: true })
-      expect(useSessions.getState().tabs[id].notice).toBe(NOTICE)
-      expect(useSessions.getState().tabs[id].expectLinear).toBeUndefined()
-    })
-
-    it('a reused live tab with a connected Linear server shows no notice', () => {
-      const id = live({ mcpServers: [{ name: 'linear', status: 'connected' }] })
-      askClaude(CWD, 'x', { expectLinear: true })
-      expect(useSessions.getState().tabs[id].notice).toBeUndefined()
-      expect(useSessions.getState().tabs[id].expectLinear).toBeUndefined()
-    })
-
-    it('a live tab with no init yet judges the first init, once', async () => {
-      let onMsg: (p: unknown) => void = () => undefined
-      ;(window.canopy as unknown as Record<string, unknown>).pendingPermissions = async () => []
-      ;(window.canopy as unknown as { on: unknown }).on = (k: string, cb: (p: unknown) => void) => { if (k === 'session:message') onMsg = cb; return () => undefined }
-      const { connectSessions } = await import('../../src/renderer/sessions/sessionStore')
-      const off = connectSessions()
-      const id = live({})
-      askClaude(CWD, 'x', { expectLinear: true })
-      expect(useSessions.getState().tabs[id].expectLinear).toBe(true)
-      onMsg({ localId: 'live', msg: { type: 'system', subtype: 'init', mcp_servers: [] } })
-      expect(useSessions.getState().tabs[id].notice).toBe(NOTICE)
-      expect(useSessions.getState().tabs[id].expectLinear).toBeUndefined()
-      off()
-    })
-
-    it('the flag is cleared once launch passed it: a later resume sends none', async () => {
-      askClaude(CWD, 'x', { expectLinear: true })
-      await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
-      expect(api.startSession.mock.calls[0][1]).toMatchObject({ expectLinear: true })
-      await vi.waitFor(() => expect(activeTab().expectLinear).toBeUndefined())
-      useSessions.setState((s) => ({ tabs: { ...s.tabs, [activeTab().id]: { ...activeTab(), localId: undefined, sessionId: 'sid', resumable: true } } }))
-      void submit(activeTab().id)
-      setDraftText(activeTab().id, 'again')
-      await submit(activeTab().id)
-      await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(2))
-      expect(api.startSession.mock.calls[1][1]).not.toHaveProperty('expectLinear')
-    })
-  })
-
   it('askClaudeInNewTab never reuses an empty current tab', async () => {
     ensureTab(CWD)
     const empty = activeTab().id
@@ -491,5 +439,18 @@ describe('modeFrom', () => {
     expect(modeFrom(message({ type: 'system', subtype: 'status', status: 'requesting' }))).toBeUndefined()
     expect(modeFrom(message({ type: 'assistant', permissionMode: 'plan' }))).toBeUndefined()
     expect(modeFrom(message({ type: 'system', subtype: 'init', permissionMode: 'bypassPermissions' }))).toBeUndefined()
+  })
+})
+
+describe('requestComposerFocus', () => {
+  it('creates a tab when there is none and asks its composer for the focus', () => {
+    requestComposerFocus(CWD, false)
+    expect(tabs()).toHaveLength(1)
+    const first = useSessions.getState().focusRequest
+    expect(first).toMatchObject({ cwd: CWD, dictate: false })
+    requestComposerFocus(CWD, true)
+    expect(tabs()).toHaveLength(1)
+    expect(useSessions.getState().focusRequest).toMatchObject({ dictate: true })
+    expect(useSessions.getState().focusRequest?.seq).toBeGreaterThan(first!.seq)
   })
 })

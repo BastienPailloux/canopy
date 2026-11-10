@@ -12,6 +12,12 @@ import { localBranches } from './tickets/ticketIpc'
 import { openExternalUrl } from './externalLinks'
 import { isConfigTrusted } from './repoTrust'
 import { selectPrGateway } from './github/fakeGateway'
+import { listDepsRepos, registerDepsIpc } from './deps/depsIpc'
+import { checkRepo } from './deps/check'
+import { depsFirstPassDelay, selectDepsHttp } from './deps/replay'
+import { createDepsService } from './deps/service'
+import { createRegistry } from './deps/registries'
+import { forgetRepo } from './deps/source'
 import { LinearClient, linearOpener } from './linear/client'
 import { LinearEdits } from './linear/edits'
 import { LinkedIssues, registerLinearIpc, startLinear } from './linear/linearIpc'
@@ -30,6 +36,7 @@ import { createOpenFolders } from './openFolders'
 import { createQuitFlow, linearCounts, quitDetail, type RunningCounts, type UnsavedCounts } from './quit'
 import { selectQuery } from './sessions/fakeQuery'
 import { SessionManager } from './sessions/SessionManager'
+import { createCanopyServer } from './mcp/canopyServer'
 import { TerminalManager } from './terminal/TerminalManager'
 import { createUpdater, type Updater } from './update/updater'
 
@@ -135,6 +142,9 @@ void app.whenReady().then(async () => {
   const store = new AppStore(join(app.getPath('userData'), 'state.json'), safeStorage)
   // A login shell can take minutes: the window opens on the last known PATH, and new processes get the real env once it resolves.
   startEnv({ persistedPath: store.loginPath, onResolved: (env) => { if (env.PATH) store.setLoginPath(env.PATH) } })
+  const tickets = new TicketStore()
+  // One instance for the IPC and Claude's tools: it serializes the writes of each registry file.
+  const mockups = new MockupStore()
   const sessions = new SessionManager({
     query: selectQuery(query, { isPackaged: app.isPackaged, env: process.env }),
     listSessions,
@@ -143,7 +153,11 @@ void app.whenReady().then(async () => {
     env: () => ({ ...currentEnv(), ...store.apiKeyEnv() }),
     pathToClaudeCodeExecutable: claudeExecutablePath,
     isTrusted: (repoRoot) => store.isRepoTrusted(repoRoot),
-    attachmentsDir: join(app.getPath('userData'), 'attachments')
+    attachmentsDir: join(app.getPath('userData'), 'attachments'),
+    // Only called when a session starts, after the Linear objects below exist.
+    canopyServer: ({ repoRoot, mode }) => createCanopyServer({
+      repoRoot, mode, tickets, mockups, linear: linearClient, edits: linearEdits, sync: linearSync
+    })
   })
   const lsp = new LspPool({ env: () => Promise.resolve(currentEnv()) })
   const terminals = new TerminalManager({ spawn: pty.spawn, env: currentEnv })
@@ -157,6 +171,15 @@ void app.whenReady().then(async () => {
   const linearLinked = new LinkedIssues(store, localBranches)
   const linearSync = new LinearSync(join(userData, 'linear-cache.json'), linearClient, () => linearLinked.ids(), undefined,
     () => linearEdits.pending().map((p) => p.id))
+  const depsRegistry = createRegistry({ file: join(userData, 'deps-registry-cache.json') })
+  const depsService = createDepsService({
+    check: (repo, prev) => checkRepo({ http: selectDepsHttp({ isPackaged: app.isPackaged, env: process.env }), now: Date.now, packageInfo: depsRegistry.packageInfo }, repo, prev),
+    repos: () => listDepsRepos(store.recentRepos),
+    file: join(userData, 'deps-reports.json'),
+    now: Date.now, setInterval, clearInterval, setTimeout, clearTimeout, broadcast, forget: forgetRepo,
+    firstPassDelayMs: depsFirstPassDelay({ isPackaged: app.isPackaged, env: process.env })
+  })
+  let depsHooks: ReturnType<typeof registerDepsIpc> | null = null
   let unsaved: UnsavedCounts = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }
   const running = (): RunningCounts => ({
     sessions: sessions.runningCount(), terminals: terminals.runningCount(), ...unsaved, ...linearCounts(linearEdits.pending())
@@ -173,7 +196,7 @@ void app.whenReady().then(async () => {
       const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
       return response === 0
     },
-    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers() },
+    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
     // Deferred: quitting from inside the `before-quit` that was just cancelled is ignored.
     quit: () => { setImmediate(() => app.quit()) }
   })
@@ -183,23 +206,31 @@ void app.whenReady().then(async () => {
     e.preventDefault()
     void quit.request()
   })
-  const tickets = new TicketStore()
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets, new MockupStore(), selectPrGateway({ isPackaged: app.isPackaged, env: process.env }))
+    tickets, mockups, selectPrGateway({ isPackaged: app.isPackaged, env: process.env }),
+    () => { void depsHooks?.onRecentReposChanged().catch((e: unknown) => { console.error('deps check of a new repo failed', e) }) })
+  const launchDeps = {
+    tickets, store,
+    activity: (cwd: string) => sessions.activity(cwd),
+    sessions: (cwd: string) => sessions.liveCount(cwd),
+    trusted: (cwd: string) => isConfigTrusted(store, cwd)
+  }
+  depsHooks = registerDepsIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    service: depsService, store, launch: launchDeps
+  })
   const linearIpc = registerLinearIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     client: linearClient, edits: linearEdits, sync: linearSync, linked: linearLinked, store,
-    launch: {
-      tickets, store,
-      activity: (cwd) => sessions.activity(cwd),
-      sessions: (cwd) => sessions.liveCount(cwd),
-      trusted: (cwd) => isConfigTrusted(store, cwd)
-    },
+    launch: launchDeps,
     broadcast
   })
   // Never blocks the window: stored tokens only, then the queue left by the last run, then the list.
   void startLinear({ client: linearClient, linked: linearLinked, edits: linearEdits, sync: linearSync, broadcast })
+  depsService.start()
+  // Only what fell due during sleep: a wake every few minutes must not recheck everything.
+  powerMonitor.on('resume', () => { void depsService.checkOverdue() })
   // Back from sleep: the network is likely back too; the refresh resends what failed.
   powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
@@ -234,7 +265,8 @@ void app.whenReady().then(async () => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({
     isPackaged: app.isPackaged,
     onCloseTab: () => broadcast('menu:closeTab'),
-    onInstallCli: () => void installCommand()
+    onInstallCli: () => void installCommand(),
+    onShortcut: (id) => broadcast('menu:shortcut', id)
   })))
   // What the page held died with it.
   const open = (): void => {

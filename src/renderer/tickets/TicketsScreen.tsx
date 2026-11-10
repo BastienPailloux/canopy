@@ -68,7 +68,10 @@ function Row(props: {
         props.onOpen()
       }}>
       <span className="ticket-id mono">{row.id}</span>
-      <span className="ticket-title" title={row.title}>{row.title}</span>
+      <span className="ticket-main">
+        <span className="ticket-title" title={row.title}>{row.title}</span>
+        {row.parent && <span className="ticket-parent mono" title={`Sous-ticket de ${row.parent}`}>↳ {row.parent}</span>}
+      </span>
       {row.statusName && <span className="status-name">{row.statusName}</span>}
       {row.priority !== 'none' && <span className="ticket-priority">{PRIORITY_LABEL[row.priority]}</span>}
       {row.labels.map((l) => <span key={l} className="chip">{l}</span>)}

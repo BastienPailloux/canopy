@@ -50,10 +50,28 @@ Settings > Rules > Rulesets :
 | Ruleset | Cible | Règles |
 |---|---|---|
 | `master` | `refs/heads/master` | pas de suppression, pas de force-push |
-| `develop` | `refs/heads/develop` | pas de suppression, pas de force-push, PR obligatoire (squash seulement) |
+| `develop` | `refs/heads/develop` | pas de suppression, pas de force-push, PR obligatoire (squash seulement), checks obligatoires (cf. section 4 ter) |
 | `release tags` | `refs/tags/v*` | pas de modification ni de suppression |
 
 La création des tags `v*` reste ouverte : sur un dépôt personnel, GitHub Actions ne peut pas être ajouté en contournement, et la CI doit créer le tag.
+
+## 4 ter. CI des pull requests
+
+`ci.yml` et `codeql.yml` tournent sur chaque PR vers `develop` ou `master` et sur chaque push sur ces branches ; `pr-title.yml` seulement sur les PR vers `develop` (le titre devient le commit de squash) :
+
+| Workflow | Job (nom du check) | Rôle |
+|---|---|---|
+| `ci.yml` | `typecheck, tests, build` | `npm ci`, typecheck, tests Vitest, build (macOS) |
+| `ci.yml` | `e2e` | Playwright sur l'app Electron, réparti sur 3 runners macOS (`e2e 1/3`…), traces jointes en cas d'échec |
+| `ci.yml` | `npm audit` | échoue sur une vulnérabilité `high` ou `critical` dans les dépendances livrées (`--omit=dev`) |
+| `pr-title.yml` | `conventional title` | le titre de PR (futur commit de squash) doit être un Conventional Commit valide (`scripts/ci/prTitle.ts`) |
+| `codeql.yml` | `analyze` | analyse de sécurité CodeQL (`security-extended`), aussi chaque lundi |
+
+Aucun de ces workflows n'a de secret, et leur jeton est en lecture seule (sauf l'envoi des résultats CodeQL). Ils peuvent donc utiliser `github/codeql-action`, contrairement au workflow de release.
+
+Dependabot (`.github/dependabot.yml`) ouvre chaque semaine des PR vers `develop` pour npm et les actions, titrées `chore(deps): …` / `ci: …`.
+
+Pour rendre ces checks bloquants : ruleset `develop` > Require status checks to pass > ajouter les cinq noms de checks ci-dessus, et cocher « Require branches to be up to date before merging ».
 
 ## 5. Règle de merge
 

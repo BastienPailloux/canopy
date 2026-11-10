@@ -1,16 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join, sep } from 'node:path'
-import { defaultPrefix, PREFIX_RE } from '../../shared/tickets'
-import type { Ticket, TicketFields, TicketListEntry } from '../../shared/tickets'
+import { defaultPrefix, PREFIX_RE, sortTemplates, TEMPLATE_SLUG_RE, templateSlug } from '../../shared/tickets'
+import type { TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketTemplate } from '../../shared/tickets'
 import { git } from '../git/exec'
 import { ensureExcluded, mainWorktreeRoot } from '../git/worktrees'
 import { parseTicket, serializeTicket, unknownFields } from './format'
+import { BUILTIN_TEMPLATES, parseTemplate, serializeTemplate } from './templates'
 
 const ID_RE = /^[A-Z][A-Z0-9]*-\d+$/
 const EXCLUDE_ENTRY = '/.tickets/'
 
-interface Config { prefix: string; next: number }
+interface Config { prefix: string; next: number; defaultTemplate?: string }
 
 const notFound = (id: string): Error => new Error(`Ticket introuvable : ${id}`)
 
@@ -21,18 +22,23 @@ async function writeAtomic(file: string, data: string): Promise<void> {
   await rename(tmp, file)
 }
 
-/** Create `file` only if it does not exist yet (link + unlink of a private temp file). */
+/**
+ * Create `file` only if it does not exist yet (exclusive create). Not through a hard link to a temp file:
+ * macOS FSEvents then never reports the file's deletion, so a ticket removed outside Canopy would stay listed.
+ */
 async function writeNew(file: string, data: string): Promise<void> {
-  const tmp = `${file}.${randomUUID()}.tmp`
-  await writeFile(tmp, data, { flag: 'wx' })
   try {
-    await link(tmp, file)
+    await writeFile(file, data, { flag: 'wx' })
   } catch (e) {
-    throw (e as NodeJS.ErrnoException).code === 'EEXIST' ? new Error(`Le fichier existe déjà : ${basename(file)}`) : e
-  } finally {
-    await rm(tmp, { force: true })
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Le fichier existe déjà : ${basename(file)}`)
+    // The exclusive open succeeded (anything else is EEXIST), so a partial file is ours to remove.
+    await rm(file, { force: true }).catch(() => undefined)
+    throw e
   }
 }
+
+/** The error `writeNew` throws when the file already exists. */
+const isAlreadyThere = (e: unknown): boolean => e instanceof Error && e.message.startsWith('Le fichier existe déjà')
 
 function checkId(id: string): void {
   if (!ID_RE.test(id)) throw new Error(`Identifiant de ticket invalide : ${id}`)
@@ -65,7 +71,7 @@ export class TicketStore {
   /** Refuse a `.tickets` that is tracked, not a real directory, or resolves outside the repo. */
   private async guard(root: string): Promise<void> {
     const tickets = this.dir(root)
-    for (const p of [tickets, join(tickets, 'archive')]) {
+    for (const p of [tickets, join(tickets, 'archive'), join(tickets, 'templates')]) {
       const st = await lstat(p).catch(() => undefined)
       if (!st) continue
       if (!st.isDirectory()) throw new Error(`« ${p.slice(root.length + 1)} » n'est pas un vrai dossier : tickets ignorés`)
@@ -91,6 +97,7 @@ export class TicketStore {
       return {
         prefix: typeof c.prefix === 'string' && PREFIX_RE.test(c.prefix) ? c.prefix : undefined,
         next: Number.isInteger(c.next) ? c.next : undefined,
+        defaultTemplate: typeof c.defaultTemplate === 'string' ? c.defaultTemplate : undefined,
       }
     } catch {
       return {}
@@ -109,6 +116,19 @@ export class TicketStore {
     return max
   }
 
+  /** Merge `changes` into the parsed config.json so keys we do not own (e.g. `defaultTemplate`) survive. */
+  private async writeConfig(root: string, changes: Record<string, unknown>): Promise<void> {
+    const file = join(this.dir(root), 'config.json')
+    let current: Record<string, unknown> = {}
+    try {
+      const c = JSON.parse(await readFile(file, 'utf8'))
+      if (c && typeof c === 'object' && !Array.isArray(c)) current = c
+    } catch {
+      // missing or corrupt: start over
+    }
+    await writeAtomic(file, JSON.stringify({ ...current, ...changes }, null, 2))
+  }
+
   private async resolveConfig(root: string): Promise<Config> {
     const c = await this.readConfig(root)
     return {
@@ -117,10 +137,11 @@ export class TicketStore {
     }
   }
 
-  async config(repo: string): Promise<Config> {
+  async config(repo: string): Promise<{ prefix: string; next: number }> {
     const root = await mainWorktreeRoot(repo)
     await this.guard(root)
-    return this.resolveConfig(root)
+    const { prefix, next } = await this.resolveConfig(root)
+    return { prefix, next }
   }
 
   setPrefix(repo: string, prefix: string): Promise<void> {
@@ -128,7 +149,7 @@ export class TicketStore {
     return this.withRoot(repo, '#config', async (root) => {
       await this.prepare(root)
       const c = await this.resolveConfig(root)
-      await writeAtomic(join(this.dir(root), 'config.json'), JSON.stringify({ prefix, next: c.next }, null, 2))
+      await this.writeConfig(root, { prefix, next: c.next })
     })
   }
 
@@ -161,14 +182,51 @@ export class TicketStore {
     return parseTicket(text, id)
   }
 
+  /**
+   * The parent must be a live, readable ticket and must not lead back to `id` (archived tickets are not in `.tickets/`).
+   * Only the direct parent must be valid: a missing or unreadable ancestor further up ends the walk.
+   */
+  private async checkParent(root: string, id: string | undefined, parent: string): Promise<void> {
+    checkId(parent)
+    if (parent === id) throw new Error('Un ticket ne peut pas être son propre parent')
+    const read = async (tid: string): Promise<Ticket | null | 'unreadable'> => {
+      const text = await readFile(join(this.dir(root), `${tid}.md`), 'utf8').catch(() => null)
+      if (text === null) return null
+      try { return parseTicket(text, tid) } catch { return 'unreadable' }
+    }
+    const first = await read(parent)
+    if (first === null) throw new Error(`Parent introuvable : ${parent}`)
+    if (first === 'unreadable') throw new Error(`Parent illisible : ${parent}`)
+    // A visited set, not a step limit: a hand-made loop of any length must be caught, not accepted.
+    const seen = new Set([parent])
+    let cur = first.parent
+    while (cur) {
+      if (cur === id) throw new Error(`Ce parent créerait une boucle : ${parent}`)
+      if (seen.has(cur)) throw new Error(`Chaîne de parents en boucle à partir de ${cur}`)
+      seen.add(cur)
+      const t = await read(cur)
+      if (t === null || t === 'unreadable') break
+      cur = t.parent
+    }
+  }
+
+  /** Non-archived tickets whose parent is `id`, sorted by id. */
+  async children(repo: string, id: string): Promise<Ticket[]> {
+    checkId(id)
+    const out: Ticket[] = []
+    for (const e of await this.list(repo)) if (e.kind === 'ticket' && e.ticket.parent === id) out.push(e.ticket)
+    return out.sort((x, y) => x.id.localeCompare(y.id, 'en', { numeric: true }))
+  }
+
   create(repo: string, f: TicketFields): Promise<Ticket> {
     return this.withRoot(repo, '#config', async (root) => {
       await this.prepare(root)
+      if (f.parent) await this.checkParent(root, undefined, f.parent)
       const c = await this.resolveConfig(root)
       const now = new Date().toISOString()
       const ticket: Ticket = { ...f, id: `${c.prefix}-${c.next}`, created: now, updated: now, archived: false }
       await writeNew(join(this.dir(root), `${ticket.id}.md`), serializeTicket(ticket))
-      await writeAtomic(join(this.dir(root), 'config.json'), JSON.stringify({ prefix: c.prefix, next: c.next + 1 }, null, 2))
+      await this.writeConfig(root, { prefix: c.prefix, next: c.next + 1 })
       return ticket
     })
   }
@@ -181,11 +239,12 @@ export class TicketStore {
       const text = await readFile(file, 'utf8').catch(() => null)
       if (text === null) throw notFound(id)
       const current = parseTicket(text, id)
+      if (changes.parent) await this.checkParent(root, id, changes.parent)
       const next: Ticket = { ...current, updated: new Date().toISOString() }
       for (const [k, v] of Object.entries(changes)) {
         const rec = next as unknown as Record<string, unknown>
         if (v !== undefined) rec[k] = v
-        else if (k === 'branch' || k === 'worktree' || k === 'base') delete rec[k]
+        else if (k === 'branch' || k === 'worktree' || k === 'base' || k === 'parent') delete rec[k]
       }
       await writeAtomic(file, serializeTicket(next, unknownFields(text)))
       return next
@@ -223,5 +282,100 @@ export class TicketStore {
     const set = new Set<string>()
     for (const e of await this.list(repo)) if (e.kind === 'ticket') e.ticket.labels.forEach((l) => set.add(l))
     return [...set].sort()
+  }
+
+  private templatesDir(root: string): string {
+    return join(this.dir(root), 'templates')
+  }
+
+  private checkSlug(slug: string): void {
+    if (!TEMPLATE_SLUG_RE.test(slug)) throw new Error(`Identifiant de modèle invalide : ${slug}`)
+  }
+
+  /** Built-ins are written only when the folder is absent, so a deleted template never comes back. */
+  templates(repo: string): Promise<TemplateList> {
+    return this.withRoot(repo, '#templates', async (root) => {
+      await this.prepare(root)
+      const dir = this.templatesDir(root)
+      if (!(await lstat(dir).catch(() => undefined))) {
+        await mkdir(dir, { recursive: true })
+        for (const b of BUILTIN_TEMPLATES) {
+          // Another writer seeded the same file first: theirs stays.
+          await writeNew(join(dir, `${b.slug}.md`), serializeTemplate(b.fields)).catch((e: unknown) => { if (!isAlreadyThere(e)) throw e })
+        }
+        await this.guard(root)
+      }
+      const good: TicketTemplate[] = []
+      const bad: TemplateList['entries'] = []
+      for (const file of (await mdFiles(dir)).sort()) {
+        // Editing, deleting and making it the default all go by slug: a file named otherwise could not be managed.
+        if (!TEMPLATE_SLUG_RE.test(basename(file, '.md'))) {
+          bad.push({ kind: 'unreadable', file, error: 'Nom de fichier invalide : minuscules, chiffres et tirets seulement' })
+          continue
+        }
+        try {
+          good.push(parseTemplate(await readFile(join(dir, file), 'utf8'), basename(file, '.md')))
+        } catch (e) {
+          bad.push({ kind: 'unreadable', file, error: e instanceof Error ? e.message : String(e) })
+        }
+      }
+      const sorted = sortTemplates(good)
+      const wanted = (await this.readConfig(root)).defaultTemplate
+      const defaultSlug = sorted.find((t) => t.slug === wanted)?.slug ?? sorted[0]?.slug ?? null
+      return { entries: [...sorted.map((template) => ({ kind: 'template' as const, template })), ...bad], defaultSlug }
+    })
+  }
+
+  /** The template new tickets start from; null when none is readable. */
+  async defaultTemplate(repo: string): Promise<TicketTemplate | null> {
+    const { entries, defaultSlug } = await this.templates(repo)
+    for (const e of entries) if (e.kind === 'template' && e.template.slug === defaultSlug) return e.template
+    return null
+  }
+
+  /** `null` creates a template (slug from the name, `-2`… on collision); otherwise rewrites it keeping its slug. */
+  saveTemplate(repo: string, slug: string | null, f: TemplateFields): Promise<TicketTemplate> {
+    if (slug !== null) this.checkSlug(slug)
+    return this.withRoot(repo, '#templates', async (root) => {
+      await this.prepare(root)
+      const dir = this.templatesDir(root)
+      await mkdir(dir, { recursive: true })
+      await this.guard(root)
+      const data = serializeTemplate(f)
+      if (slug !== null) {
+        const file = join(dir, `${slug}.md`)
+        if (!(await lstat(file).catch(() => undefined))) throw new Error(`Modèle introuvable : ${slug}`)
+        await writeAtomic(file, data)
+        return { ...f, slug }
+      }
+      const base = templateSlug(f.name)
+      for (let n = 1; ; n++) {
+        const suffix = n === 1 ? '' : `-${n}`
+        const candidate = n === 1 ? base : `${base.slice(0, 50 - suffix.length).replace(/-+$/, '')}${suffix}`
+        try {
+          await writeNew(join(dir, `${candidate}.md`), data)
+          return { ...f, slug: candidate }
+        } catch (e) {
+          if (!isAlreadyThere(e)) throw e
+        }
+      }
+    })
+  }
+
+  deleteTemplate(repo: string, slug: string): Promise<void> {
+    this.checkSlug(slug)
+    return this.withRoot(repo, '#templates', async (root) => {
+      await this.guard(root)
+      await rm(join(this.templatesDir(root), `${slug}.md`), { force: true })
+    })
+  }
+
+  setDefaultTemplate(repo: string, slug: string): Promise<void> {
+    this.checkSlug(slug)
+    return this.withRoot(repo, '#config', async (root) => {
+      await this.prepare(root)
+      if (!(await lstat(join(this.templatesDir(root), `${slug}.md`)).catch(() => undefined))) throw new Error(`Modèle introuvable : ${slug}`)
+      await this.writeConfig(root, { defaultTemplate: slug })
+    })
   }
 }

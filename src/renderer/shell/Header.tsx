@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { tabCounts } from '../pr/mergeModel'
 import { usePr } from '../pr/prStore'
+import { useDeps } from '../deps/depsStore'
 import { useApp, type View } from '../store'
 import { useLinear } from '../tickets/linearStore'
 import { openLinearCount } from '../tickets/listModel'
@@ -13,7 +14,8 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'code', label: 'Code' },
   { id: 'pr', label: 'PR' },
   { id: 'tickets', label: 'Tickets' },
-  { id: 'mockups', label: 'Maquettes' }
+  { id: 'mockups', label: 'Maquettes' },
+  { id: 'deps', label: 'Dépendances' }
 ]
 
 function Logo(): React.JSX.Element {
@@ -37,6 +39,7 @@ export function Header(): React.JSX.Element {
   const open = local + linear
   const hasPr = usePr((s) => s.summary !== null)
   const threads = usePr((s) => (s.detail ? tabCounts(s.detail).openThreads : 0))
+  const critical = useDeps((s) => s.report?.entries.filter((e) => e.level === 'critical').length ?? 0)
   const [settings, setSettings] = useState(false)
   return (
     <header className="header">
@@ -51,6 +54,7 @@ export function Header(): React.JSX.Element {
             {v.label}
             {v.id === 'tickets' && open > 0 && <span className="count">{open}</span>}
             {v.id === 'pr' && threads > 0 && <span className="count" data-alert="true">{threads}</span>}
+            {v.id === 'deps' && critical > 0 && <span className="count critical" data-testid="deps-count">{critical}</span>}
           </button>
         ))}
       </nav>

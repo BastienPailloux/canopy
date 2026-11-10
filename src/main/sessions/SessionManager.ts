@@ -3,13 +3,12 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import type {
-  CanUseTool, getSessionMessages, listSessions, ModelInfo, Options, PermissionMode, PermissionResult, PermissionUpdate,
+  CanUseTool, getSessionMessages, listSessions, McpSdkServerConfigWithInstance, ModelInfo, Options, PermissionMode, PermissionResult, PermissionUpdate,
   query, Query, SDKMessage, SDKResultMessage, SDKUserMessage, SessionMessage, SlashCommand
 } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvents, StartSessionOptions } from '../../shared/api'
 import { attachmentNote } from '../../shared/attachments'
 import { RepoNotTrustedError } from '../../shared/errors'
-import { hasLinearServer, LINEAR_NOTICE } from '../../shared/linear'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
 import { createInputQueue, type InputQueue } from './inputQueue'
 
@@ -28,6 +27,11 @@ export interface SessionManagerDeps {
    * Emptied at startup: no session outlives the app. Unset, documents are sent with no copy.
    */
   attachmentsDir?: string
+  /**
+   * The `canopy` MCP server of a session, on the tickets and mockups of `repoRoot`. Called once per session;
+   * `mode` reads the session's current mode, which `setMode` or Claude may change mid-session.
+   */
+  canopyServer?: (ctx: { repoRoot: string; mode: () => PermissionMode }) => McpSdkServerConfigWithInstance
 }
 
 type EventMap = { [K in keyof SessionEvents]: [SessionEvents[K]] }
@@ -56,11 +60,15 @@ interface Session {
   pending: Map<string, PendingPermission>
   terminalCommands: Set<string>
   initialized: boolean
-  /** Launched from a Linear issue and not yet checked for a Linear MCP server. */
-  expectLinear?: boolean
   reported?: SessionState
   closed: boolean
 }
+
+/**
+ * Claude uses the in-process canopy tools with no prompt, as Bastien decided (plan mode is refused in the tools).
+ * Trust is keyed on the server's origin, not the tool name: a configured server `canopy__x` exposes `mcp__canopy__x__*`.
+ */
+const isCanopyServer = (o: CanUseToolOptions): boolean => o.mcpServer?.source === 'sdk' && o.mcpServer.name === 'canopy'
 
 const WITHDRAWN: PermissionResult = { behavior: 'deny', message: 'Demande annulée.' }
 const INTERRUPTED: readonly unknown[] = ['aborted_tools', 'aborted_streaming']
@@ -109,8 +117,6 @@ function toUserMessage(c: UserContent, copies: string[] = []): SDKUserMessage {
   return { type: 'user', message: { role: 'user', content: [...text, ...images, ...documents, ...notes] }, parent_tool_use_id: null }
 }
 
-export { hasLinearServer }
-
 /** Runs concurrent Agent SDK sessions. Each one lives until `stop` or its own failure, whatever the UI does. */
 export class SessionManager extends EventEmitter<EventMap> {
   private readonly sessions = new Map<string, Session>()
@@ -145,10 +151,12 @@ export class SessionManager extends EventEmitter<EventMap> {
     let session: Session | undefined
     const canUseTool: CanUseTool = (toolName, toolInput, opts) =>
       session ? this.askPermission(session, toolName, toolInput, opts) : Promise.resolve(WITHDRAWN)
+    const mode = (): PermissionMode => session?.mode ?? o.mode ?? 'default'
 
     let q: Query
     try {
-      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.makeCopiesDir(localId)) })
+      const canopy = this.deps.canopyServer?.({ repoRoot: o.repoRoot ?? cwd, mode })
+      q = this.deps.query({ prompt: input.iterable, options: this.options(cwd, sessionId, o, canUseTool, this.makeCopiesDir(localId), canopy) })
     } catch (err) {
       input.close()
       // Deferred so that the caller holds the localId before hearing about it.
@@ -158,7 +166,7 @@ export class SessionManager extends EventEmitter<EventMap> {
 
     const s: Session = {
       localId, sessionId, cwd, title: o.content.text, startedAt: Date.now(), query: q, input,
-      mode: o.mode ?? 'default', turn: 'idle', pending: new Map(), terminalCommands: new Set(), initialized: false, closed: false, ...(o.expectLinear ? { expectLinear: true } : {})
+      mode: o.mode ?? 'default', turn: 'idle', pending: new Map(), terminalCommands: new Set(), initialized: false, closed: false
     }
     session = s
     this.sessions.set(localId, s)
@@ -185,8 +193,15 @@ export class SessionManager extends EventEmitter<EventMap> {
   async setMode(localId: string, mode: PermissionMode): Promise<void> {
     const s = this.sessions.get(localId)
     if (!s) return
-    await s.query.setPermissionMode(mode)
+    // Set first: a canopy tool called while the SDK switches must already see the new mode (plan refuses writes).
+    const previous = s.mode
     s.mode = mode
+    try {
+      await s.query.setPermissionMode(mode)
+    } catch (err) {
+      s.mode = previous
+      throw err
+    }
   }
 
   async setModel(localId: string, model: string): Promise<void> {
@@ -288,7 +303,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     sessionId: string,
     o: StartSessionOptions,
     canUseTool: CanUseTool,
-    copiesDir: string | undefined
+    copiesDir: string | undefined,
+    canopy: McpSdkServerConfigWithInstance | undefined
   ): Options {
     // The injected env alone: it already holds the login shell env (USER included) and never ELECTRON_RUN_AS_NODE.
     // The Artifact tool (mockups on claude.ai) only exists with CLAUDE_CODE_ARTIFACT=1.
@@ -305,6 +321,7 @@ export class SessionManager extends EventEmitter<EventMap> {
       ...(o.model ? { model: o.model } : {}),
       // Claude reads the copies there with no permission prompt.
       ...(copiesDir ? { additionalDirectories: [copiesDir] } : {}),
+      ...(canopy ? { mcpServers: { canopy }, allowedTools: ['mcp__canopy'] } : {}),
       ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {})
     }
   }
@@ -370,10 +387,6 @@ export class SessionManager extends EventEmitter<EventMap> {
     // A status carries it too: approving a plan leaves plan mode without any init.
     if (msg.type === 'system' && (msg.subtype === 'init' || msg.subtype === 'status') && msg.permissionMode) s.mode = msg.permissionMode
     this.notify('message', { localId: s.localId, msg })
-    if (msg.type === 'system' && msg.subtype === 'init' && s.expectLinear) {
-      s.expectLinear = false
-      if (!hasLinearServer(msg.mcp_servers ?? [])) this.notify('notice', { localId: s.localId, text: LINEAR_NOTICE })
-    }
     if (msg.type === 'system' && msg.subtype === 'init' && !s.initialized) {
       s.initialized = true
       this.notify('commandsChanged', { localId: s.localId })
@@ -395,6 +408,8 @@ export class SessionManager extends EventEmitter<EventMap> {
     o: CanUseToolOptions
   ): Promise<PermissionResult> {
     if (s.closed || o.signal.aborted) return Promise.resolve(WITHDRAWN)
+    // allowedTools already lets them through; this covers a mode where the SDK still asks.
+    if (isCanopyServer(o)) return Promise.resolve({ behavior: 'allow', updatedInput: input })
     const { requestId, signal } = o
     // Other suggestion types would also switch the session's mode or widen its directories.
     const rules = o.suppressAlwaysAllowRule ? [] : (o.suggestions ?? []).filter((u) => u.type === 'addRules')

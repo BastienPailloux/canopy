@@ -1,10 +1,10 @@
 import { Document, isSeq, parse } from 'yaml'
-import { PRIORITIES, STATUSES, type Subtask, type Ticket, type TicketPriority, type TicketStatus } from '../../shared/tickets'
+import { PRIORITIES, STATUSES, TICKET_ID_RE, type Subtask, type Ticket, type TicketPriority, type TicketStatus } from '../../shared/tickets'
 
 const SUBTASKS_HEADING = '## Sous-tâches'
-const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base']
+const KNOWN = ['id', 'title', 'status', 'priority', 'labels', 'created', 'updated', 'archived', 'branch', 'worktree', 'base', 'parent']
 
-function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {
+export function splitFrontMatter(text: string): { data: Record<string, unknown>; body: string } {
   const m = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(text)
   if (!m) throw new Error('Front matter manquant')
   const data = parse(m[1] ?? '') ?? {}
@@ -23,12 +23,17 @@ function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v ? v : undefined
 }
 
+function validParent(v: unknown): string | undefined {
+  const p = optStr(v)
+  return p && TICKET_ID_RE.test(p) ? p : undefined
+}
+
 /** Leading and trailing blank lines off, the indentation of the first line kept (an indented code block). */
 function trimBlank(s: string): string {
   return s.replace(/^(?:[ \t]*\n)+/, '').replace(/\s+$/, '')
 }
 
-function splitBody(body: string): { description: string; subtasks: Subtask[] } {
+export function splitBody(body: string): { description: string; subtasks: Subtask[] } {
   const lines = body.replace(/\r\n/g, '\n').split('\n')
   const at = lines.map((l) => l.trimEnd()).lastIndexOf(SUBTASKS_HEADING)
   if (at === -1) return { description: trimBlank(body.replace(/\r\n/g, '\n')), subtasks: [] }
@@ -73,14 +78,19 @@ export function parseTicket(text: string, fileId: string): Ticket {
   if (branch) t.branch = branch
   if (worktree) t.worktree = worktree
   if (base) t.base = base
+  const parent = validParent(data.parent)
+  if (parent) t.parent = parent
   return t
 }
 
-/** Front-matter keys Canopy does not know, to write back untouched. Empty when the text is unreadable. */
+/**
+ * Front-matter keys Canopy does not know, to write back untouched. Empty when the text is unreadable.
+ * A hand-written parent that is not an id counts as unknown: ignored, but not lost on the next save.
+ */
 export function unknownFields(text: string): Record<string, unknown> {
   try {
     const { data } = splitFrontMatter(text)
-    return Object.fromEntries(Object.entries(data).filter(([k]) => !KNOWN.includes(k)))
+    return Object.fromEntries(Object.entries(data).filter(([k, v]) => !KNOWN.includes(k) || (k === 'parent' && v != null && !validParent(v))))
   } catch {
     return {}
   }
@@ -100,7 +110,8 @@ export function serializeTicket(t: Ticket, extra: Record<string, unknown> = {}):
   if (t.branch) front.branch = t.branch
   if (t.worktree) front.worktree = t.worktree
   if (t.base) front.base = t.base
-  for (const [k, v] of Object.entries(extra)) if (!KNOWN.includes(k)) front[k] = v
+  if (t.parent) front.parent = t.parent
+  for (const [k, v] of Object.entries(extra)) if (!KNOWN.includes(k) || (k === 'parent' && !t.parent)) front[k] = v
   const doc = new Document(front)
   const labels = doc.get('labels', true)
   if (isSeq(labels)) labels.flow = true
