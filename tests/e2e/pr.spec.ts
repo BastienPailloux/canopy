@@ -250,7 +250,8 @@ test('a failing check of another app offers Corriger avec Claude, with its detai
   await greptileRow.getByRole('button', { name: 'Corriger avec Claude' }).click()
   await expect(nav().getByRole('button', { name: 'Sessions' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('assistant-message').last()).toContainText('greptile review')
-  if (greptile.url) await expect(page.getByTestId('assistant-message').last()).toContainText(greptile.url)
+  expect(greptile.url).toBeTruthy()
+  await expect(page.getByTestId('assistant-message').last()).toContainText(greptile.url!)
   expect(await loggedActions()).toEqual([])
 })
 
@@ -301,6 +302,15 @@ test('request Copilot as reviewer, add a label, assign', async () => {
   await expect(page.getByRole('option', { name: /basti.*Collaborateur/ })).toBeVisible()
   await page.getByRole('textbox', { name: 'Filtrer' }).fill('cop')
   await expect(page.getByRole('option')).toHaveCount(1)
+  // Escape closes the list; so does a click outside it
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await side.getByRole('button', { name: 'Demander une review', exact: true }).click()
+  await expect(page.getByRole('listbox')).toBeVisible()
+  await side.getByRole('heading', { name: 'Tester la PR' }).click()
+  await expect(page.getByRole('listbox')).toHaveCount(0)
+  await side.getByRole('button', { name: 'Demander une review', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Filtrer' }).fill('cop')
   await page.getByRole('option', { name: /copilot/ }).click()
   await expect(side.getByRole('region', { name: 'Reviewers' })).toContainText('copilot')
 

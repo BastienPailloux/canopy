@@ -62,6 +62,17 @@ describe('pr:autoMerged', () => {
     expect(canopy.prCleanup).not.toHaveBeenCalled()
   })
 
+  it('a run that throws ends the run with a line, is acknowledged and not retried', async () => {
+    // runAfterMerge swallows its own step errors: make the run itself throw.
+    vi.spyOn(useLinear, 'getState').mockImplementationOnce(() => { throw new Error('boom') })
+    emit(payload())
+    await vi.waitFor(() => expect(canopy.prWatchAutoMerge).toHaveBeenCalledWith('/other/.worktrees/x', null))
+    expect(useMerge.getState().results['/other/.worktrees/x#87'].lines).toEqual(['Fin du merge interrompue : boom'])
+    emit(payload())
+    await vi.waitFor(() => expect(canopy.prWatchAutoMerge).toHaveBeenCalledTimes(2))
+    expect(canopy.prCleanup).not.toHaveBeenCalled()
+  })
+
   it('ignores a payload without a repo', async () => {
     emit({ cwd: '/w', req: { number: 87, branch: 'feat/x', headOid: OID }, cleanup: true })
     await new Promise((r) => setTimeout(r, 10))

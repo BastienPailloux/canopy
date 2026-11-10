@@ -86,9 +86,17 @@ async function onAutoMerged(payload: unknown): Promise<void> {
   const cleanup = p.cleanup === true
   const shown = usePr.getState().detail
   const same = shown?.number === req.number && usePr.getState().cwd === cwd
-  await finishMerge(cwd, { number: req.number, head: req.branch, headOid: req.headOid, title: same ? shown.title : '', base: same ? shown.base : '' }, 'Auto-merge', cleanup, p.repo)
+  const key = keyOf(cwd, req.number)
+  try {
+    await finishMerge(cwd, { number: req.number, head: req.branch, headOid: req.headOid, title: same ? shown.title : '', base: same ? shown.base : '' }, 'Auto-merge', cleanup, p.repo)
+  } catch (e) {
+    // The failure ends the run (no endless « en cours ») and is not retried: the result stays recorded, so a later
+    // broadcast only acknowledges. Retrying a half-done cleanup could repeat steps that already ran.
+    const line = `Fin du merge interrompue : ${e instanceof Error ? e.message : String(e)}`
+    useMerge.setState((s) => s.results[key] ? { results: { ...s.results, [key]: { ...s.results[key], lines: [...(s.results[key].lines ?? []), line] } } } : s)
+  }
   // Still running (a repeat while it runs): that run acknowledges it when it ends.
-  if (useMerge.getState().results[keyOf(cwd, req.number)]?.lines == null) return
+  if (useMerge.getState().results[key]?.lines == null) return
   await window.canopy.prWatchAutoMerge(cwd, null).catch(() => undefined)
 }
 

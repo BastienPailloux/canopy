@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PrDetail, PrReviewer } from '../../shared/pr'
 import { useApp } from '../store'
 import { useSessions } from '../sessions/sessionStore'
@@ -13,15 +13,24 @@ interface Choice { id: string; label: string; hint?: string }
 /** A button that opens a filterable list; picking an entry closes it and calls `onPick`. */
 function Picker(props: { label: string; filterLabel: string; choices: Choice[]; query: string; onQuery: (q: string) => void; onPick: (id: string) => void; disabled: boolean }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
+    const onDown = (e: MouseEvent): void => { if (!root.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown) }
+  }, [open])
   return (
-    <div className="pr-picker">
+    <div className="pr-picker" ref={root}>
       <button className="pr-small" aria-expanded={open} disabled={props.disabled} onClick={() => { setOpen(!open); props.onQuery('') }}>{props.label}</button>
       {open && (
         <div className="pr-menu">
           <input aria-label={props.filterLabel} autoFocus value={props.query} onChange={(e) => props.onQuery(e.target.value)} placeholder="Filtrer…" />
           <div role="listbox" aria-label={props.label}>
             {props.choices.map((c) => (
-              <button key={c.id} role="option" aria-selected={false} onClick={() => { setOpen(false); props.onPick(c.id) }}>
+              <button key={c.id} role="option" onClick={() => { setOpen(false); props.onPick(c.id) }}>
                 <span>{c.label}</span>{c.hint && <span className="pr-muted pr-note">{c.hint}</span>}
               </button>
             ))}
