@@ -1,10 +1,10 @@
-import { lstat, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, posix } from 'node:path'
 import { currentEnv } from '../env'
 import { git as run } from '../git/exec'
 import { resolveBaseRef } from '../git/refs'
 import { mainWorktreeRoot } from '../git/worktrees'
+import { readRegularFile } from '../safeRead'
 import { parsePackageLock, parsePnpmLock, parseYarnLock, type Unit } from './parse/js'
 import { applyRegistryConfig, parseNpmrc, parseYarnrc, type RegistryConfig } from './parse/npmrc'
 import { parsePipfileLock, parsePoetryLock, parseRequirements, parseUvLock } from './parse/python'
@@ -206,9 +206,8 @@ const RC_MAX_BYTES = 1024 * 1024
  */
 async function userFile(path: string, parse: (text: string | null) => RegistryConfig): Promise<RegistryConfig | null> {
   try {
-    const st = await stat(path)
-    if (!st.isFile() || st.size > RC_MAX_BYTES) return parse(null)
-    return parse(await readFile(path, 'utf8'))
+    const read = await readRegularFile(path, { maxBytes: RC_MAX_BYTES })
+    return parse(read.kind === 'file' ? read.bytes.toString('utf8') : null)
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : parse(null)
   }
@@ -269,8 +268,9 @@ async function checkoutConfigs(root: string, dir: string): Promise<RegistryConfi
       const path = join(root, d, file)
       let text: string | null = null
       try {
-        const st = await lstat(path)
-        if (st.isFile() && st.size <= RC_MAX_BYTES) text = await readFile(path, 'utf8')
+        // A symlink rejects with ELOOP, so it fails closed.
+        const read = await readRegularFile(path, { maxBytes: RC_MAX_BYTES, noFollow: true })
+        if (read.kind === 'file') text = read.bytes.toString('utf8')
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
       }
