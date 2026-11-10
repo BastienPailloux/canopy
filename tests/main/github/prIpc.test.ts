@@ -21,10 +21,10 @@ const valid: PrAction[] = [
   { type: 'rerun', runId: 5, jobId: 7 },
   { type: 'rerun', runId: 5, jobId: null },
   { type: 'updateBranch' },
-  { type: 'merge', method: 'squash', subject: 'feat: x (#87)', body: '' },
-  { type: 'merge', method: 'rebase', subject: '', body: '' },
-  { type: 'autoMerge', enable: true, method: 'merge', subject: 's', body: 'b' },
-  { type: 'autoMerge', enable: false, method: 'squash', subject: '', body: '' },
+  { type: 'merge', method: 'squash', subject: 'feat: x (#87)', body: '', headOid: 'a'.repeat(40) },
+  { type: 'merge', method: 'rebase', subject: '', body: '', headOid: 'a'.repeat(40) },
+  { type: 'autoMerge', enable: true, method: 'merge', subject: 's', body: 'b', headOid: 'a'.repeat(40) },
+  { type: 'autoMerge', enable: false, method: 'squash', subject: '', body: '', headOid: 'a'.repeat(40) },
   { type: 'revert' },
   { type: 'deleteRemoteBranch', branch: 'feat/x' },
 ]
@@ -51,9 +51,14 @@ describe('parsePrAction', () => {
       { type: 'labels', add: [''], remove: [] },
       { type: 'labels', add: ['x'.repeat(51)], remove: [] },
       { type: 'resolve', threadId: 'bad id', resolved: true },
-      { type: 'merge', method: 'octopus', subject: 's', body: '' },
-      { type: 'merge', method: 'squash', subject: '', body: '' },
-      { type: 'autoMerge', enable: true, method: 'merge', subject: '', body: '' },
+      { type: 'merge', method: 'octopus', subject: 's', body: '', headOid: 'a'.repeat(40) },
+      { type: 'merge', method: 'squash', subject: '', body: '', headOid: 'a'.repeat(40) },
+      { type: 'autoMerge', enable: true, method: 'merge', subject: '', body: '', headOid: 'a'.repeat(40) },
+      // the head merged must be the one shown: a full commit id, never something gh could read as a flag
+      { type: 'merge', method: 'squash', subject: 's', body: '' },
+      { type: 'merge', method: 'squash', subject: 's', body: '', headOid: '--admin' },
+      { type: 'merge', method: 'squash', subject: 's', body: '', headOid: 'abc1234' },
+      { type: 'autoMerge', enable: true, method: 'merge', subject: 's', body: '', headOid: 'A'.repeat(40) },
       { type: 'review', event: 'REQUEST_CHANGES', body: '' },
       { type: 'deleteRemoteBranch', branch: '-x' },
       { type: 'deleteRemoteBranch', branch: '' },
@@ -125,7 +130,7 @@ describe('registerPrIpc', () => {
     expect(s.changed).toEqual([])
     await s.call('pr:act', '/r', 3, { type: 'close' })
     await s.call('pr:act', '/r', 3, { type: 'reopen' })
-    await s.call('pr:act', '/r', 3, { type: 'merge', method: 'squash', subject: 's', body: '' })
+    await s.call('pr:act', '/r', 3, { type: 'merge', method: 'squash', subject: 's', body: '', headOid: 'a'.repeat(40) })
     expect(s.changed).toEqual(['/r', '/r', '/r'])
   })
 })

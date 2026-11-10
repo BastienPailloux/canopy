@@ -118,17 +118,26 @@ test('updateBranch', async () => {
   expect((await act({ type: 'updateBranch' })).write.args).toEqual(['pr', 'update-branch', '7'])
 })
 
-test('merge squash with subject and body', async () => {
-  const { write } = await act({ type: 'merge', method: 'squash', subject: '-feat: x', body: 'body "q"' })
-  expect(write).toEqual({ args: ['pr', 'merge', '7', '--squash', '--subject=-feat: x', '--body-file', '-'], cwd: '/wt', input: 'body "q"' })
-  expect((await act({ type: 'merge', method: 'merge', subject: 's', body: 'b' })).write.args).toContain('--merge')
-  expect((await act({ type: 'merge', method: 'rebase', subject: 's', body: 'b' })).write.args).toContain('--rebase')
+const HEAD = 'c'.repeat(40)
+
+test('merge squash with subject and body, only at the head shown', async () => {
+  const { write } = await act({ type: 'merge', method: 'squash', subject: '-feat: x', body: 'body "q"', headOid: HEAD })
+  expect(write).toEqual({ args: ['pr', 'merge', '7', '--squash', `--match-head-commit=${HEAD}`, '--subject=-feat: x', '--body-file', '-'], cwd: '/wt', input: 'body "q"' })
+  expect((await act({ type: 'merge', method: 'merge', subject: 's', body: 'b', headOid: HEAD })).write.args).toContain('--merge')
+})
+
+test('a rebase takes no subject nor body', async () => {
+  const { write } = await act({ type: 'merge', method: 'rebase', subject: 's', body: 'b', headOid: HEAD })
+  expect(write.args).toEqual(['pr', 'merge', '7', '--rebase', `--match-head-commit=${HEAD}`])
+  expect(write.input).toBeUndefined()
+  const auto = await act({ type: 'autoMerge', enable: true, method: 'rebase', subject: '', body: '', headOid: HEAD })
+  expect(auto.write.args).toEqual(['pr', 'merge', '7', '--auto', '--rebase', `--match-head-commit=${HEAD}`])
 })
 
 test('merge never passes --delete-branch', async () => {
   for (const a of [
-    { type: 'merge', method: 'squash', subject: 's', body: 'b' },
-    { type: 'autoMerge', enable: true, method: 'squash', subject: 's', body: 'b' },
+    { type: 'merge', method: 'squash', subject: 's', body: 'b', headOid: HEAD },
+    { type: 'autoMerge', enable: true, method: 'squash', subject: 's', body: 'b', headOid: HEAD },
   ] as PrAction[]) {
     const { write } = await act(a)
     expect(write.args).not.toContain('--delete-branch')
@@ -137,10 +146,10 @@ test('merge never passes --delete-branch', async () => {
 })
 
 test('auto-merge on and off', async () => {
-  expect((await act({ type: 'autoMerge', enable: true, method: 'squash', subject: 's', body: 'b' })).write).toEqual({
-    args: ['pr', 'merge', '7', '--auto', '--squash', '--subject=s', '--body-file', '-'], cwd: '/wt', input: 'b',
+  expect((await act({ type: 'autoMerge', enable: true, method: 'squash', subject: 's', body: 'b', headOid: HEAD })).write).toEqual({
+    args: ['pr', 'merge', '7', '--auto', '--squash', `--match-head-commit=${HEAD}`, '--subject=s', '--body-file', '-'], cwd: '/wt', input: 'b',
   })
-  expect((await act({ type: 'autoMerge', enable: false, method: 'squash', subject: 's', body: 'b' })).write.args).toEqual(['pr', 'merge', '7', '--disable-auto'])
+  expect((await act({ type: 'autoMerge', enable: false, method: 'squash', subject: 's', body: 'b', headOid: HEAD })).write.args).toEqual(['pr', 'merge', '7', '--disable-auto'])
 })
 
 test('revert returns the new PR url', async () => {
@@ -164,7 +173,7 @@ test('sends bodies through stdin, never in the arguments', async () => {
   const body = '-x "q" `b`\nline'
   for (const a of [
     { type: 'comment', body }, { type: 'reply', commentId: 1, body }, { type: 'review', event: 'APPROVE', body },
-    { type: 'editBody', body }, { type: 'merge', method: 'squash', subject: 's', body },
+    { type: 'editBody', body }, { type: 'merge', method: 'squash', subject: 's', body, headOid: HEAD },
   ] as PrAction[]) {
     const { all } = await act(a)
     expect(all[0].input).toBe(body)

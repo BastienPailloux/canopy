@@ -233,7 +233,7 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
     setQueued(false)
     const outcome = await mergeThenFinish({
       // A refused merge finishes nothing: `act` showed GitHub's message.
-      merge: async () => (await act({ type: 'merge', method, subject: subject.trim(), body })) !== null,
+      merge: async () => (await act({ type: 'merge', method, subject: subject.trim(), body, headOid: pr.headOid })) !== null,
       // `act` read the PR again: only GitHub saying it is merged moves the ticket and cleans up.
       state: () => {
         const s = usePr.getState()
@@ -254,7 +254,7 @@ function OpenPanel({ pr }: { pr: PrDetail }): React.JSX.Element {
     const cwd = usePr.getState().cwd
     if (!cwd) return
     const enable = !pr.autoMerge
-    if (!(await act({ type: 'autoMerge', enable, method, subject: subject.trim(), body }))) return
+    if (!(await act({ type: 'autoMerge', enable, method, subject: subject.trim(), body, headOid: pr.headOid }))) return
     // The box as it is now decides the cleanup once GitHub merges.
     await window.canopy.prWatchAutoMerge(cwd, enable ? { number: pr.number, branch: pr.head, headOid: pr.headOid, cleanup } : null).catch(() => undefined)
   }

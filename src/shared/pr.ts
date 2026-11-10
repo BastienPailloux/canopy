@@ -48,8 +48,9 @@ export type PrAction =
   | { type: 'viewed'; path: string; viewed: boolean }
   | { type: 'rerun'; runId: number; jobId: number | null }    // null: the run's failed jobs
   | { type: 'updateBranch' }
-  | { type: 'merge'; method: MergeMethod; subject: string; body: string }
-  | { type: 'autoMerge'; enable: boolean; method: MergeMethod; subject: string; body: string }
+  /** `headOid`: the head shown; GitHub refuses the merge if a commit was pushed since. Rebase ignores subject and body. */
+  | { type: 'merge'; method: MergeMethod; subject: string; body: string; headOid: string }
+  | { type: 'autoMerge'; enable: boolean; method: MergeMethod; subject: string; body: string; headOid: string }
   | { type: 'revert' }
   | { type: 'deleteRemoteBranch'; branch: string }
 /** `url`: the revert PR. */

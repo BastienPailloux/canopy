@@ -212,12 +212,18 @@ export function ghGateway(run: GhRunner = runGh): PrGateway {
           await gh(['pr', 'update-branch', n], cwd)
           break
         case 'merge':
-          await withInput(['pr', 'merge', n, METHOD_FLAGS[a.method], `--subject=${a.subject}`, '--body-file', '-'], cwd, a.body)
+        case 'autoMerge': {
+          if (a.type === 'autoMerge' && !a.enable) {
+            await gh(['pr', 'merge', n, '--disable-auto'], cwd)
+            break
+          }
+          // Only at the head shown: a commit pushed since is not merged unseen.
+          const args = ['pr', 'merge', n, ...(a.type === 'autoMerge' ? ['--auto'] : []), METHOD_FLAGS[a.method], `--match-head-commit=${a.headOid}`]
+          // A rebase replays the commits as they are: gh refuses a subject or a body for it.
+          if (a.method === 'rebase') await gh(args, cwd)
+          else await withInput([...args, `--subject=${a.subject}`, '--body-file', '-'], cwd, a.body)
           break
-        case 'autoMerge':
-          if (a.enable) await withInput(['pr', 'merge', n, '--auto', METHOD_FLAGS[a.method], `--subject=${a.subject}`, '--body-file', '-'], cwd, a.body)
-          else await gh(['pr', 'merge', n, '--disable-auto'], cwd)
-          break
+        }
         case 'revert': {
           const raw = json(await mutate(cwd, MUTATIONS.revert, { id: await prNodeId(cwd, number) }))
           const data = isObj(raw) && isObj(raw.data) ? raw.data : null

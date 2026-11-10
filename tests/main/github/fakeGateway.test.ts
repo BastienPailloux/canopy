@@ -32,7 +32,7 @@ describe('fakeGateway', () => {
 
   it('merge marks the PR merged, revert gives a url', async () => {
     const g = fakeGateway({ file })
-    await g.act('/r', 87, { type: 'merge', method: 'squash', subject: 's', body: '' })
+    await g.act('/r', 87, { type: 'merge', method: 'squash', subject: 's', body: '', headOid: 'a'.repeat(40) })
     expect((await g.view('/r', 87)).state).toBe('merged')
     expect((await g.find('/r', 'feat/gtin-lookup'))?.state).toBe('merged')
     expect(await g.act('/r', 87, { type: 'revert' })).toEqual({ ok: true, url: 'https://github.com/acme/passports/pull/999' })
@@ -42,7 +42,7 @@ describe('fakeGateway', () => {
     const queued = join(tmp(), 'pr.json')
     writeFileSync(queued, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), mergeQueue: true }))
     const g = fakeGateway({ file: queued })
-    await g.act('/r', 87, { type: 'merge', method: 'squash', subject: 's', body: '' })
+    await g.act('/r', 87, { type: 'merge', method: 'squash', subject: 's', body: '', headOid: 'a'.repeat(40) })
     expect((await g.view('/r', 87)).state).toBe('open')
   })
 

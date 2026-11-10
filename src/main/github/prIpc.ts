@@ -13,6 +13,7 @@ const isPosInt = (v: unknown): v is number => typeof v === 'number' && Number.is
 const NODE_ID_RE = /^[A-Za-z0-9_=-]{1,100}$/
 const LOGIN_RE = /^[A-Za-z0-9-]{1,39}(\[bot\])?$/
 const TEAM_RE = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/
+const OID_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 const MAX_LABEL = 50
 const MAX_SUBJECT = 256
 const MAX_LIST = 100
@@ -56,6 +57,11 @@ function method(v: unknown): MergeMethod {
   if (!METHODS.includes(v as MergeMethod)) throw bad()
   return v as MergeMethod
 }
+/** A full commit id: GitHub merges only at it, and it never reads as a flag. */
+function oid(v: unknown): string {
+  if (typeof v !== 'string' || !OID_RE.test(v)) throw bad()
+  return v
+}
 /** Rebase takes no commit message, so its subject is ignored; the others cannot go without one. */
 function subjectFor(m: MergeMethod, v: unknown): string {
   if (typeof v !== 'string' || v.length > MAX_SUBJECT || /[\r\n\0]/.test(v)) throw bad()
@@ -98,16 +104,16 @@ export function parsePrAction(raw: unknown): PrAction {
       return { type: 'rerun', runId: raw.runId, jobId: raw.jobId }
     case 'updateBranch': only(); return { type: 'updateBranch' }
     case 'merge': {
-      only('method', 'subject', 'body')
+      only('method', 'subject', 'body', 'headOid')
       const m = method(raw.method)
-      return { type: 'merge', method: m, subject: subjectFor(m, raw.subject), body: body(raw.body) }
+      return { type: 'merge', method: m, subject: subjectFor(m, raw.subject), body: body(raw.body), headOid: oid(raw.headOid) }
     }
     case 'autoMerge': {
-      only('enable', 'method', 'subject', 'body')
+      only('enable', 'method', 'subject', 'body', 'headOid')
       const m = method(raw.method)
       const enable = bool(raw.enable)
       // disabling needs no message
-      return { type: 'autoMerge', enable, method: m, subject: enable ? subjectFor(m, raw.subject) : '', body: body(raw.body) }
+      return { type: 'autoMerge', enable, method: m, subject: enable ? subjectFor(m, raw.subject) : '', body: body(raw.body), headOid: oid(raw.headOid) }
     }
     case 'revert': only(); return { type: 'revert' }
     case 'deleteRemoteBranch':
@@ -118,7 +124,6 @@ export function parsePrAction(raw: unknown): PrAction {
   }
 }
 
-const OID_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 const badCleanup = (): Error => new Error('Demande de nettoyage invalide')
 
 /** Checks a `CleanupRequest` from the renderer: `headOid` is a full commit id, the only tip a branch is deleted at. */
