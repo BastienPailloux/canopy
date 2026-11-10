@@ -1,11 +1,13 @@
 import chokidar, { type FSWatcher } from 'chokidar'
 import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileContent } from '../../shared/api'
 import { EXPECT_ABSENT, FILE_CHANGED } from '../../shared/errors'
 import { git } from '../git/exec'
+import { readRegularFile } from '../safeRead'
 
 /** Files of the working tree relative to `cwd`: tracked and untracked, without ignored ones. */
 export async function listTree(cwd: string): Promise<string[]> {
@@ -62,10 +64,10 @@ async function resolveInside(cwd: string, rel: unknown): Promise<string> {
 /** Text of a file of the worktree. Binary files and files over 5 MB are reported, not read. */
 export async function readFileSafe(cwd: string, path: string): Promise<FileContent> {
   const real = await resolveInside(cwd, path)
-  const st = await stat(real)
-  if (!st.isFile()) throw new Error('Ce chemin n\'est pas un fichier')
-  if (st.size > MAX_TEXT_BYTES) return { kind: 'tooLarge', size: st.size }
-  const bytes = await readFile(real)
+  const read = await withoutLink(readRegularFile(real, { maxBytes: MAX_TEXT_BYTES, noFollow: true }))
+  if (read.kind === 'notFile') throw new Error(NOT_A_FILE)
+  if (read.kind === 'tooLarge') return read
+  const { bytes } = read
   if (bytes.subarray(0, 8192).includes(0)) return { kind: 'binary' }
   return { kind: 'text', content: bytes.toString('utf8'), version: versionOf(bytes), ...(isUtf8(bytes) ? {} : { notUtf8: true }) }
 }
@@ -78,20 +80,43 @@ export async function writeFileSafe(
   cwd: string, path: string, content: string, opts: { expectedVersion?: string } = {}
 ): Promise<string> {
   const real = await resolveInside(cwd, path)
-  let current: Buffer | null = null
+  let found = EXPECT_ABSENT
   try {
-    current = await readFile(real)
+    const read = await withoutLink(readRegularFile(real, { maxBytes: MAX_TEXT_BYTES, noFollow: true }))
+    if (read.kind === 'notFile') throw new Error(NOT_A_FILE)
+    // A file too large to open was never shown: no version of it can match, and no lossy decoding of it is written back.
+    found = read.kind === 'tooLarge' ? TOO_LARGE : versionOf(read.bytes)
+    // What was shown is a lossy decoding: writing it back would replace every byte it could not read.
+    if (read.kind === 'file' && !read.bytes.subarray(0, 8192).includes(0) && !isUtf8(read.bytes)) throw new Error('Fichier non UTF-8 : modification refusée')
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
   }
-  // What was shown is a lossy decoding: writing it back would replace every byte it could not read.
-  if (current && !current.subarray(0, 8192).includes(0) && !isUtf8(current)) throw new Error('Fichier non UTF-8 : modification refusée')
-  const found = current ? versionOf(current) : EXPECT_ABSENT
   if (opts.expectedVersion !== undefined && found !== opts.expectedVersion) throw new Error(FILE_CHANGED)
   await mkdir(dirname(real), { recursive: true })
   const bytes = Buffer.from(content, 'utf8')
-  await writeFile(real, bytes)
+  // Same descriptor checks as the read: a link or a FIFO swapped in since then is not written through.
+  const fh = await withoutLink(open(real, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK))
+  try {
+    if (!(await fh.stat()).isFile()) throw new Error(NOT_A_FILE)
+    await fh.truncate(0)
+    await fh.writeFile(bytes)
+  } finally {
+    await fh.close()
+  }
   return versionOf(bytes)
+}
+
+const NOT_A_FILE = 'Ce chemin n\'est pas un fichier'
+const TOO_LARGE = 'too-large'
+
+/** `real` has no link left: one appearing now was swapped in since the check (O_NOFOLLOW gives ELOOP). */
+async function withoutLink<T>(p: Promise<T>): Promise<T> {
+  try {
+    return await p
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('Lien symbolique invalide')
+    throw e
+  }
 }
 
 const DEBOUNCE_MS = 300

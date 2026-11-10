@@ -39,7 +39,7 @@ function request(d: Dep): { url: string; headers?: Record<string, string> } {
   if (d.ecosystem === 'npm') {
     // Scoped names keep the slash encoded in lowercase, as the registry documents.
     const [a, b] = d.name.startsWith('@') ? d.name.split('/') : [d.name, undefined]
-    return { url: `https://registry.npmjs.org/${b === undefined ? e(a) : `${e(a).replace('%40', '@')}%2f${e(b)}`}`, headers: { Accept: 'application/vnd.npm.install-v1+json' } }
+    return { url: `https://registry.npmjs.org/${b === undefined ? e(a) : `@${e(a.slice(1))}%2f${e(b)}`}`, headers: { Accept: 'application/vnd.npm.install-v1+json' } }
   }
   if (d.ecosystem === 'RubyGems') return { url: `https://rubygems.org/api/v1/versions/${e(d.name)}.json` }
   return { url: `https://pypi.org/pypi/${e(d.name.toLowerCase().replace(/[-_.]+/g, '-'))}/json` }

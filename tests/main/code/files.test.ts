@@ -174,6 +174,14 @@ describe('writeFileSafe', () => {
     expect(await readFile(join(repo.path, 'latin.txt'))).toEqual(bytes)
   })
 
+  it('refuses a FIFO, for read and write, without blocking on it', async () => {
+    await run('mkfifo', [join(repo.path, 'pipe')])
+    const notFile = 'Ce chemin n\'est pas un fichier'
+    const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('blocked')), 2000))])
+    await expect(within(readFileSafe(repo.path, 'pipe'))).rejects.toThrow(notFile)
+    await expect(within(writeFileSafe(repo.path, 'pipe', 'x'))).rejects.toThrow(notFile)
+  })
+
   it('accepts the write when only the timestamp changed', async () => {
     const opened = await readFileSafe(repo.path, 'README.md')
     if (opened.kind !== 'text') throw new Error('expected text')

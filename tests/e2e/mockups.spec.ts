@@ -87,7 +87,7 @@ test('add a mockup by link, link it to a ticket, edit and remove it', async () =
   await expect(page.getByLabel('Ticket lié')).toHaveValue('REP-1')
   // The e2e view loads its stand-in page: nothing ever reaches claude.ai.
   const urls = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map((w) => w.getURL()))
-  expect(urls.filter((u) => u.startsWith('https://claude.ai'))).toEqual([])
+  expect(urls.filter((u) => URL.canParse(u) && /(^|\.)claude\.ai$/.test(new URL(u).hostname))).toEqual([])
 
   await page.getByRole('button', { name: 'Retirer de Canopy' }).click()
   await page.getByRole('group', { name: 'Confirmer le retrait' }).getByRole('button', { name: 'Retirer', exact: true }).click()
