@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { PrDetail, PrSummary } from '../../src/shared/pr'
-import { act, connectPr, fixCheck, followWorktree, pollDelay, refresh, sendToClaude, usePr } from '../../src/renderer/pr/prStore'
+import { act, connectPr, fixCheck, followWorktree, openPrDiff, pollDelay, prBaseRef, refresh, rerunFailed, sendToClaude, usePr } from '../../src/renderer/pr/prStore'
 import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { tabCounts } from '../../src/renderer/pr/mergeModel'
 import { useApp } from '../../src/renderer/store'
@@ -199,5 +199,67 @@ describe('prStore', () => {
     await fixCheck(pr, { name: 'e2e', detail: '', outcome: 'failure', durationMs: 1, url: null, run: { runId: 5, jobId: 7 } }, 'déjà lu')
     expect(canopy.prFailedLog).not.toHaveBeenCalled()
     expect(draft()).toContain('déjà lu')
+  })
+  it('fixCheck drops the log answered once another worktree or PR is followed', async () => {
+    canopy.repoTrust = vi.fn(() => new Promise(() => undefined))
+    const log = deferred<string>()
+    canopy.prFailedLog = vi.fn(() => log.promise)
+    usePr.setState({ cwd: '/w', branch: 'feat/gtin-lookup', summary: summary(pr) })
+    useSessions.setState({ tabs: {}, active: {} })
+    useApp.setState({ view: 'pr' })
+    const sent = fixCheck(pr, { name: 'e2e', detail: '', outcome: 'failure', durationMs: 1, url: null, run: { runId: 5, jobId: 7 } })
+    usePr.setState({ cwd: '/v', branch: 'feat/other', summary: null })
+    log.resolve('Expected 404')
+    expect(await sent).toBe(false)
+    expect(useSessions.getState().tabs).toEqual({})
+    expect(useApp.getState().view).toBe('pr')
+  })
+
+  it('rerunFailed stops once another worktree is followed: no run id goes to its repo', async () => {
+    const first = deferred<{ ok: true }>()
+    canopy.prAct.mockImplementationOnce(() => first.promise)
+    usePr.setState({ cwd: '/w', branch: 'feat/gtin-lookup', summary: summary(pr) })
+    const done = rerunFailed([1, 2])
+    await flush()
+    usePr.setState({ cwd: '/v', branch: 'feat/other', summary: { ...summary(pr), number: 12 } })
+    first.resolve({ ok: true })
+    await done
+    expect(canopy.prAct.mock.calls).toEqual([['/w', pr.number, { type: 'rerun', runId: 1, jobId: null }]])
+  })
+
+  it('rerunFailed reruns every run while the PR stays followed', async () => {
+    usePr.setState({ cwd: '/w', branch: 'feat/gtin-lookup', summary: summary(pr) })
+    await rerunFailed([1, 2])
+    expect(canopy.prAct.mock.calls.map((c) => c[2])).toEqual([{ type: 'rerun', runId: 1, jobId: null }, { type: 'rerun', runId: 2, jobId: null }])
+  })
+
+  it('prBaseRef prefers the remote-tracking base, then the local one', () => {
+    expect(prBaseRef('main', ['feat/x', 'main', 'origin/main'])).toBe('origin/main')
+    expect(prBaseRef('main', ['main', 'upstream/main'])).toBe('main')
+    expect(prBaseRef('develop', ['main', 'upstream/develop'])).toBe('upstream/develop')
+    expect(prBaseRef('develop', ['main'])).toBeNull()
+  })
+
+  it('openPrDiff compares against the PR base, then opens Code', async () => {
+    canopy.codeBranches = vi.fn(async () => ['develop', 'main', 'origin/main'])
+    usePr.setState({ cwd: '/w', branch: 'feat/gtin-lookup', summary: summary(pr) })
+    useApp.setState({ view: 'pr', bases: { '/w': 'develop' } })
+    await openPrDiff(pr)
+    expect(useApp.getState().bases['/w']).toBe('origin/main')
+    expect(useApp.getState().view).toBe('code')
+    expect(useApp.getState().codeRequest).toMatchObject({ cwd: '/w', path: pr.files[0].path, mode: 'diff' })
+  })
+
+  it('openPrDiff does nothing once another worktree is followed', async () => {
+    const branches = deferred<string[]>()
+    canopy.codeBranches = vi.fn(() => branches.promise)
+    usePr.setState({ cwd: '/w', branch: 'feat/gtin-lookup', summary: summary(pr) })
+    useApp.setState({ view: 'pr', bases: {} })
+    const opened = openPrDiff(pr)
+    usePr.setState({ cwd: '/v', branch: 'main', summary: null })
+    branches.resolve(['main'])
+    await opened
+    expect(useApp.getState().bases).toEqual({})
+    expect(useApp.getState().view).toBe('pr')
   })
 })

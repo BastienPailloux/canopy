@@ -121,8 +121,53 @@ export function sendToClaude(text: string, threadId?: string): boolean {
 export async function fixCheck(pr: PrDetail, check: PrCheck, log?: string): Promise<boolean> {
   const cwd = usePr.getState().cwd
   if (!cwd) return false
+  const still = followed()
   const text = log ?? (check.run ? await window.canopy.prFailedLog(cwd, check.run.runId, check.run.jobId).catch(() => '') : '')
+  // Another worktree followed meanwhile: the old PR's fix must not start there.
+  if (!still()) return false
   return sendToClaude(checkPrompt(pr, check, text, pr.headOid.slice(0, 7)))
+}
+
+/** True while the worktree, branch and PR followed now still are: an async step checks it before acting on them. */
+function followed(): () => boolean {
+  const { cwd, branch, summary } = usePr.getState()
+  return () => {
+    const s = usePr.getState()
+    return s.cwd === cwd && s.branch === branch && s.summary?.number === summary?.number
+  }
+}
+
+/** « Relancer les échecs »: one rerun per workflow run, stopped as soon as another worktree or PR is followed. */
+export async function rerunFailed(runIds: number[]): Promise<void> {
+  const still = followed()
+  for (const runId of runIds) {
+    if (!still()) return
+    await act({ type: 'rerun', runId, jobId: null })
+  }
+}
+
+/**
+ * The ref Code compares against for a PR into `base`: its remote-tracking branch on origin (what GitHub diffs
+ * against), else the local one, else another remote's. Null: none of `branches`.
+ */
+export function prBaseRef(base: string, branches: string[]): string | null {
+  const has = new Set(branches)
+  if (has.has(`origin/${base}`)) return `origin/${base}`
+  if (has.has(base)) return base
+  return branches.find((b) => b.endsWith(`/${base}`) && b.indexOf('/') === b.length - base.length - 1) ?? null
+}
+
+/** « Ouvrir le diff complet dans Code »: compares the worktree against the PR's base, then opens its first file. */
+export async function openPrDiff(pr: PrDetail): Promise<void> {
+  const cwd = usePr.getState().cwd
+  if (!cwd || pr.files.length === 0) return
+  const still = followed()
+  const branches = await window.canopy.codeBranches(cwd).catch(() => [])
+  if (!still()) return
+  // Base not found locally: Code keeps its own comparison.
+  const ref = prBaseRef(pr.base, branches)
+  if (ref !== null) useApp.getState().setBase(cwd, ref)
+  useApp.getState().openInCode(cwd, pr.files[0].path, 'diff')
 }
 
 export const setSubTab = (subTab: PrSubTab): void => usePr.setState({ subTab })

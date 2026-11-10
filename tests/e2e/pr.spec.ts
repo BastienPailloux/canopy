@@ -273,12 +273,20 @@ test('marking a file viewed goes through gh', async () => {
   await expect.poll(async () => (await loggedActions()).map((l) => l.action)).toEqual([{ type: 'viewed', path: 'src/lib/gtin.ts', viewed: true }])
 })
 
-test('Ouvrir le diff complet dans Code switches to Code', async () => {
+test('Ouvrir le diff complet dans Code switches to Code, compared against the PR base', async () => {
+  git(repo.path, 'branch', 'other')
   await launch()
   await openPr()
+  // another comparison picked earlier in Code must not stay on
+  await nav().getByRole('button', { name: 'Code' }).click()
+  const picker = page.getByRole('combobox', { name: 'Branche de comparaison' })
+  await expect(picker.locator('option', { hasText: 'other' })).toHaveCount(1)
+  await picker.selectOption('other')
+  await prTab().click()
   await page.getByRole('tab', { name: /Fichiers/ }).click()
   await page.getByRole('button', { name: 'Ouvrir le diff complet dans Code' }).click()
   await expect(nav().getByRole('button', { name: 'Code' })).toHaveAttribute('aria-current', 'page')
+  await expect(picker).toHaveValue('main')
 })
 
 test('the Commits tab lists the commits', async () => {

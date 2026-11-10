@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import type { CheckOutcome, PrCheck, PrDetail } from '../../shared/pr'
-import { useApp } from '../store'
 import { ago, checksSummary, plural } from './mergeModel'
-import { act, fixCheck, usePr } from './prStore'
+import { act, fixCheck, openPrDiff, rerunFailed, usePr } from './prStore'
 
 const duration = (ms: number | null): string => {
   if (ms === null) return ''
@@ -104,15 +103,12 @@ export function ChecksTab({ pr }: { pr: PrDetail }): React.JSX.Element {
   const failing = pr.checks.filter((c) => c.outcome === 'failure')
   // One rerun per workflow run: its failed jobs all restart together.
   const runs = [...new Set(failing.flatMap((c) => (c.run ? [c.run.runId] : [])))]
-  const rerunAll = async (): Promise<void> => {
-    for (const runId of runs) await act({ type: 'rerun', runId, jobId: null })
-  }
   return (
     <div className="pr-card" data-testid="pr-checks">
       <div className="pr-card-head">
         <b>{checksSummary(pr.checks)}</b>
         {runs.length > 0 && (
-          <button className="pr-btn pr-small pr-push" disabled={busy !== null} onClick={() => void rerunAll()}>Relancer les échecs</button>
+          <button className="pr-btn pr-small pr-push" disabled={busy !== null} onClick={() => void rerunFailed(runs)}>Relancer les échecs</button>
         )}
       </div>
       {pr.checks.map((c) => <CheckRow key={`${c.name}-${c.run?.jobId ?? ''}`} pr={pr} check={c} />)}
@@ -123,19 +119,14 @@ export function ChecksTab({ pr }: { pr: PrDetail }): React.JSX.Element {
 
 export function FilesTab({ pr }: { pr: PrDetail }): React.JSX.Element {
   const busy = usePr((s) => s.busy)
-  const cwd = usePr((s) => s.cwd)
   const viewed = pr.files.filter((f) => f.viewed).length
   const threads = (path: string): number => pr.timeline.filter((i) => i.kind === 'thread' && i.thread.path === path).length
   const n = pr.files.length
-  const openDiff = (): void => {
-    if (!cwd || n === 0) return
-    useApp.getState().openInCode(cwd, pr.files[0].path, 'diff')
-  }
   return (
     <div className="pr-card" data-testid="pr-files">
       <div className="pr-card-head">
         <b>{plural(n, 'fichier', 'modifié')} · {viewed} vus</b>
-        <button className="pr-btn pr-small pr-push" disabled={n === 0} onClick={openDiff}>Ouvrir le diff complet dans Code</button>
+        <button className="pr-btn pr-small pr-push" disabled={n === 0} onClick={() => void openPrDiff(pr)}>Ouvrir le diff complet dans Code</button>
       </div>
       {pr.files.map((f) => {
         const c = threads(f.path)
