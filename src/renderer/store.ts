@@ -6,7 +6,7 @@ import { defaultEntry, mergeScan, repoWorktrees, worktreeLabel } from './shell/w
 
 export { worktreeLabel }
 
-export type View = 'sessions' | 'code' | 'tickets' | 'mockups' | 'deps'
+export type View = 'sessions' | 'code' | 'pr' | 'tickets' | 'mockups' | 'deps'
 
 /** A dialog a shortcut can open from any screen. */
 export type AppDialog = 'new-worktree' | 'new-ticket' | 'shortcuts'

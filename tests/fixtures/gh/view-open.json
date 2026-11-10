@@ -1,0 +1,338 @@
+{
+  "data": {
+    "viewer": {
+      "login": "BastienPailloux"
+    },
+    "repository": {
+      "owner": {
+        "login": "BastienPailloux"
+      },
+      "name": "canopy",
+      "squashMergeAllowed": true,
+      "mergeCommitAllowed": true,
+      "rebaseMergeAllowed": false,
+      "autoMergeAllowed": true,
+      "pullRequest": {
+        "id": "PR_kwDOVmYqg88AAAABNrYXoA",
+        "number": 8,
+        "url": "https://github.com/BastienPailloux/canopy/pull/8",
+        "title": "feat(sessions): start new sessions in the mode last picked, auto by default",
+        "body": "## Summary\n- New session tabs start in **auto** mode.\n- The mode picked in the selector is remembered (localStorage, like panel widths) and applies to every session started afterwards, and to tabs open but not started yet. Running sessions keep their mode.\n- A mode the session switches to on its own (plan approved) is not remembered; a reattached running session keeps its real mode.\n\n## Tests\n- `npm run typecheck` passes.\n- Unit: `tests/renderer/modePreference.test.ts` and new cases in `tests/renderer/sessionStore.test.ts`. Full suite: 1047/1050; the 3 failures are timeouts in `tests/main/code/lsp.test.ts` (untouched), which pass when that file is rerun alone.\n- E2E: new spec in `tests/e2e/sessions.spec.ts` (auto by default, picked mode kept in a new tab and after relaunch). On the full 13 min run of that file, 5 tests failed, including the new one; all 5 pass when rerun on their own. The cause was not confirmed (likely load). Other E2E files not run.\n- Not checked with a real Claude session: only the fake SDK.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+        "state": "OPEN",
+        "isDraft": false,
+        "createdAt": "2026-11-08T16:08:54Z",
+        "baseRefName": "develop",
+        "headRefName": "feat/default-session-mode",
+        "headRefOid": "7f65fa200879ac3689b62436fc8bd7156f3bc198",
+        "additions": 122,
+        "deletions": 2,
+        "reviewDecision": "REVIEW_REQUIRED",
+        "mergeStateStatus": "BLOCKED",
+        "autoMergeRequest": null,
+        "author": {
+          "__typename": "User",
+          "login": "BastienPailloux"
+        },
+        "assignees": {
+          "nodes": [
+            {
+              "login": "BastienPailloux"
+            }
+          ]
+        },
+        "labels": {
+          "nodes": [
+            {
+              "name": "enhancement"
+            }
+          ]
+        },
+        "reviewRequests": {
+          "nodes": [
+            {
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "octocat"
+              }
+            },
+            {
+              "requestedReviewer": {
+                "__typename": "Team",
+                "slug": "core",
+                "organization": {
+                  "login": "acme"
+                }
+              }
+            }
+          ]
+        },
+        "latestReviews": {
+          "nodes": [
+            {
+              "state": "COMMENTED",
+              "author": {
+                "__typename": "Bot",
+                "login": "copilot-pull-request-reviewer"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "totalCount": 1,
+          "nodes": [
+            {
+              "id": "PRRT_kwDOVmYqg861CfNO",
+              "path": "src/renderer/sessions/sessionStore.ts",
+              "line": null,
+              "startLine": null,
+              "isResolved": true,
+              "isOutdated": true,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOVmYqg88AAAABDKNI6Q",
+                    "databaseId": 4506994921,
+                    "body": "`openSession` creates a tab with a `sessionId` but no `localId`, and explicitly documents that it does not start until the next message. This condition excludes that tab from the new preference propagation, so changing the selector in another tab leaves a not-yet-started resumed session with its old mode; the next resume does not use the latest picked mode. Treat tabs without a running `localId` as pending here (while the existing `localId` check still protects running sessions).",
+                    "createdAt": "2026-11-08T16:52:16Z",
+                    "diffHunk": "@@ -346,8 +347,14 @@ export function interrupt(id: string): void {\n   })\n }\n \n+/** The user's pick: it applies to this tab and to every session started afterwards. */\n export function setMode(id: string, mode: PermissionMode): void {\n+  rememberMode(mode)\n   patchTab(id, { mode })\n+  // Tabs never started are sessions to come: they follow the latest pick too.\n+  for (const t of Object.values(useSessions.getState().tabs)) {\n+    if (t.id !== id && !t.localId && !t.sessionId && t.mode !== mode) patchTab(t.id, { mode })",
+                    "author": {
+                      "__typename": "Bot",
+                      "login": "copilot-pull-request-reviewer"
+                    }
+                  },
+                  {
+                    "id": "PRRC_kwDOVmYqg88AAAABDKUsSQ",
+                    "databaseId": 4507118665,
+                    "body": "Fixed in 7f65fa2: every tab without a running process (`localId`) now follows the latest pick, reopened sessions included. Running sessions keep their mode. Covered by a new test in `sessionStore.test.ts`.",
+                    "createdAt": "2026-11-08T17:33:18Z",
+                    "diffHunk": "@@ -346,8 +347,14 @@ export function interrupt(id: string): void {\n   })\n }\n \n+/** The user's pick: it applies to this tab and to every session started afterwards. */\n export function setMode(id: string, mode: PermissionMode): void {\n+  rememberMode(mode)\n   patchTab(id, { mode })\n+  // Tabs never started are sessions to come: they follow the latest pick too.\n+  for (const t of Object.values(useSessions.getState().tabs)) {\n+    if (t.id !== id && !t.localId && !t.sessionId && t.mode !== mode) patchTab(t.id, { mode })",
+                    "author": {
+                      "__typename": "User",
+                      "login": "BastienPailloux"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "filteredCount": 4,
+          "nodes": [
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "1f069c2849157f2bb7424c286a53e5f6f6033fb9",
+                "committedDate": "2026-11-08T16:08:50Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestReview",
+              "state": "COMMENTED",
+              "body": "<!-- ccr-overview-v2 -->\n\n### 🟡 Changes recommended\n\nA moderate active issue remains because preference changes do not propagate to resumed sessions that have a sessionId but no running localId, leaving their next resume with the stale mode.\n\n<details open>\n<summary><strong>1 open issue</strong></summary>\n\n- <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-dark.svg\"><source media=\"(prefers-color-scheme: light)\" srcset=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.svg\"><img src=\"https://github.githubassets.com/static/images/icons/copilot-code-review/medium-v2-light.png\" alt=\"Medium severity\" width=\"62\" height=\"18\" align=\"texttop\"></picture> [Propagate mode changes to pending resumed sessions](https://github.com/BastienPailloux/canopy/pull/8#discussion_r4506994921) · New\n</details>\n\n<details>\n<summary><strong>What changed in this PR</strong></summary>\n\nThis pull request persists the selected session mode, defaults new sessions to `auto`, and applies the remembered mode to subsequently started or pending sessions while preserving running-session modes.\n\n**Changes:**\n- Adds localStorage-backed mode preference handling with validation and `auto` fallback.\n- Applies the preferred mode when creating sessions and updating pending tabs.\n- Adds renderer unit tests and E2E coverage for defaults, propagation, and relaunch persistence.\n\nThis pull request requires changes.\n\n| File | Description |\r\n| --- | --- |\r\n| `tests/​renderer/​sessionStore.test.ts` | Tests mode initialization, propagation, running-session behavior, and startup payloads. |\r\n| `tests/​renderer/​modePreference.test.ts` | Tests preference persistence, validation, and storage fallbacks. |\r\n| `tests/​e2e/​sessions.spec.ts` | Verifies mode selection across new tabs and application relaunches. |\r\n| `src/​renderer/​sessions/​sessionStore.ts` | Initializes tabs from the preference and propagates user selections to pending sessions. |\r\n| `src/​renderer/​sessions/​modePreference.ts` | Stores and retrieves the preferred session mode. |\n</details>\n\n<sub>Review effort: Lite</sub>",
+              "createdAt": "2026-11-08T16:52:16Z",
+              "submittedAt": "2026-11-08T16:52:16Z",
+              "author": {
+                "__typename": "Bot",
+                "login": "copilot-pull-request-reviewer"
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "oid": "7f65fa200879ac3689b62436fc8bd7156f3bc198",
+                "committedDate": "2026-11-08T17:33:14Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                }
+              }
+            },
+            {
+              "__typename": "IssueComment",
+              "id": "IC_kwDOVmYqg87fake01",
+              "databaseId": 3500000001,
+              "body": "Rebased on develop, the e2e failure is being looked at.\n\n— Claude via Canopy",
+              "createdAt": "2026-11-08T17:40:00Z",
+              "author": {
+                "__typename": "User",
+                "login": "BastienPailloux"
+              }
+            }
+          ]
+        },
+        "commits": {
+          "totalCount": 2,
+          "nodes": [
+            {
+              "commit": {
+                "oid": "1f069c2849157f2bb7424c286a53e5f6f6033fb9",
+                "message": "feat(sessions): start new sessions in the mode last picked, auto by default\n\nThe mode picked in the selector is remembered and applies to every session\nstarted afterwards, including tabs open but not started yet. A mode the\nsession switches to on its own (a plan approved) is not remembered.\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T16:08:50Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": {
+                  "state": "SUCCESS"
+                }
+              }
+            },
+            {
+              "commit": {
+                "oid": "7f65fa200879ac3689b62436fc8bd7156f3bc198",
+                "message": "fix(sessions): apply the picked mode to reopened sessions not restarted yet\n\nCo-Authored-By: Claude Opus 5.5 <user@example.com>",
+                "committedDate": "2026-11-08T17:33:14Z",
+                "author": {
+                  "name": "Bastien Pailloux",
+                  "user": {
+                    "login": "BastienPailloux"
+                  }
+                },
+                "statusCheckRollup": {
+                  "state": "FAILURE"
+                }
+              }
+            }
+          ]
+        },
+        "lastCommit": {
+          "nodes": [
+            {
+              "commit": {
+                "oid": "7f65fa200879ac3689b62436fc8bd7156f3bc198",
+                "committedDate": "2026-11-08T17:33:14Z",
+                "statusCheckRollup": {
+                  "state": "FAILURE",
+                  "contexts": {
+                    "totalCount": 4,
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "databaseId": 55500000001,
+                        "name": "unit",
+                        "title": null,
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "startedAt": "2026-11-08T17:33:30Z",
+                        "completedAt": "2026-11-08T17:35:00Z",
+                        "detailsUrl": "https://github.com/BastienPailloux/canopy/actions/runs/19000000001/job/55500000001",
+                        "checkSuite": {
+                          "app": {
+                            "name": "GitHub Actions"
+                          },
+                          "workflowRun": {
+                            "databaseId": 19000000001,
+                            "workflow": {
+                              "name": "CI"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "databaseId": 55500000002,
+                        "name": "e2e",
+                        "title": null,
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "startedAt": "2026-11-08T17:33:30Z",
+                        "completedAt": "2026-11-08T17:37:12Z",
+                        "detailsUrl": "https://github.com/BastienPailloux/canopy/actions/runs/19000000001/job/55500000002",
+                        "checkSuite": {
+                          "app": {
+                            "name": "GitHub Actions"
+                          },
+                          "workflowRun": {
+                            "databaseId": 19000000001,
+                            "workflow": {
+                              "name": "CI"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "databaseId": 55500000003,
+                        "name": "Greptile Review",
+                        "title": "Review completed",
+                        "status": "COMPLETED",
+                        "conclusion": "NEUTRAL",
+                        "startedAt": "2026-11-08T17:33:20Z",
+                        "completedAt": "2026-11-08T17:36:00Z",
+                        "detailsUrl": "https://app.greptile.com/review/fake",
+                        "checkSuite": {
+                          "app": {
+                            "name": "Greptile Apps"
+                          },
+                          "workflowRun": null
+                        }
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "deploy/preview",
+                        "description": "Waiting for build",
+                        "state": "PENDING",
+                        "targetUrl": null
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "files": {
+          "totalCount": 5,
+          "nodes": [
+            {
+              "path": "src/renderer/sessions/modePreference.ts",
+              "changeType": "ADDED",
+              "additions": 20,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "src/renderer/sessions/sessionStore.ts",
+              "changeType": "MODIFIED",
+              "additions": 8,
+              "deletions": 1,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/e2e/sessions.spec.ts",
+              "changeType": "MODIFIED",
+              "additions": 11,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/renderer/modePreference.test.ts",
+              "changeType": "ADDED",
+              "additions": 36,
+              "deletions": 0,
+              "viewerViewedState": "UNVIEWED"
+            },
+            {
+              "path": "tests/renderer/sessionStore.test.ts",
+              "changeType": "MODIFIED",
+              "additions": 47,
+              "deletions": 1,
+              "viewerViewedState": "UNVIEWED"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

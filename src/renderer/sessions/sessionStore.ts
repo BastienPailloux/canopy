@@ -343,6 +343,13 @@ async function deliver(tab: SessionTab, content: UserContent): Promise<boolean> 
 export function askClaude(cwd: string, text: string): string {
   const current = tabOf(useSessions.getState().active[cwd])
   const id = current && isDraftEmpty(current.draft) ? current.id : newTab(cwd)
+  return sendIn(id, text)
+}
+
+/** Like `askClaude`, but always in a new session: the PR tab follows that session's state. Resolves the new tab. */
+export const askClaudeInNewTab = (cwd: string, text: string): string => sendIn(newTab(cwd), text)
+
+function sendIn(id: string, text: string): string {
   setDraftText(id, text)
   void submit(id)
   return id

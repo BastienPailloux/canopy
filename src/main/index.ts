@@ -11,6 +11,7 @@ import { TicketStore } from './tickets/store'
 import { localBranches } from './tickets/ticketIpc'
 import { openExternalUrl } from './externalLinks'
 import { isConfigTrusted } from './repoTrust'
+import { selectPrGateway } from './github/fakeGateway'
 import { listDepsRepos, registerDepsIpc } from './deps/depsIpc'
 import { checkRepo } from './deps/check'
 import { depsFirstPassDelay, selectDepsHttp } from './deps/replay'
@@ -207,7 +208,7 @@ void app.whenReady().then(async () => {
   })
   registerIpc(store, sessions, lsp, terminals, (counts) => { unsaved = counts }, () => openFolders.take(),
     selectAccountRunner(claudeAuthRunner({ executable: claudeExecutablePath, env: currentEnv }), { isPackaged: app.isPackaged, env: process.env }),
-    tickets, mockups,
+    tickets, mockups, selectPrGateway({ isPackaged: app.isPackaged, env: process.env }),
     () => { void depsHooks?.onRecentReposChanged().catch((e: unknown) => { console.error('deps check of a new repo failed', e) }) })
   const launchDeps = {
     tickets, store,

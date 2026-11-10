@@ -1,0 +1,249 @@
+{
+  "detail": {
+    "number": 87,
+    "url": "https://github.com/acme/passports/pull/87",
+    "title": "feat(products): look up passports by GTIN",
+    "body": "Adds `GET /products/:gtin` to look a product passport up by its GTIN.\n\n- checksum validation\n- 404 for unknown GTIN",
+    "state": "open",
+    "author": {
+      "login": "basti",
+      "bot": false
+    },
+    "createdAt": "2026-11-07T15:30:00Z",
+    "base": "main",
+    "head": "feat/gtin-lookup",
+    "headOid": "a3f9c2e81d4b7a6c5e0f1b2d3c4a5e6f7a8b9c0d",
+    "additions": 146,
+    "deletions": 12,
+    "viewerIsAuthor": true,
+    "viewerLogin": "basti",
+    "timeline": [
+      {
+        "kind": "push",
+        "at": "2026-11-07T15:31:00Z",
+        "author": {
+          "login": "basti",
+          "bot": false
+        },
+        "count": 3
+      },
+      {
+        "kind": "review",
+        "at": "2026-11-08T08:40:00Z",
+        "author": {
+          "login": "camille-r",
+          "bot": false
+        },
+        "state": "APPROVED",
+        "body": "Looks good to me."
+      },
+      {
+        "kind": "thread",
+        "at": "2026-11-08T09:12:00Z",
+        "thread": {
+          "id": "PRRT_kwDOgtin1",
+          "path": "src/routes/products.ts",
+          "line": 20,
+          "startLine": 19,
+          "diffHunk": "@@ -15,6 +15,12 @@ router.get('/products/:gtin', async (req, res) => {\n   const { gtin } = req.params\n+  if (!isValidGtin(gtin)) return res.status(422).json({ error: 'invalid gtin' })\n+  const passport = await findByGtin(gtin)\n+  if (!passport) return res.status(404).json({ error: 'not found' })",
+          "resolved": false,
+          "outdated": false,
+          "comments": [
+            {
+              "id": "RC_1",
+              "databaseId": 501,
+              "author": {
+                "login": "theo-m",
+                "bot": false
+              },
+              "body": "Should an unknown GTIN return 404 rather than 422? The route validates the checksum before the lookup.",
+              "createdAt": "2026-11-08T09:12:00Z"
+            },
+            {
+              "id": "RC_2",
+              "databaseId": 502,
+              "author": {
+                "login": "basti",
+                "bot": false
+              },
+              "body": "Good catch, the checksum guard now runs after the lookup.\n\n— Claude via Canopy",
+              "createdAt": "2026-11-08T10:02:00Z"
+            }
+          ]
+        }
+      },
+      {
+        "kind": "comment",
+        "at": "2026-11-08T11:20:00Z",
+        "comment": {
+          "id": "IC_1",
+          "databaseId": 601,
+          "author": {
+            "login": "theo-m",
+            "bot": false
+          },
+          "body": "Thanks, can you also document the new route in the README?",
+          "createdAt": "2026-11-08T11:20:00Z"
+        }
+      },
+      {
+        "kind": "ci",
+        "at": "2026-11-08T12:00:00Z",
+        "sha": "a3f9c2e",
+        "outcome": "failure"
+      }
+    ],
+    "commits": [
+      {
+        "oid": "1a2b3c4d5e6f",
+        "message": "feat(products): add gtin lookup route",
+        "author": "basti",
+        "at": "2026-11-07T15:00:00Z",
+        "outcome": "success"
+      },
+      {
+        "oid": "2b3c4d5e6f7a",
+        "message": "test(products): cover unknown gtin",
+        "author": "basti",
+        "at": "2026-11-07T15:20:00Z",
+        "outcome": "success"
+      },
+      {
+        "oid": "a3f9c2e81d4b",
+        "message": "fix(products): validate the checksum",
+        "author": "basti",
+        "at": "2026-11-08T11:50:00Z",
+        "outcome": "failure"
+      }
+    ],
+    "checks": [
+      {
+        "name": "e2e · products",
+        "detail": "GitHub Actions",
+        "outcome": "failure",
+        "durationMs": 184000,
+        "url": "https://github.com/acme/passports/actions/runs/4001/job/4002",
+        "run": {
+          "runId": 4001,
+          "jobId": 4002
+        }
+      },
+      {
+        "name": "greptile review",
+        "detail": "Greptile",
+        "outcome": "success",
+        "durationMs": null,
+        "url": "https://greptile.com/review/87",
+        "run": null
+      }
+    ],
+    "files": [
+      {
+        "path": "src/routes/products.ts",
+        "change": "M",
+        "additions": 48,
+        "deletions": 6,
+        "viewed": false
+      },
+      {
+        "path": "src/lib/gtin.ts",
+        "change": "A",
+        "additions": 52,
+        "deletions": 0,
+        "viewed": false
+      },
+      {
+        "path": "tests/e2e/products.spec.ts",
+        "change": "A",
+        "additions": 31,
+        "deletions": 0,
+        "viewed": false
+      },
+      {
+        "path": "src/routes/index.ts",
+        "change": "M",
+        "additions": 4,
+        "deletions": 2,
+        "viewed": false
+      },
+      {
+        "path": "README.md",
+        "change": "M",
+        "additions": 11,
+        "deletions": 4,
+        "viewed": false
+      }
+    ],
+    "reviewers": [
+      {
+        "login": "camille-r",
+        "kind": "user",
+        "status": "approved"
+      },
+      {
+        "login": "theo-m",
+        "kind": "user",
+        "status": "commented"
+      }
+    ],
+    "assignees": [
+      "basti"
+    ],
+    "labels": [
+      "feature",
+      "api"
+    ],
+    "reviewDecision": "REVIEW_REQUIRED",
+    "mergeStateStatus": "UNSTABLE",
+    "autoMerge": false,
+    "repo": {
+      "owner": "acme",
+      "name": "passports",
+      "methods": [
+        "squash",
+        "merge",
+        "rebase"
+      ],
+      "autoMergeAllowed": true
+    },
+    "truncated": {
+      "timeline": 0,
+      "commits": 0,
+      "files": 0,
+      "checks": 0
+    }
+  },
+  "options": {
+    "labels": [
+      "feature",
+      "api",
+      "bug",
+      "docs"
+    ],
+    "assignable": [
+      "basti",
+      "camille-r",
+      "theo-m"
+    ],
+    "suggested": [
+      {
+        "login": "camille-r",
+        "kind": "user",
+        "hint": "A modifié ces fichiers"
+      },
+      {
+        "login": "theo-m",
+        "kind": "user",
+        "hint": "A commenté"
+      },
+      {
+        "login": "acme/core",
+        "kind": "team",
+        "hint": "Équipe"
+      }
+    ]
+  },
+  "branchStates": {
+    "feat/other": "open"
+  }
+}

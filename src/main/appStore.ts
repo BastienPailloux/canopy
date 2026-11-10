@@ -1,10 +1,12 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute } from 'node:path'
 import type { CanopyConfig } from '../shared/api'
 import type { LinearLink } from '../shared/linear'
+import type { AutoMergeEntry } from '../shared/pr'
 import { validateConfig } from './terminal/config'
 
 const MAX_RECENT = 10
+const MAX_BRANCH_HISTORY = 50
 
 /** The part of Electron's `safeStorage` the store needs (the macOS keychain). */
 export interface SecretCipher {
@@ -35,6 +37,10 @@ interface State {
   branchBases: Record<string, Record<string, string>>
   /** Launched Linear issues, by main worktree root then issue id. */
   linearLinks: Record<string, Record<string, LinearLink>>
+  /** Branches checked out in each worktree, most recent last. */
+  branchHistory: Record<string, string[]>
+  /** Auto-merges enabled from the PR tab and still pending, by worktree. */
+  autoMerges: Record<string, AutoMergeEntry>
   /** « Tester la PR » config set in the settings, by main worktree root. Replaces `.canopy/config.json`. */
   launchConfigs: Record<string, CanopyConfig>
   /** Worktree last selected in each recent folder. */
@@ -53,7 +59,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /** Validates each field on its own: a bad field resets to its default, the rest is kept. */
 function sanitize(raw: unknown): State {
-  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, launchConfigs: {}, lastEntries: {}, prefs: {} }
+  const state: State = { recentRepos: [], approvedConfigs: {}, ports: {}, repoBases: {}, branchBases: {}, linearLinks: {}, branchHistory: {}, autoMerges: {}, launchConfigs: {}, lastEntries: {}, prefs: {} }
   if (!isRecord(raw)) return state
   if (Array.isArray(raw.recentRepos)) {
     state.recentRepos = [...new Set(raw.recentRepos.filter((r): r is string => typeof r === 'string'))].slice(0, MAX_RECENT)
@@ -91,6 +97,21 @@ function sanitize(raw: unknown): State {
         }
       }
       if (Object.keys(clean).length > 0) state.linearLinks[root] = clean
+    }
+  }
+  if (isRecord(raw.branchHistory)) {
+    for (const [wt, branches] of Object.entries(raw.branchHistory)) {
+      if (!isAbsolute(wt) || !Array.isArray(branches)) continue
+      const clean = [...new Set(branches.filter((b): b is string => typeof b === 'string' && b !== ''))].slice(-MAX_BRANCH_HISTORY)
+      if (clean.length > 0) state.branchHistory[wt] = clean
+    }
+  }
+  if (isRecord(raw.autoMerges)) {
+    for (const [wt, e] of Object.entries(raw.autoMerges)) {
+      if (isAbsolute(wt) && isRecord(e) && typeof e.number === 'number' && Number.isSafeInteger(e.number) && e.number > 0 &&
+        typeof e.branch === 'string' && e.branch !== '' && typeof e.headOid === 'string' && e.headOid !== '' && typeof e.cleanup === 'boolean') {
+        state.autoMerges[wt] = { number: e.number, branch: e.branch, headOid: e.headOid, cleanup: e.cleanup }
+      }
     }
   }
   if (isRecord(raw.launchConfigs)) {
@@ -206,6 +227,40 @@ export class AppStore {
     else links.set(id, { ...link })
     if (links.size === 0) delete this.state.linearLinks[root]
     else this.state.linearLinks[root] = Object.fromEntries(links)
+    this.save()
+  }
+
+  /** Notes `branch` as the latest checked out in `worktree`. */
+  recordBranch(worktree: string, branch: string): void {
+    const known = this.branchHistory(worktree)
+    // worktree:list records on every poll: do not rewrite the file when nothing changed.
+    if (known[known.length - 1] === branch) return
+    const history = known.filter((b) => b !== branch)
+    history.push(branch)
+    this.state.branchHistory[worktree] = history.slice(-MAX_BRANCH_HISTORY)
+    this.save()
+  }
+
+  branchHistory(worktree: string): string[] {
+    return Object.hasOwn(this.state.branchHistory, worktree) ? [...this.state.branchHistory[worktree]] : []
+  }
+
+  forgetBranchHistory(worktree: string): void {
+    if (!Object.hasOwn(this.state.branchHistory, worktree)) return
+    delete this.state.branchHistory[worktree]
+    this.save()
+  }
+
+  get autoMerges(): Record<string, AutoMergeEntry> { return { ...this.state.autoMerges } }
+
+  /** Remembers the auto-merge enabled in `worktree`, or forgets it with null. */
+  setAutoMerge(worktree: string, entry: AutoMergeEntry | null): void {
+    if (entry === null) {
+      if (!Object.hasOwn(this.state.autoMerges, worktree)) return
+      delete this.state.autoMerges[worktree]
+    } else {
+      this.state.autoMerges[worktree] = { ...entry }
+    }
     this.save()
   }
 

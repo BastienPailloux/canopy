@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -268,6 +268,17 @@ describe('askClaude', () => {
     askClaude(CWD, 'bonjour')
     await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
     expect(api.startSession.mock.calls[0][1]).toMatchObject({ content: { text: 'bonjour' } })
+  })
+
+  it('askClaudeInNewTab never reuses an empty current tab', async () => {
+    ensureTab(CWD)
+    const empty = activeTab().id
+    const id = askClaudeInNewTab(CWD, 'corrige le fil')
+    expect(id).not.toBe(empty)
+    expect(tabs()).toHaveLength(2)
+    expect(activeTab().id).toBe(id)
+    await vi.waitFor(() => expect(api.startSession).toHaveBeenCalledTimes(1))
+    expect(api.startSession.mock.calls[0][1]).toMatchObject({ content: { text: 'corrige le fil' } })
   })
 
   it('leaves a half-typed draft alone and uses a new tab', async () => {
