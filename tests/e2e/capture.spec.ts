@@ -67,10 +67,17 @@ test('a recording is attached as one chip and sent with its frames', async () =>
 
 test('a cancelled selection attaches nothing', async () => {
   await launch('cancel')
+  // What main sent back, seen from the page: proof that each cancel arrived before the next capture starts.
+  await page.evaluate(() => {
+    const w = window as unknown as { __captures: string[] }
+    w.__captures = []
+    window.canopy.on('capture:done', (r) => { w.__captures.push((r as { kind: string }).kind) })
+  })
+  const captures = (): Promise<string[]> => page.evaluate(() => (window as unknown as { __captures: string[] }).__captures)
   await capture("Capture d'écran")
+  await expect.poll(captures).toEqual(['cancelled'])
   await capture('Enregistrer')
-  // Both round trips are over once the menu can open again with nothing attached.
-  await expect(page.getByRole('button', { name: "Capturer l'écran" })).toBeEnabled()
+  await expect.poll(captures).toEqual(['cancelled', 'cancelled'])
   await expect(page.getByTestId('draft-recording')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Retirer/ })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Envoyer/ })).toBeDisabled()

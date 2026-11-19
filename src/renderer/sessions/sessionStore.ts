@@ -6,6 +6,7 @@ import type { Recording } from '../../shared/recording'
 import { isRepoNotTrusted } from '../../shared/errors'
 import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
+import { useApp } from '../store'
 import { preferredMode, rememberMode } from './modePreference'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
 
@@ -49,8 +50,8 @@ interface SessionsState {
   focusRequest: { cwd: string; dictate: boolean; seq: number } | null
   /** The permission a finished capture needs explained. */
   captureDialog: 'screen' | 'clicks' | null
-  /** Why the last capture attached nothing. */
-  captureError: string | null
+  /** Why the last capture attached nothing, for the composer of `tabId` only. */
+  captureError: { tabId: string; message: string } | null
 }
 
 export const NEW_SESSION_TITLE = 'Nouvelle session'
@@ -194,7 +195,18 @@ export function startCaptureIn(cwd: string, kind: CaptureKind): void {
 
 export function startCaptureFor(tabId: string, kind: CaptureKind): void {
   useSessions.setState({ captureError: null })
-  window.canopy.startCapture(kind, tabId).catch((e: unknown) => useSessions.setState({ captureError: errorText(e) }))
+  window.canopy.startCapture(kind, tabId).catch((e: unknown) => useSessions.setState({ captureError: { tabId, message: errorText(e) } }))
+}
+
+/** The capture error the composer of `tabId` shows, if it is the one concerned. */
+export const captureErrorOf = (s: Pick<SessionsState, 'captureError'>, tabId: string): string | null =>
+  s.captureError?.tabId === tabId ? s.captureError.message : null
+
+/** Where a capture's error shows: its own tab, or the one on screen when that tab is gone. */
+function captureErrorTab(tabId: string): string | undefined {
+  if (tabOf(tabId)) return tabId
+  const { worktree } = useApp.getState()
+  return worktree === null ? undefined : useSessions.getState().active[worktree]
 }
 
 /** Puts a finished capture in the draft of the tab that asked for it, and says what the UI must show. */
@@ -348,6 +360,7 @@ async function send(id: string): Promise<void> {
 
   const transcript = addUser(tabOf(id)?.transcript ?? tab.transcript, content)
   const sent = transcript.items.at(-1)
+  if (useSessions.getState().captureError?.tabId === id) useSessions.setState({ captureError: null })
   patchTab(id, (t) => ({
     transcript,
     draft: withoutSent(t.draft, tab.draft),
@@ -604,8 +617,10 @@ export function connectSessions(): () => void {
       if (tab) refreshCommands(tab)
     }),
     window.canopy.on('capture:done', (payload) => {
-      const { dialog, error } = attachCapture(payload as CaptureResult)
-      useSessions.setState({ captureDialog: dialog, captureError: error })
+      const r = payload as CaptureResult
+      const target = captureErrorTab(r.tabId)
+      const { dialog, error } = attachCapture(r)
+      useSessions.setState({ captureDialog: dialog, captureError: error !== null && target ? { tabId: target, message: error } : null })
     })
   ]
   void window.canopy.pendingPermissions().then((list) => list.forEach(addPermission), () => undefined)

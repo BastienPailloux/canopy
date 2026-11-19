@@ -2,8 +2,9 @@ import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
+import { useApp } from '../../src/renderer/store'
 import {
-  answerPermission, askClaude, attachCapture, connectSessions, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftRecordings, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, attachCapture, captureErrorOf, connectSessions, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftRecordings, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -515,16 +516,40 @@ describe('attachCapture', () => {
     expect(useSessions.getState().tabs).toBe(before)
   })
 
-  it('connectSessions shows what a finished capture asks for', () => {
+  it('connectSessions shows what a finished capture asks for, in the composer that launched it', () => {
     const handlers = new Map<string, (payload: unknown) => void>()
     const on = vi.fn((name: string, cb: (payload: unknown) => void) => { handlers.set(name, cb); return () => undefined })
     vi.stubGlobal('window', { canopy: { ...api, on, pendingPermissions: async () => [] } as unknown as CanopyApi })
     const stop = connectSessions()
     const tabId = tab()
+    const other = newTab('/other')
     handlers.get('capture:done')?.({ tabId, kind: 'needs-permission' })
     expect(useSessions.getState()).toMatchObject({ captureDialog: 'screen', captureError: null })
-    handlers.get('capture:done')?.({ tabId: 'gone', kind: 'cancelled' })
-    expect(useSessions.getState()).toMatchObject({ captureDialog: null, captureError: 'La session qui a lancé la capture a été fermée.' })
+    handlers.get('capture:done')?.({ tabId, kind: 'error', message: 'Écran introuvable' })
+    expect(captureErrorOf(useSessions.getState(), tabId)).toBe('Écran introuvable')
+    expect(captureErrorOf(useSessions.getState(), other)).toBeNull()
     stop()
+  })
+
+  it('a capture whose tab was closed is told in the composer on screen', () => {
+    const handlers = new Map<string, (payload: unknown) => void>()
+    const on = vi.fn((name: string, cb: (payload: unknown) => void) => { handlers.set(name, cb); return () => undefined })
+    vi.stubGlobal('window', { canopy: { ...api, on, pendingPermissions: async () => [] } as unknown as CanopyApi })
+    const stop = connectSessions()
+    const shown = tab()
+    const elsewhere = newTab('/other')
+    useApp.setState({ worktree: CWD })
+    handlers.get('capture:done')?.({ tabId: 'gone', kind: 'screenshot', image })
+    expect(captureErrorOf(useSessions.getState(), shown)).toBe('La session qui a lancé la capture a été fermée.')
+    expect(captureErrorOf(useSessions.getState(), elsewhere)).toBeNull()
+    stop()
+  })
+
+  it('a send from the tab clears its capture error', async () => {
+    const tabId = tab()
+    useSessions.setState({ captureError: { tabId, message: 'Écran introuvable' } })
+    setDraftText(tabId, 'bonjour')
+    await submit(tabId)
+    expect(useSessions.getState().captureError).toBeNull()
   })
 })

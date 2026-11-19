@@ -4,7 +4,7 @@ import { SESSION_MODES } from '../../shared/sessionOptions'
 import { displayKeys, SHORTCUTS, type ShortcutId } from '../../shared/shortcuts'
 import { ACCEPTED_TYPES, imageLimitError, readDocument, readImage, recordingLabel, sortFiles } from './attachments'
 import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
-import { interrupt, setDraftDocuments, setDraftImages, setDraftRecordings, setDraftText, setMode, setModel, startCaptureFor, submit, useSessions, warmUp, type SessionTab } from './sessionStore'
+import { captureErrorOf, interrupt, setDraftDocuments, setDraftImages, setDraftRecordings, setDraftText, setMode, setModel, startCaptureFor, submit, useSessions, warmUp, type SessionTab } from './sessionStore'
 
 /** Until a session can list its own models. */
 const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
@@ -107,7 +107,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const picker = useRef<HTMLInputElement>(null)
   const documents = draft.documents ?? []
   const recordings = draft.recordings ?? []
-  const captureError = useSessions((s) => s.captureError)
+  const captureError = useSessions((s) => captureErrorOf(s, tab.id))
 
   const focusRequest = useSessions((s) => s.focusRequest)
   const dictate = (): void => {
