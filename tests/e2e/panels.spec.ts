@@ -104,3 +104,65 @@ test('the edges move with the keyboard', async () => {
   await page.keyboard.press('ArrowRight')
   expect(await width(sidebar)).toBeCloseTo(288, -1)
 })
+
+const showCode = async (): Promise<void> => {
+  await page.getByRole('navigation', { name: 'Vues' }).getByRole('button', { name: /^Code/ }).click()
+  await expect(page.getByRole('navigation', { name: 'Fichiers' })).toBeVisible()
+}
+
+// Playwright's keys reach the page, not the macOS menu: a shortcut is fired as the menu would, by clicking its entry.
+const press = async (id: string): Promise<void> => {
+  await app.evaluate(({ Menu }, itemId) => { Menu.getApplicationMenu()?.getMenuItemById(`shortcut:${itemId}`)?.click() }, id)
+}
+
+test('the file list is resized by its edge, folds into a strip when dragged too narrow, and comes back', async () => {
+  await showCode()
+  const files = page.getByRole('navigation', { name: 'Fichiers' })
+  const edge = page.getByRole('separator', { name: 'Largeur des fichiers' })
+  expect(await width(files)).toBeCloseTo(270, -1)
+
+  await drag(edge, 100)
+  expect(await width(files)).toBeCloseTo(370, -1)
+
+  await drag(edge, -400)
+  await expect(files).toBeHidden()
+  const strip = page.getByRole('button', { name: 'Afficher les fichiers', exact: true })
+  await strip.click()
+  expect(await width(files)).toBeCloseTo(370, -1)
+
+  // Folded again, the edge pulls it back out.
+  await drag(edge, -400)
+  await expect(files).toBeHidden()
+  await drag(page.getByRole('separator', { name: 'Largeur des fichiers' }), 300)
+  expect(await width(files)).toBeGreaterThanOrEqual(180)
+
+  await page.getByRole('separator', { name: 'Largeur des fichiers' }).dblclick()
+  expect(await width(files)).toBeCloseTo(270, -1)
+})
+
+test('⌘B shows Code in full screen, and ⌘B or the strip brings everything back', async () => {
+  const sidebar = page.getByRole('complementary', { name: 'Worktrees' })
+  const files = page.getByRole('navigation', { name: 'Fichiers' })
+  await press('code-focus')
+  await expect(page.getByTestId('code-totals')).toBeVisible()
+  await expect(sidebar).toBeHidden()
+  await expect(files).toBeHidden()
+  await expect(page.getByTestId('active-worktree')).toBeHidden()
+
+  await press('code-focus')
+  await expect(sidebar).toBeVisible()
+  await expect(files).toBeVisible()
+  await expect(page.getByTestId('active-worktree')).toBeVisible()
+
+  await press('code-focus')
+  await expect(sidebar).toBeHidden()
+  // Kept across a restart of the page.
+  await page.reload()
+  await expect(page.getByTestId('worktree').first()).toBeVisible({ timeout: 20_000 })
+  await press('view-code')
+  await expect(page.getByTestId('code-totals')).toBeVisible()
+  await expect(sidebar).toBeHidden()
+  await page.getByRole('button', { name: 'Afficher les fichiers et les worktrees' }).click()
+  await expect(sidebar).toBeVisible()
+  await expect(files).toBeVisible()
+})

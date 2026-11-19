@@ -17,7 +17,7 @@ test('a repo without a worktree greys what needs a worktree', () => {
   const menu = fakeMenu()
   applyShortcutContext(menu, { repo: true, worktree: false })
   const off = Object.entries(menu.items).filter(([, i]) => !i.enabled).map(([id]) => id).sort()
-  expect(off).toEqual(['shortcut:dictation', 'shortcut:new-session', 'shortcut:worktree-next', 'shortcut:worktree-previous'])
+  expect(off).toEqual(['shortcut:code-focus', 'shortcut:dictation', 'shortcut:new-session', 'shortcut:worktree-next', 'shortcut:worktree-previous'])
 })
 
 test('no menu, or a missing item, does not throw', () => {

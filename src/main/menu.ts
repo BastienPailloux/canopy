@@ -61,6 +61,7 @@ export function menuTemplate(o: MenuOptions): Electron.MenuItemConstructorOption
         { role: 'zoomIn', label: 'Zoom avant' },
         { role: 'zoomOut', label: 'Zoom arrière' },
         { type: 'separator' },
+        ...shortcuts('view'),
         { role: 'togglefullscreen', label: 'Plein écran' }
       ]
     },

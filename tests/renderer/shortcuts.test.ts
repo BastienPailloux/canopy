@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useSessions } from '../../src/renderer/sessions/sessionStore'
 import { useApp } from '../../src/renderer/store'
+import { useLayout } from '../../src/renderer/shell/layoutStore'
 import { connectShortcutContext, nextWorktree, runShortcut, showsSidebar, worktreeCycle, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
 import { SHORTCUTS } from '../../src/shared/shortcuts'
 import type { Workspace, WorkspaceEntry, Worktree } from '../../src/shared/types'
@@ -121,5 +122,27 @@ it('⇧⌘H closes the help it opened, and only that dialog', () => {
 })
 
 it('only Sessions and Code show the sidebar that holds the new worktree dialog', () => {
-  expect((['sessions', 'code', 'tickets', 'mockups', 'deps'] as const).filter(showsSidebar)).toEqual(['sessions', 'code'])
+  expect((['sessions', 'code', 'tickets', 'mockups', 'deps'] as const).filter((v) => showsSidebar(v, false))).toEqual(['sessions', 'code'])
+})
+
+it('Code in full screen hides the sidebar, Sessions keeps it', () => {
+  expect(showsSidebar('code', true)).toBe(false)
+  expect(showsSidebar('sessions', true)).toBe(true)
+})
+
+it('code-focus toggles Code in full screen, and shows Code from another screen', () => {
+  open()
+  useLayout.setState({ focus: false, treeRail: false })
+  runShortcut('code-focus', deps())
+  expect(useApp.getState().view).toBe('code')
+  expect(useLayout.getState().focus).toBe(true)
+  useLayout.setState({ treeRail: true })
+  runShortcut('code-focus', deps())
+  // Leaving full screen shows everything again, the file list included.
+  expect(useLayout.getState()).toMatchObject({ focus: false, treeRail: false })
+  useApp.setState({ view: 'sessions' })
+  useLayout.setState({ focus: true })
+  runShortcut('code-focus', deps())
+  expect(useApp.getState().view).toBe('code')
+  expect(useLayout.getState().focus).toBe(true)
 })
