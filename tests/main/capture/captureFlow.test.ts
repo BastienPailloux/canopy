@@ -232,6 +232,17 @@ describe('createCaptureFlow: one at a time', () => {
     expect(s.backend.screenshot).not.toHaveBeenCalled()
   })
 
+  it('reports a failing showMain and accepts the next capture', async () => {
+    const s = setup()
+    s.backend.showMain.mockImplementationOnce(() => { throw new Error('fenêtre') })
+    s.flow.start('screenshot', 'a')
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 'a', kind: 'error', message: 'fenêtre' }])
+    expect(s.flow.start('screenshot', 'b')).toBe(true)
+    await vi.waitFor(() => { if (s.emitted.length < 2) throw new Error('not yet') })
+    expect(s.emitted[1]).toMatchObject({ tabId: 'b', kind: 'screenshot' })
+  })
+
   it('accepts a new capture once the previous one is done', async () => {
     const s = setup({ select: null })
     s.flow.start('screenshot', 'a')

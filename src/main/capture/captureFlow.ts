@@ -97,7 +97,13 @@ export function createCaptureFlow(d: CaptureFlowDeps): { start(kind: CaptureKind
     start(kind, tabId) {
       if (running) return false
       running = true
-      void run(kind, tabId).then((r) => { running = false; d.emit(r) })
+      // A throw past run's own catch (showMain in its finally) must still free the flow and answer the tab.
+      void run(kind, tabId)
+        .catch((e: unknown): CaptureResult => ({ tabId, kind: 'error', message: e instanceof Error ? e.message : String(e) }))
+        .then((r) => {
+          running = false
+          try { d.emit(r) } catch (e) { console.error('capture:done failed', e) }
+        })
       return true
     },
     stop() { stopRecording?.() }
