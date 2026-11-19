@@ -1,6 +1,7 @@
 import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
+import type { Recording } from '../../shared/recording'
 import { isRepoNotTrusted } from '../../shared/errors'
 import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
@@ -70,7 +71,7 @@ const tabOfProcess = (localId: string): SessionTab | undefined =>
   Object.values(useSessions.getState().tabs).find((t) => t.localId === localId)
 
 const shortTitle = (c: UserContent): string =>
-  c.text.trim().split('\n')[0].slice(0, TITLE_LENGTH) || (c.images?.length ? 'Image' : c.documents?.[0]?.name ?? 'Image')
+  c.text.trim().split('\n')[0].slice(0, TITLE_LENGTH) || (c.images?.length ? 'Image' : c.recordings?.length ? 'Enregistrement' : c.documents?.[0]?.name ?? 'Image')
 
 function patchTab(id: string, patch: Partial<SessionTab> | ((tab: SessionTab) => Partial<SessionTab>)): void {
   useSessions.setState((s) => {
@@ -174,6 +175,10 @@ export function setDraftImages(id: string, change: (images: UserImage[]) => User
   patchTab(id, (t) => ({ draft: { ...t.draft, images: change(t.draft.images) } }))
 }
 
+export function setDraftRecordings(id: string, change: (recordings: Recording[]) => Recording[]): void {
+  patchTab(id, (t) => ({ draft: { ...t.draft, recordings: change(t.draft.recordings ?? []) } }))
+}
+
 function refreshCommands(tab: Pick<SessionTab, 'id' | 'localId'>): void {
   if (!tab.localId) return
   window.canopy.sessionCommands(tab.localId).then((commands) => patchTab(tab.id, { commands }), () => undefined)
@@ -255,12 +260,16 @@ function startError(e: unknown): string {
   return isRepoNotTrusted(e) ? "Ce dépôt n'est pas approuvé : la session n'a pas démarré." : errorText(e)
 }
 
+/** Leaves the field out when empty, like drafts stashed before recordings. */
+const keepRecordings = (recordings: Recording[]): { recordings?: Recording[] } => (recordings.length ? { recordings } : {})
+
 /** What is left once `sent` went: the trust check and file reads are async, so the draft may have grown meanwhile. */
 function withoutSent(draft: Draft, sent: Draft): Draft {
   return {
     text: draft.text === sent.text ? '' : draft.text,
     images: draft.images.filter((i) => !sent.images.includes(i)),
-    documents: (draft.documents ?? []).filter((d) => !sent.documents?.includes(d))
+    documents: (draft.documents ?? []).filter((d) => !sent.documents?.includes(d)),
+    ...keepRecordings((draft.recordings ?? []).filter((r) => !sent.recordings?.includes(r)))
   }
 }
 
@@ -269,7 +278,8 @@ function withSentBack(draft: Draft, sent: Draft): Draft {
   return {
     text: draft.text === '' ? sent.text : draft.text,
     images: [...sent.images, ...draft.images],
-    documents: [...(sent.documents ?? []), ...(draft.documents ?? [])]
+    documents: [...(sent.documents ?? []), ...(draft.documents ?? [])],
+    ...keepRecordings([...(sent.recordings ?? []), ...(draft.recordings ?? [])])
   }
 }
 
@@ -288,9 +298,9 @@ export async function submit(id: string): Promise<void> {
 async function send(id: string): Promise<void> {
   const tab = tabOf(id)
   if (!tab) return
-  const { text, images, documents = [] } = tab.draft
+  const { text, images, recordings = [], documents = [] } = tab.draft
   if (isDraftEmpty(tab.draft, true)) return
-  const content: UserContent = { text: text.trim(), ...(images.length ? { images } : {}), ...(documents.length ? { documents } : {}) }
+  const content: UserContent = { text: text.trim(), ...(images.length ? { images } : {}), ...(recordings.length ? { recordings } : {}), ...(documents.length ? { documents } : {}) }
 
   try {
     if (!tab.localId && !(await confirmTrust(tab.cwd))) return

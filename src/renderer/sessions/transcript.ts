@@ -1,5 +1,6 @@
 import type { SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { isAttachmentNote } from '../../shared/attachments'
+import { parseRecordingNote } from '../../shared/recording'
 import type { UserContent } from '../../shared/types'
 
 export type UserImage = NonNullable<UserContent['images']>[number]
@@ -7,8 +8,11 @@ export type UserImage = NonNullable<UserContent['images']>[number]
 /** A document sent, by name: its content stays with Claude. */
 export interface SentDocument { name: string }
 
+/** A screen recording sent: its key frames, in order. */
+export interface SentRecording { durationMs: number; frames: UserImage[] }
+
 export type TranscriptItem =
-  | { kind: 'user'; text: string; images: UserImage[]; documents?: SentDocument[] }
+  | { kind: 'user'; text: string; images: UserImage[]; recordings?: SentRecording[]; documents?: SentDocument[] }
   | { kind: 'assistant'; text: string; streaming: boolean }
   | {
     kind: 'tool'
@@ -163,20 +167,44 @@ function hostText(text: string): string | undefined {
   return HIDDEN.some((re) => re.test(text)) ? '' : undefined
 }
 
+const imageOf = (b: Block): UserImage[] =>
+  b.type === 'image' && b.source?.data ? [{ mediaType: b.source.media_type ?? 'image/png', base64: b.source.data }] : []
+
+/** A recording note takes the next `frames` image blocks as its frames; the other images stay loose. */
+function sortBlocks(blocks: Block[]): { texts: string[]; images: UserImage[]; recordings: SentRecording[] } {
+  const texts: string[] = []
+  const images: UserImage[] = []
+  const recordings: SentRecording[] = []
+  let owed: { recording: SentRecording; left: number } | undefined
+  for (const b of blocks) {
+    const note = b.type === 'text' && b.text ? parseRecordingNote(b.text) : null
+    if (note) {
+      const recording = { durationMs: note.durationMs, frames: [] }
+      recordings.push(recording)
+      owed = { recording, left: note.frames }
+    } else if (b.type === 'image') {
+      if (owed && owed.left > 0) {
+        owed.recording.frames.push(...imageOf(b))
+        owed.left--
+      } else images.push(...imageOf(b))
+    } else if (b.type === 'text' && b.text && !isAttachmentNote(b.text)) texts.push(b.text)
+  }
+  return { texts, images, recordings }
+}
+
 function onUser(t: Transcript, msg: LooseMessage): Transcript {
   const blocks = asBlocks(msg.message?.content)
   const next = blocks.filter((b) => b.type === 'tool_result').reduce(completeTool, t)
 
-  const text = blocks.flatMap((b) => (b.type === 'text' && b.text && !isAttachmentNote(b.text) ? [b.text] : [])).join('\n')
-  const images = blocks.flatMap((b): UserImage[] =>
-    b.type === 'image' && b.source?.data ? [{ mediaType: b.source.media_type ?? 'image/png', base64: b.source.data }] : [])
+  const { texts, images, recordings } = sortBlocks(blocks)
+  const text = texts.join('\n')
   const documents = blocks.flatMap((b): SentDocument[] => (b.type === 'document' ? [{ name: b.title ?? 'Document PDF' }] : []))
-  if (text === '' && images.length === 0 && documents.length === 0) return next
+  if (text === '' && images.length === 0 && recordings.length === 0 && documents.length === 0) return next
 
   const notice = hostText(text)
   if (notice !== undefined) return notice === '' ? next : addNotice(next, notice)
   if (msg.isSynthetic || msg.isReplay) return next
-  return append(next, { kind: 'user', text, images, ...(documents.length ? { documents } : {}) })
+  return append(next, { kind: 'user', text, images, ...(recordings.length ? { recordings } : {}), ...(documents.length ? { documents } : {}) })
 }
 
 function onSystem(t: Transcript, msg: LooseMessage): Transcript {
@@ -212,7 +240,11 @@ export function reduceTranscript(state: Transcript, msg: SDKMessage | SessionMes
 /** The stream does not echo what is sent, so the composer adds it. */
 export function addUser(t: Transcript, content: UserContent): Transcript {
   const documents = (content.documents ?? []).map((d) => ({ name: d.name }))
-  return append(t, { kind: 'user', text: content.text, images: content.images ?? [], ...(documents.length ? { documents } : {}) })
+  const recordings = (content.recordings ?? []).map((r) => ({
+    durationMs: r.durationMs,
+    frames: r.frames.map((f) => ({ mediaType: 'image/jpeg', base64: f.base64 }))
+  }))
+  return append(t, { kind: 'user', text: content.text, images: content.images ?? [], ...(recordings.length ? { recordings } : {}), ...(documents.length ? { documents } : {}) })
 }
 
 export function addNotice(t: Transcript, text: string): Transcript {

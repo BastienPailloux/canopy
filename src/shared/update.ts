@@ -1,14 +1,15 @@
+import type { Recording } from './recording'
 import type { UserContent, UserDocument } from './types'
 
 /** One image of a message, as the composer attaches it. */
 export type UserImage = NonNullable<UserContent['images']>[number]
 
-/** What a composer holds. `documents` is absent from drafts stashed before PDFs. */
-export interface Draft { text: string; images: UserImage[]; documents?: UserDocument[] }
+/** What a composer holds. `documents` and `recordings` are absent from drafts stashed before they existed. */
+export interface Draft { text: string; images: UserImage[]; recordings?: Recording[]; documents?: UserDocument[] }
 
 /** Nothing typed or attached. With `trim`, blank text counts as nothing. */
 export const isDraftEmpty = (d: Draft, trim = false): boolean =>
-  (trim ? d.text.trim() : d.text) === '' && d.images.length === 0 && !d.documents?.length
+  (trim ? d.text.trim() : d.text) === '' && d.images.length === 0 && !d.recordings?.length && !d.documents?.length
 
 /** Notes of one published release, shown in "Nouveautés". */
 export interface ReleaseNotes {

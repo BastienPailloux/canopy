@@ -1,4 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
+import { isDraftEmpty } from '../../src/shared/update'
+import type { Recording } from '../../src/shared/recording'
 import { allDrafts, draftCount, dropDraft, dropDrafts, onDraftsChange, setDraft } from '../../src/renderer/code/drafts'
 
 afterEach(() => { dropDrafts('/a'); dropDrafts('/b') })
@@ -33,4 +35,11 @@ test('allDrafts lists every unsaved buffer with its version', () => {
     { cwd: '/b', path: 'y.ts', text: 't2', version: 'v2' }
   ]))
   expect(allDrafts()).toHaveLength(2)
+})
+
+test('a draft holding only a recording is not empty', () => {
+  const r: Recording = { durationMs: 1000, width: 10, height: 10, clicksMissing: false, frames: [] }
+  expect(isDraftEmpty({ text: '', images: [], recordings: [r] })).toBe(false)
+  expect(isDraftEmpty({ text: '', images: [], recordings: [] })).toBe(true)
+  expect(isDraftEmpty({ text: '', images: [] })).toBe(true)
 })

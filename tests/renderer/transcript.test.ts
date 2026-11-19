@@ -1,5 +1,6 @@
 import type { SDKMessage, SessionMessage } from '@anthropic-ai/claude-agent-sdk'
 import { attachmentNote } from '../../src/shared/attachments'
+import { recordingNote, type Recording } from '../../src/shared/recording'
 import { describe, expect, it } from 'vitest'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript } from '../../src/renderer/sessions/transcript'
 
@@ -292,5 +293,26 @@ describe('a message the CLI sends again', () => {
   it('still adds the blocks of one message that arrive under one uuid', () => {
     const t = [assistant('u1', 'a', 'un'), assistant('u1', 'a', 'deux')].reduce(reduceTranscript, emptyTranscript())
     expect(t.items.filter((i) => i.kind === 'assistant')).toHaveLength(2)
+  })
+})
+
+describe('recordings', () => {
+  const r2: Recording = { durationMs: 14000, width: 100, height: 50, clicksMissing: false, frames: [
+    { t: 0, reason: 'start', base64: 'F0' }, { t: 14000, reason: 'end', base64: 'F1' }
+  ] }
+  const img = (data: string): unknown => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })
+  const F = (base64: string) => ({ mediaType: 'image/jpeg', base64 })
+
+  it('addUser groups the frames of a recording apart from the images', () => {
+    expect(addUser(emptyTranscript(), { text: '', recordings: [r2] }).items)
+      .toEqual([{ kind: 'user', text: '', images: [], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }] }])
+  })
+
+  it('a stored message gives back its images and recordings, without the note', () => {
+    const t = run([user([
+      { type: 'text', text: 'regarde' }, img('A'),
+      { type: 'text', text: recordingNote(r2) }, img('F0'), img('F1')
+    ])])
+    expect(t.items).toEqual([{ kind: 'user', text: 'regarde', images: [F('A')], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }] }])
   })
 })

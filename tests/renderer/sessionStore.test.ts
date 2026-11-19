@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftRecordings, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -452,5 +452,31 @@ describe('requestComposerFocus', () => {
     expect(tabs()).toHaveLength(1)
     expect(useSessions.getState().focusRequest).toMatchObject({ dictate: true })
     expect(useSessions.getState().focusRequest?.seq).toBeGreaterThan(first!.seq)
+  })
+})
+
+describe('recordings in the draft', () => {
+  const rec = { durationMs: 14000, width: 100, height: 50, clicksMissing: false, frames: [
+    { t: 0, reason: 'start' as const, base64: 'F0' }, { t: 14000, reason: 'end' as const, base64: 'F1' }
+  ] }
+
+  it('a recording alone is sent, shown, titled and removed from the draft', async () => {
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftRecordings(id, (current) => [...current, rec])
+    await submit(id)
+    expect(api.startSession).toHaveBeenCalledWith(CWD, expect.objectContaining({ content: { text: '', recordings: [rec] } }))
+    expect(activeTab().transcript.items.at(-1)).toMatchObject({ kind: 'user', recordings: [{ durationMs: 14000 }] })
+    expect(activeTab().title).toBe('Enregistrement')
+    expect(activeTab().draft.recordings ?? []).toEqual([])
+  })
+
+  it('a failed send puts the recording back', async () => {
+    api.startSession.mockRejectedValueOnce(new Error('boom'))
+    ensureTab(CWD)
+    const { id } = activeTab()
+    setDraftRecordings(id, () => [rec])
+    await submit(id)
+    expect(activeTab().draft.recordings).toEqual([rec])
   })
 })

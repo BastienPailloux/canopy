@@ -627,6 +627,33 @@
   font-size: 10px;
   font-weight: 600;
 }
+.rec-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.rec-chip-label {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  font-size: 10px;
+  font-weight: 600;
+}
+.rec-chip-frames {
+  display: flex;
+  flex-basis: 100%;
+  gap: 4px;
+  overflow-x: auto;
+}
+.msg-user .rec-chip-frames img {
+  height: 56px;
+  width: auto;
+  margin: 0;
+}
 .doc-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
