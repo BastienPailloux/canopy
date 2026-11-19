@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { matches } from '../code/FileTree'
+import { rankPaths } from '../code/fileMatch'
 import { preview } from '../../shared/preview'
 import type { SearchHit, SymbolLocation } from '../../shared/types'
 import { useApp } from '../store'
@@ -17,18 +17,6 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message.replac
 
 const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1)
 
-/** Files whose path contains the characters of `query` in order, the ones named like it first. */
-function rankFiles(files: string[], query: string): string[] {
-  const q = query.toLowerCase()
-  return files
-    .filter((f) => matches(f, query))
-    .sort((a, b) => {
-      const rank = (f: string): number => (basename(f).toLowerCase().startsWith(q) ? 0 : basename(f).toLowerCase().includes(q) ? 1 : 2)
-      return rank(a) - rank(b) || a.length - b.length || a.localeCompare(b)
-    })
-    .slice(0, MAX_FILES)
-}
-
 function useFileSection(cwd: string, query: string, open: (path: string) => void): Section {
   const [files, setFiles] = useState<string[]>([])
   const [error, setError] = useState<string | undefined>()
@@ -42,7 +30,7 @@ function useFileSection(cwd: string, query: string, open: (path: string) => void
     return () => { live = false }
   }, [cwd])
   const q = query.trim()
-  const items = useMemo(() => (q === '' ? [] : rankFiles(files, q)), [files, q])
+  const items = useMemo(() => (q === '' ? [] : rankPaths(files, q, MAX_FILES)), [files, q])
   return {
     id: 'files',
     title: 'Fichiers',

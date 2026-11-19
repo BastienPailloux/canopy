@@ -170,8 +170,11 @@ test('an external write refreshes the changed list and the sidebar numbers', asy
   await expect(worktree('feat/a')).toContainText('+5', { timeout: 8_000 })
 })
 
-test('a binary file shows a message, and the filter finds files', async () => {
+test('a binary file shows a message, and the filter finds files, the most relevant first', async () => {
   await writeFile(join(featPath, 'logo.bin'), Buffer.from([0, 1, 2, 0]))
+  // Sorted before src/alpha.ts in the tree, but only holds the query in the middle of its name.
+  await mkdir(join(featPath, 'a'), { recursive: true })
+  await writeFile(join(featPath, 'a', 'xalpx.md'), 'notes\n')
   await launch()
   await openCode()
   await page.getByTestId('scope-changed').click()
@@ -182,6 +185,9 @@ test('a binary file shows a message, and the filter finds files', async () => {
   await page.getByLabel('Filtrer les fichiers').fill('alp')
   await expect(treeFile('src/alpha.ts')).toBeVisible()
   await expect(treeFile('README.md')).toHaveCount(0)
+  const found = page.getByTestId('file-tree').getByTestId('tree-file')
+  await expect(found.nth(0)).toHaveAttribute('data-path', 'src/alpha.ts')
+  await expect(found.nth(1)).toHaveAttribute('data-path', 'a/xalpx.md')
 })
 
 test('saving refuses to overwrite what Claude changed meanwhile', async () => {
