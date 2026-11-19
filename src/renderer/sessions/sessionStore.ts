@@ -1,6 +1,7 @@
 import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
+import type { CaptureKind, CaptureResult } from '../../shared/capture'
 import type { Recording } from '../../shared/recording'
 import { isRepoNotTrusted } from '../../shared/errors'
 import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
@@ -46,6 +47,10 @@ interface SessionsState {
   trustPrompt: TrustPrompt | null
   /** The composer of `cwd` is to take the focus, then open dictation if `dictate`; `seq` tells requests apart. */
   focusRequest: { cwd: string; dictate: boolean; seq: number } | null
+  /** The permission a finished capture needs explained. */
+  captureDialog: 'screen' | 'clicks' | null
+  /** Why the last capture attached nothing. */
+  captureError: string | null
 }
 
 export const NEW_SESSION_TITLE = 'Nouvelle session'
@@ -61,7 +66,9 @@ export const useSessions = create<SessionsState>(() => ({
   permissions: [],
   summaries: {},
   trustPrompt: null,
-  focusRequest: null
+  focusRequest: null,
+  captureDialog: null,
+  captureError: null
 }))
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -177,6 +184,36 @@ export function setDraftImages(id: string, change: (images: UserImage[]) => User
 
 export function setDraftRecordings(id: string, change: (recordings: Recording[]) => Recording[]): void {
   patchTab(id, (t) => ({ draft: { ...t.draft, recordings: change(t.draft.recordings ?? []) } }))
+}
+
+/** Captures the screen for the selected tab of `cwd`, made if need be: the capture comes back to that tab, wherever the user goes meanwhile. */
+export function startCaptureIn(cwd: string, kind: CaptureKind): void {
+  ensureTab(cwd)
+  startCaptureFor(useSessions.getState().active[cwd], kind)
+}
+
+export function startCaptureFor(tabId: string, kind: CaptureKind): void {
+  useSessions.setState({ captureError: null })
+  window.canopy.startCapture(kind, tabId).catch((e: unknown) => useSessions.setState({ captureError: errorText(e) }))
+}
+
+/** Puts a finished capture in the draft of the tab that asked for it, and says what the UI must show. */
+export function attachCapture(r: CaptureResult): { dialog: 'screen' | 'clicks' | null; error: string | null } {
+  if (!tabOf(r.tabId)) return { dialog: null, error: 'La session qui a lancé la capture a été fermée.' }
+  switch (r.kind) {
+    case 'screenshot':
+      setDraftImages(r.tabId, (images) => [...images, r.image])
+      return { dialog: null, error: null }
+    case 'recording':
+      setDraftRecordings(r.tabId, (recordings) => [...recordings, r.recording])
+      return { dialog: r.explainClicks ? 'clicks' : null, error: null }
+    case 'needs-permission':
+      return { dialog: 'screen', error: null }
+    case 'error':
+      return { dialog: null, error: r.message }
+    case 'cancelled':
+      return { dialog: null, error: null }
+  }
 }
 
 function refreshCommands(tab: Pick<SessionTab, 'id' | 'localId'>): void {
@@ -565,6 +602,10 @@ export function connectSessions(): () => void {
     on('commandsChanged', ({ localId }) => {
       const tab = tabOfProcess(localId)
       if (tab) refreshCommands(tab)
+    }),
+    window.canopy.on('capture:done', (payload) => {
+      const { dialog, error } = attachCapture(payload as CaptureResult)
+      useSessions.setState({ captureDialog: dialog, captureError: error })
     })
   ]
   void window.canopy.pendingPermissions().then((list) => list.forEach(addPermission), () => undefined)

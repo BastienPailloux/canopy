@@ -97,6 +97,23 @@ it('dictation shows Sessions and asks the composer for the focus and the dictati
   expect(useSessions.getState().focusRequest).toMatchObject({ cwd: '/a', dictate: true })
 })
 
+it('capture shortcuts show Sessions and capture for the selected tab of the worktree', () => {
+  open()
+  useSessions.setState({ tabs: {}, active: {} })
+  const startCapture = vi.fn(async () => true)
+  vi.stubGlobal('window', { canopy: { startCapture } })
+  useApp.setState({ view: 'code' })
+  runShortcut('capture-recording', deps())
+  // No tab yet: one is made to receive the capture.
+  const tab = useSessions.getState().active['/a']
+  expect(tab).toBeDefined()
+  expect(startCapture).toHaveBeenLastCalledWith('recording', tab)
+  expect(useApp.getState().view).toBe('sessions')
+  runShortcut('capture-screenshot', deps())
+  expect(startCapture).toHaveBeenLastCalledWith('screenshot', tab)
+  expect(Object.keys(useSessions.getState().tabs)).toEqual([tab])
+})
+
 it('worktreeCycle follows the sidebar order of the active repo, without the space, then what only git lists', () => {
   const e = (repo: string, path: string, group: WorkspaceEntry['group'], feature?: string): WorkspaceEntry =>
     ({ repo, repoName: repo.slice(1), worktree: wt(path), group, feature })

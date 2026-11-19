@@ -5,6 +5,14 @@ test('every accelerator is unique', () => {
   expect(new Set(SHORTCUTS.map((s) => s.accelerator)).size).toBe(SHORTCUTS.length)
 })
 
+test('the two screen captures sit in the File menu, for a worktree', () => {
+  const capture = SHORTCUTS.filter((s) => s.id.startsWith('capture-'))
+  expect(capture).toEqual([
+    { id: 'capture-screenshot', accelerator: 'CmdOrCtrl+Alt+Shift+4', label: "Capture d'écran…", menu: 'file', needs: 'worktree' },
+    { id: 'capture-recording', accelerator: 'CmdOrCtrl+Alt+Shift+5', label: "Enregistrer l'écran…", menu: 'file', needs: 'worktree' }
+  ])
+})
+
 test('displayKeys renders macOS glyphs', () => {
   expect(displayKeys('CmdOrCtrl+Shift+N')).toBe('⇧⌘N')
   expect(displayKeys('Ctrl+Tab')).toBe('⌃⇥')

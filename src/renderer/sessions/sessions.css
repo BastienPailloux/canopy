@@ -672,6 +672,27 @@
   background: var(--selected);
   color: var(--fg);
 }
+.draft-recording img {
+  width: 32px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+.capture-menu {
+  position: relative;
+}
+.capture-menu .menu {
+  top: auto;
+  bottom: 32px;
+  min-width: 220px;
+}
+.capture-menu .menu button {
+  justify-content: space-between;
+}
+.capture-dialog p {
+  margin: 0;
+  line-height: 1.5;
+}
 
 /* Trust dialog */
 .dialog.trust {

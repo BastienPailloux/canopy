@@ -1,5 +1,7 @@
 import { IMAGE_TYPES, MAX_DOCUMENT_BYTES } from '../../shared/sessionOptions'
+import { countImages, MAX_IMAGES_PER_MESSAGE, type Recording } from '../../shared/recording'
 import type { UserDocument } from '../../shared/types'
+import type { Draft } from '../../shared/update'
 import type { UserImage } from './transcript'
 
 interface FileLike { name: string; type: string; size: number }
@@ -33,3 +35,18 @@ export const readDocument = async (file: File): Promise<UserDocument> => ({ name
 
 /** The accept list of the file chooser. */
 export const ACCEPTED_TYPES = [...IMAGE_TYPES, PDF].join(',')
+
+/** Why the draft cannot be sent as it is: the API refuses a message with too many images. */
+export function imageLimitError(d: Draft): string | null {
+  const n = countImages(d)
+  return n > MAX_IMAGES_PER_MESSAGE ? `Trop d'images pour un seul message (${n} / ${MAX_IMAGES_PER_MESSAGE}) : retirez une pièce jointe.` : null
+}
+
+/** `14 s · 3 clics` on the recording chip. A click gives a before and an after frame: only one of them is counted. */
+export function recordingLabel(r: Recording): string {
+  const seconds = `${Math.round(r.durationMs / 1000)} s`
+  if (r.clicksMissing) return `${seconds} · clics non enregistrés`
+  const after = r.frames.filter((f) => f.reason === 'after-click').length
+  const clicks = after > 0 ? after : r.frames.filter((f) => f.reason === 'before-click').length
+  return `${seconds} · ${clicks} ${clicks > 1 ? 'clics' : 'clic'}`
+}

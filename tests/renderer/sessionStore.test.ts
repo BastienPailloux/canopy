@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanopyApi } from '../../src/shared/api'
 import type { SessionSummary } from '../../src/shared/types'
 import {
-  answerPermission, askClaude, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftRecordings, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
+  answerPermission, askClaude, attachCapture, connectSessions, askClaudeInNewTab, closeActiveTabIfSafe, closeTab, composerDraftCount, ensureTab, modeFrom, interrupt, newTab, setMode, openSession, requestComposerFocus, setDraftDocuments, setDraftRecordings, setDraftText, submit, syncWorktree, useSessions, warmUp, type SessionTab
 } from '../../src/renderer/sessions/sessionStore'
 
 const CWD = '/repo'
@@ -28,7 +28,7 @@ let storage: Map<string, string>
 beforeEach(() => {
   storage = new Map()
   vi.stubGlobal('localStorage', { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v) } })
-  useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null, focusRequest: null })
+  useSessions.setState({ tabs: {}, active: {}, permissions: [], summaries: {}, trustPrompt: null, focusRequest: null, captureDialog: null, captureError: null })
   api = {
     repoTrust: vi.fn(async () => TRUSTED),
     trustRepo: vi.fn(async () => undefined),
@@ -478,5 +478,53 @@ describe('recordings in the draft', () => {
     setDraftRecordings(id, () => [rec])
     await submit(id)
     expect(activeTab().draft.recordings).toEqual([rec])
+  })
+})
+
+describe('attachCapture', () => {
+  const rec = { durationMs: 1500, width: 10, height: 10, clicksMissing: true, frames: [{ t: 0, reason: 'start' as const, base64: 'F0' }] }
+  const image = { mediaType: 'image/png', base64: 'P' }
+  const tab = (): string => { ensureTab(CWD); return activeTab().id }
+
+  it('adds a screenshot to the images of the tab that asked', () => {
+    const tabId = tab()
+    expect(attachCapture({ tabId, kind: 'screenshot', image })).toEqual({ dialog: null, error: null })
+    expect(activeTab().draft.images).toEqual([image])
+  })
+
+  it('adds a recording, and asks to explain the missing clicks when main says so', () => {
+    const tabId = tab()
+    expect(attachCapture({ tabId, kind: 'recording', recording: rec, explainClicks: false })).toEqual({ dialog: null, error: null })
+    expect(attachCapture({ tabId, kind: 'recording', recording: rec, explainClicks: true })).toEqual({ dialog: 'clicks', error: null })
+    expect(activeTab().draft.recordings).toEqual([rec, rec])
+  })
+
+  it('explains a missing screen permission, passes an error on, and does nothing on cancel', () => {
+    const tabId = tab()
+    expect(attachCapture({ tabId, kind: 'needs-permission' })).toEqual({ dialog: 'screen', error: null })
+    expect(attachCapture({ tabId, kind: 'error', message: 'Écran introuvable' })).toEqual({ dialog: null, error: 'Écran introuvable' })
+    expect(attachCapture({ tabId, kind: 'cancelled' })).toEqual({ dialog: null, error: null })
+    expect(activeTab().draft).toEqual({ text: '', images: [] })
+  })
+
+  it('drops a capture whose tab was closed', () => {
+    tab()
+    const before = useSessions.getState().tabs
+    expect(attachCapture({ tabId: 'gone', kind: 'screenshot', image }))
+      .toEqual({ dialog: null, error: 'La session qui a lancé la capture a été fermée.' })
+    expect(useSessions.getState().tabs).toBe(before)
+  })
+
+  it('connectSessions shows what a finished capture asks for', () => {
+    const handlers = new Map<string, (payload: unknown) => void>()
+    const on = vi.fn((name: string, cb: (payload: unknown) => void) => { handlers.set(name, cb); return () => undefined })
+    vi.stubGlobal('window', { canopy: { ...api, on, pendingPermissions: async () => [] } as unknown as CanopyApi })
+    const stop = connectSessions()
+    const tabId = tab()
+    handlers.get('capture:done')?.({ tabId, kind: 'needs-permission' })
+    expect(useSessions.getState()).toMatchObject({ captureDialog: 'screen', captureError: null })
+    handlers.get('capture:done')?.({ tabId: 'gone', kind: 'cancelled' })
+    expect(useSessions.getState()).toMatchObject({ captureDialog: null, captureError: 'La session qui a lancé la capture a été fermée.' })
+    stop()
   })
 })
