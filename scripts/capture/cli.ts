@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildClicksCommand } from './buildClicks.ts'
 
@@ -12,6 +13,9 @@ function hasSwiftc(): boolean {
     return false
   }
 }
+
+// A stale helper would hide a failed build from the release check.
+rmSync(join(root, 'build', 'capture', 'canopy-clicks'), { force: true })
 
 const cmd = buildClicksCommand({ platform: process.platform, hasSwiftc: hasSwiftc() })
 if (!cmd) {

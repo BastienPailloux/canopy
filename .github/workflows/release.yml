@@ -30,6 +30,10 @@ jobs:
       # No secret in the environment here: install scripts must never see them.
       - run: npm ci
 
+      # postinstall never fails without the click helper; a release must not ship without it.
+      - name: Check the click helper
+        run: test -x build/capture/canopy-clicks
+
       - id: next
         run: node scripts/release/cli.ts
 
@@ -74,11 +78,12 @@ jobs:
           spctl -a -vv dist/mac-arm64/Canopy.app
           xcrun stapler validate dist/mac-arm64/Canopy.app
 
-      # The signature covers every nested binary, and the bundled claude still runs once unpacked.
+      # The signature covers every nested binary, the click helper is signed, and the bundled claude still runs once unpacked.
       - name: Smoke test the app
         if: steps.next.outputs.version != ''
         run: |
           codesign --verify --deep --strict --verbose=2 dist/mac-arm64/Canopy.app
+          codesign -dv dist/mac-arm64/Canopy.app/Contents/Resources/canopy-clicks
           dist/mac-arm64/Canopy.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude --version
 
       - name: Create tag and release
