@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fingerprintDiff, selectKeyFrames, type Candidate } from '../../../src/renderer/capture/keyframes'
+import { fingerprintDiff, recordingCandidates, selectKeyFrames, type Candidate } from '../../../src/renderer/capture/keyframes'
 
 const click = { x: 1, y: 2 }
 const clicks = (n: number): Candidate[] =>
@@ -52,5 +52,44 @@ describe('selectKeyFrames', () => {
     const out = selectKeyFrames([...edges(), lone], 2)
     expect(out.map(c => c.reason)).toEqual(['start', 'end'])
     expect(selectKeyFrames([...edges(), lone])).toContainEqual(lone)
+  })
+})
+
+describe('recordingCandidates', () => {
+  // A sample every 250 ms from t = 1000.
+  const samples = (n: number, changes: Record<number, number> = {}) =>
+    Array.from({ length: n }, (_, i) => ({ t: 1000 + i * 250, ...(i in changes ? { change: changes[i] } : {}) }))
+
+  it('is empty without samples', () => {
+    expect(recordingCandidates([], [{ t: 1000, x: 1, y: 2 }])).toEqual([])
+  })
+
+  it('takes the first sample as start, the last as end and the kept changes', () => {
+    expect(recordingCandidates(samples(4, { 2: 0.1 }), [])).toEqual([
+      { t: 1000, reason: 'start', score: 0, sample: 0 },
+      { t: 1500, reason: 'change', score: 0.1, sample: 2 },
+      { t: 1750, reason: 'end', score: 0, sample: 3 }
+    ])
+  })
+
+  it('pairs a click with the sample before it and the first one AFTER_CLICK_MS later', () => {
+    const c = recordingCandidates(samples(10), [{ t: 1600, x: 5, y: 6 }])
+    expect(c.filter(f => f.reason.endsWith('click'))).toEqual([
+      { t: 1500, reason: 'before-click', score: 0, click: { x: 5, y: 6 }, sample: 2 },
+      { t: 2250, reason: 'after-click', score: 0, click: { x: 5, y: 6 }, sample: 5 }
+    ])
+  })
+
+  it('leaves out the half of a click that has no sample', () => {
+    const c = recordingCandidates(samples(4), [{ t: 900, x: 0, y: 0 }, { t: 1700, x: 1, y: 1 }])
+    expect(c.filter(f => f.reason.endsWith('click')).map(f => [f.reason, f.sample])).toEqual([
+      ['after-click', 2],
+      ['before-click', 2]
+    ])
+  })
+
+  it('does not count a sample twice as a change', () => {
+    const c = recordingCandidates(samples(8, { 2: 0.3, 7: 0.2 }), [{ t: 1550, x: 1, y: 1 }])
+    expect(c.filter(f => f.reason === 'change')).toEqual([])
   })
 })

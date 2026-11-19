@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { createCaptureFlow, type CaptureBackend } from './capture/captureFlow'
 import { registerCaptureIpc } from './capture/captureIpc'
 import { CLICK_PERMISSION, clicksHelperPath, startClickListener } from './capture/clicks'
+import { createElectronBackend } from './capture/electronBackend'
 import { selectCaptureBackend } from './capture/fakeBackend'
 import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
@@ -60,8 +61,10 @@ let quitting = (): boolean => false
 /** Ends a recording. Global and registered only while recording: menu accelerators are dead while Canopy is hidden. */
 const STOP_CAPTURE_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+5'
 
-// Replaced by the Electron backend (windows, selection, stream).
-const electronBackend = (): CaptureBackend => { throw new Error('Capture indisponible') }
+/** Canopy's own window: capture pages are windows too, so `getAllWindows()[0]` may not be it. */
+let mainWindow: BrowserWindow | null = null
+
+const electronBackend = (): CaptureBackend => createElectronBackend(() => mainWindow)
 
 function registerScreenCapture(store: AppStore): void {
   const selected = selectCaptureBackend(electronBackend, { isPackaged: app.isPackaged, env: process.env })
@@ -145,6 +148,9 @@ function createWindow(onClose: () => void, onRendererGone: () => void): void {
       ...(hidden ? { backgroundThrottling: false } : {})
     }
   })
+
+  mainWindow = win
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null })
 
   win.on('close', (e) => {
     if (quitting()) return
@@ -308,7 +314,7 @@ void app.whenReady().then(async () => {
     createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }; openFolders.reset() })
   }
   showWindow = () => {
-    const [win] = BrowserWindow.getAllWindows()
+    const win = mainWindow
     if (!win) { open(); return }
     if (hidden) return
     if (win.isMinimized()) win.restore()

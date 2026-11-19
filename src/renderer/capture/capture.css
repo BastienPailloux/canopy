@@ -1,0 +1,95 @@
+@import '@fontsource/inter/latin-500.css';
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  font: 500 13px Inter, system-ui, sans-serif;
+}
+
+.capture-veil {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  background: rgba(13, 14, 16, 0.35);
+}
+
+/* While dragging, the box clears the veil itself: its shadow paints the rest. */
+.capture-veil.dragging {
+  background: transparent;
+}
+
+.capture-box {
+  position: absolute;
+  border: 1px solid #a78bfa;
+  box-shadow: 0 0 0 100000px rgba(13, 14, 16, 0.35);
+}
+
+.capture-hint {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(19, 21, 24, 0.9);
+  color: #e7e9ec;
+  white-space: nowrap;
+}
+
+.capture-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 0 8px 0 14px;
+  box-sizing: border-box;
+  border: 1px solid #333840;
+  border-radius: 10px;
+  background: #131518;
+  color: #e7e9ec;
+}
+
+.capture-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f85149;
+}
+
+.capture-time {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.capture-time.warning {
+  color: #f85149;
+}
+
+.capture-stop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #333840;
+  border-radius: 6px;
+  background: #181b1f;
+  color: #e7e9ec;
+  font: inherit;
+  cursor: pointer;
+}
+
+.capture-stop:hover {
+  background: #1e2127;
+}
+
+.capture-square {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: #f85149;
+}
