@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AppStore } from '../../../src/main/appStore'
-import { branchBaseAt } from '../../../src/main/tickets/branchBase'
+import { branchBaseAt, compareBaseAt } from '../../../src/main/tickets/branchBase'
 import { createRepo, type TestRepo } from '../../helpers/repo'
 
 const env = {
@@ -48,5 +48,27 @@ describe('branchBaseAt', () => {
     store.setBranchBase(repo.path, 'feat/child', 'origin/x')
     expect(await branchBaseAt(store, repo.path)).toEqual({ base: 'origin/x' })
     expect(store.branchBase(repo.path, 'feat/child')).toBe('origin/x')
+  })
+})
+
+describe('compareBaseAt', () => {
+  const repoBase = async () => ({ name: 'main', ref: 'origin/main' })
+
+  it('compares against the branch base when one is remembered', async () => {
+    git(repo.path, 'branch', 'feat/base', 'main')
+    store.setBranchBase(repo.path, 'feat/child', 'feat/base')
+    expect(await compareBaseAt(store, repo.path, repoBase)).toEqual({ name: 'feat/base', ref: 'feat/base' })
+  })
+
+  it('falls back to the repo base without a branch base', async () => {
+    expect(await compareBaseAt(store, repo.path, repoBase)).toEqual({ name: 'main', ref: 'origin/main' })
+  })
+
+  it('falls back to the repo base once the branch base is gone, leaving the loss to report', async () => {
+    git(repo.path, 'branch', 'feat/base', 'main')
+    store.setBranchBase(repo.path, 'feat/child', 'feat/base')
+    git(repo.path, 'branch', '-D', 'feat/base')
+    expect(await compareBaseAt(store, repo.path, repoBase)).toEqual({ name: 'main', ref: 'origin/main' })
+    expect(store.branchBase(repo.path, 'feat/child')).toBe('feat/base')
   })
 })

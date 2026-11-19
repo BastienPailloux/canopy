@@ -3,7 +3,7 @@ import { isAbsolute } from 'node:path'
 import type { BaseRef, ChangedFile } from '../../shared/types'
 import { changedFiles, readAtBase } from '../git/diff'
 import { listBranches, resolveCompareRef } from '../git/refs'
-import { cachedBaseRef, clearSharedReads, Coalescer } from '../git/sharedReads'
+import { clearSharedReads, Coalescer } from '../git/sharedReads'
 import { listTree, readFileSafe, writeFileSafe } from './files'
 import type { LspPool } from './lsp'
 import { searchText } from './search'
@@ -31,7 +31,8 @@ const searches = new SearchSlots()
 /** File events come in bursts: each worktree and base computes its changes once at a time. */
 const changes = new Coalescer<{ base: BaseRef; files: ChangedFile[] }>()
 
-export function registerCodeIpc(broadcast: (event: string, payload?: unknown) => void, lsp: LspPool): void {
+/** `defaultBase`: what a worktree is compared to when the user picked no branch. */
+export function registerCodeIpc(broadcast: (event: string, payload?: unknown) => void, lsp: LspPool, defaultBase: (cwd: string) => Promise<BaseRef>): void {
   ipcMain.handle('code:listTree', (_e, cwd: unknown) => {
     assertPath(cwd)
     return listTree(cwd)
@@ -75,7 +76,7 @@ export function registerCodeIpc(broadcast: (event: string, payload?: unknown) =>
   ipcMain.handle('code:changes', async (_e, cwd: unknown, base: unknown) => {
     assertPath(cwd)
     return changes.run(`${cwd}\0${String(base)}`, async () => {
-      const ref = base === undefined ? await cachedBaseRef(cwd) : await resolveCompareRef(cwd, base)
+      const ref = base === undefined ? await defaultBase(cwd) : await resolveCompareRef(cwd, base)
       return { base: ref, files: await changedFiles(cwd, ref.ref) }
     })
   })
