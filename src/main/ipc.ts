@@ -8,6 +8,7 @@ import type { ClaudeAccount, Worktree, WorktreeStats } from '../shared/types'
 import { readClaudeAccount, type AccountRunner } from './account'
 import type { AppStore } from './appStore'
 import { registerCodeIpc } from './code/codeIpc'
+import { compareBaseAt } from './tickets/branchBase'
 import { localBranches, registerTicketIpc } from './tickets/ticketIpc'
 import type { TicketStore } from './tickets/store'
 import { registerMockupIpc } from './mockups/mockupIpc'
@@ -318,7 +319,7 @@ export function registerIpc(
 
   ipcMain.handle('shell:openExternal', (_e, url: unknown) => openExternalUrl(url, (u) => shell.openExternal(u)))
 
-  registerCodeIpc(broadcast, lsp)
+  registerCodeIpc(broadcast, lsp, (cwd) => compareBaseAt(store, cwd, cachedBaseRef))
   registerTicketIpc(tickets, store, {
     activity: (cwd) => sessions.activity(cwd),
     sessions: (cwd) => live.sessions(cwd),
