@@ -49,6 +49,17 @@ describe('rankPaths', () => {
     expect(rankPaths(['src/deep/down/app.ts', 'src/b/app.ts', 'src/a/app.ts'], 'app')).toEqual(['src/a/app.ts', 'src/b/app.ts', 'src/deep/down/app.ts'])
   })
 
+  it('takes only the last extension off a name: a file with a dotted name is not named like its first part', () => {
+    expect(rankPaths(['src/main/code/search.ts', 'a/search.test.ts'], 'search')).toEqual(['src/main/code/search.ts', 'a/search.test.ts'])
+    expect(rankPaths(['src/search.tsx', 'src/main/code/search.test.ts'], 'search.test')[0]).toBe('src/main/code/search.test.ts')
+    expect(rankPaths(['config/.envrc', 'x/.env'], '.env')[0]).toBe('x/.env')
+  })
+
+  it('survives names whose lowercase is longer than the name', () => {
+    expect(rankPaths(['src/İ.ts'], 's')).toEqual(['src/İ.ts'])
+    expect(rankPaths(['src/İnfo.ts'], 'nf')).toEqual(['src/İnfo.ts'])
+  })
+
   it('stops at the limit', () => {
     expect(rankPaths(['a1', 'a2', 'a3'], 'a', 2)).toHaveLength(2)
   })

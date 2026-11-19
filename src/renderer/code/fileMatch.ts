@@ -69,7 +69,9 @@ function score(path: string, lower: string, q: string): [Tier, number] | null {
   const slash = path.lastIndexOf('/') + 1
   const name = path.slice(slash)
   const lowerName = lower.slice(slash)
-  if (lowerName === q || lowerName.split('.')[0] === q) return [Tier.Name, 0]
+  // Only the last extension goes: `search.test.ts` is not named `search`, and `.env` keeps its name.
+  const dot = lowerName.lastIndexOf('.')
+  if (lowerName === q || (dot > 0 && lowerName.slice(0, dot) === q)) return [Tier.Name, 0]
   if (lowerName.startsWith(q)) return [Tier.NamePrefix, 0]
   const inName = lowerName.indexOf(q)
   if (inName >= 0) return [Tier.NameSubstring, isBoundary(name, inName) ? 1 : 0]
@@ -81,6 +83,21 @@ function score(path: string, lower: string, q: string): [Tier, number] | null {
   return all === null ? null : [Tier.PathLetters, all]
 }
 
+/**
+ * `text` in lowercase, one unit for one unit: the indexes found in it must hold in `text`.
+ * A letter whose lowercase is longer (`İ` gives `i` and a combining dot) stays as it is.
+ */
+function fold(text: string): string {
+  const lower = text.toLowerCase()
+  if (lower.length === text.length) return lower
+  let out = ''
+  for (const c of text) {
+    const l = c.toLowerCase()
+    out += l.length === c.length ? l : c
+  }
+  return out
+}
+
 /** The lowercase paths of each list, computed once per list rather than at each keystroke. */
 const lowered = new WeakMap<string[], string[]>()
 
@@ -90,11 +107,11 @@ const lowered = new WeakMap<string[], string[]>()
  * ties going to the shorter path. At most `limit` paths.
  */
 export function rankPaths(paths: string[], query: string, limit = Infinity): string[] {
-  const q = query.toLowerCase()
+  const q = fold(query)
   if (q === '') return []
   let lowers = lowered.get(paths)
   if (!lowers) {
-    lowers = paths.map((p) => p.toLowerCase())
+    lowers = paths.map(fold)
     lowered.set(paths, lowers)
   }
   const found: { path: string; tier: Tier; quality: number }[] = []
