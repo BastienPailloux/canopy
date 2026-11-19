@@ -70,3 +70,7 @@ Architecture, conventions, TDD, branches et Conventional Commits : voir [`CLAUDE
 - Conception : [`docs/superpowers/specs/`](docs/superpowers/specs/) (document de référence : `2026-11-07-canopy-design.md`).
 - Plans d'implémentation : [`docs/superpowers/plans/`](docs/superpowers/plans/).
 - Publication d'une version (signature, notarisation, CI) : [`docs/release.md`](docs/release.md).
+
+## Licence
+
+Copyright 2026 Bastien Pailloux. Distribué sous licence [Apache 2.0](LICENSE) : utilisation, modification et redistribution libres, y compris commerciales, à condition de conserver la licence et le fichier [`NOTICE`](NOTICE), et de signaler les fichiers modifiés. La licence accorde aussi les droits de brevet des contributeurs et n'offre aucune garantie.
