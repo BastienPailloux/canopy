@@ -8,6 +8,8 @@ export const MAX_FRAME_SIDE = 1568
 export const AFTER_CLICK_MS = 500
 /** API limit, counting images and every recording frame together. */
 export const MAX_IMAGES_PER_MESSAGE = 100
+/** Base64 characters a message may carry: under the API's 32 MB request limit, with room for the text. */
+export const MAX_REQUEST_BASE64 = 30 * 1024 * 1024
 
 export type FrameReason = 'start' | 'end' | 'before-click' | 'after-click' | 'change'
 
@@ -65,3 +67,9 @@ export const isRecordingNote = (text: string): boolean => parseRecordingNote(tex
 
 export const countImages = (c: Pick<UserContent, 'images' | 'recordings'>): number =>
   (c.images?.length ?? 0) + (c.recordings ?? []).reduce((n, r) => n + r.frames.length, 0)
+
+/** What the attachments weigh in the request, images, recording frames and documents together. */
+export const requestBase64Length = (c: Pick<UserContent, 'images' | 'recordings' | 'documents'>): number =>
+  (c.images ?? []).reduce((n, i) => n + i.base64.length, 0) +
+  (c.recordings ?? []).reduce((n, r) => n + r.frames.reduce((m, f) => m + f.base64.length, 0), 0) +
+  (c.documents ?? []).reduce((n, d) => n + d.base64.length, 0)

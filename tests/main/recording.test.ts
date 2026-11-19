@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { countImages, isRecordingNote, parseRecordingNote, recordingNote, type Recording } from '../../src/shared/recording'
+import { countImages, isRecordingNote, MAX_REQUEST_BASE64, requestBase64Length, parseRecordingNote, recordingNote, type Recording } from '../../src/shared/recording'
 
 const frame = (t: number, reason: Recording['frames'][number]['reason'], click?: { x: number; y: number }) =>
   ({ t, reason, ...(click ? { click } : {}), base64: 'AAAA' })
@@ -45,4 +45,11 @@ test('countImages adds images and every recording frame', () => {
   const img = { mediaType: 'image/png', base64: 'AAAA' }
   expect(countImages({ images: [img, img], recordings: [r4, r3] })).toBe(9)
   expect(countImages({})).toBe(0)
+})
+
+test('requestBase64Length adds images, recording frames and documents', () => {
+  const img = { mediaType: 'image/png', base64: 'AAAA' }
+  expect(requestBase64Length({ images: [img], recordings: [r4], documents: [{ name: 'a.pdf', base64: 'AAAAAAAA' }] })).toBe(4 + 16 + 8)
+  expect(requestBase64Length({})).toBe(0)
+  expect(MAX_REQUEST_BASE64).toBe(30 * 1024 * 1024)
 })

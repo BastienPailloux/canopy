@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { MAX_RECORDING_MS, type Recording } from '../../../src/shared/recording'
+import { MAX_RECORDING_MS, MAX_REQUEST_BASE64, type Recording } from '../../../src/shared/recording'
 import { MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES } from '../../../src/shared/sessionOptions'
 import { assertContent, assertMode, parseDecision, parseStartOptions } from '../../../src/main/sessions/validate'
 
@@ -36,10 +36,19 @@ test('assertContent accepts PDF documents', () => {
   expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: 'AAAA' }] })).not.toThrow()
 })
 
-test('assertContent accepts a PDF of exactly the limit, and not one byte more', () => {
-  const exact = 'A'.repeat(MAX_DOCUMENT_BASE64 - 4) + 'AAA='
-  expect(Buffer.from(exact, 'base64').length).toBe(MAX_DOCUMENT_BYTES)
-  expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: exact }] })).not.toThrow()
+test('assertContent accepts a request of exactly the size limit, and not one character more', () => {
+  const half = MAX_REQUEST_BASE64 / 2
+  const content = (extra: number) => ({
+    text: '',
+    images: [{ mediaType: 'image/png', base64: 'A'.repeat(half - 4) }],
+    recordings: [{ durationMs: 1000, width: 10, height: 10, clicksMissing: false, frames: [{ t: 0, reason: 'start', base64: 'AAAA' }] }],
+    documents: [{ name: 'doc.pdf', base64: 'A'.repeat(half + extra) }]
+  })
+  expect(() => assertContent(content(0))).not.toThrow()
+  expect(() => assertContent(content(4))).toThrow()
+})
+
+test('assertContent rejects a PDF one byte over its own limit', () => {
   const over = 'A'.repeat(MAX_DOCUMENT_BASE64)
   expect(Buffer.from(over, 'base64').length).toBe(MAX_DOCUMENT_BYTES + 1)
   expect(() => assertContent({ text: '', documents: [{ name: 'doc.pdf', base64: over }] })).toThrow()

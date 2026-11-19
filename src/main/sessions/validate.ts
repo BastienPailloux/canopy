@@ -1,6 +1,6 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { StartSessionOptions } from '../../shared/api'
-import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_RECORDING_FRAMES, MAX_RECORDING_MS } from '../../shared/recording'
+import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_RECORDING_FRAMES, MAX_RECORDING_MS, MAX_REQUEST_BASE64, requestBase64Length } from '../../shared/recording'
 import { IMAGE_TYPES, MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES, SESSION_MODES } from '../../shared/sessionOptions'
 import type { PermissionDecision, UserContent } from '../../shared/types'
 
@@ -46,7 +46,9 @@ export function assertContent(c: unknown): asserts c is UserContent {
     c.documents.every((d) => isRecord(d) && typeof d.name === 'string' && d.name !== '' &&
       typeof d.base64 === 'string' && d.base64.length <= MAX_DOCUMENT_BASE64 && decodedLength(d.base64) <= MAX_DOCUMENT_BYTES)
   ))
-  if (!valid || countImages(c as Pick<UserContent, 'images' | 'recordings'>) > MAX_IMAGES_PER_MESSAGE) throw new Error('Message invalide')
+  if (!valid) throw new Error('Message invalide')
+  const content = c as unknown as UserContent
+  if (countImages(content) > MAX_IMAGES_PER_MESSAGE || requestBase64Length(content) > MAX_REQUEST_BASE64) throw new Error('Message invalide')
 }
 
 /** Keeps known fields only, so nothing else from the renderer reaches `start`. */

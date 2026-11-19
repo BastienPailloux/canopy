@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { imageLimitError, recordingLabel, sortFiles } from '../../src/renderer/sessions/attachments'
 import type { Recording, RecordingFrame } from '../../src/shared/recording'
+import { MAX_REQUEST_BASE64 } from '../../src/shared/recording'
 import { MAX_DOCUMENT_BYTES } from '../../src/shared/sessionOptions'
 
 const file = (name: string, type: string, size = 10) => ({ name, type, size })
@@ -40,7 +41,17 @@ describe('imageLimitError', () => {
 
   it('blocks the 101st and says how many there are', () => {
     const draft = { text: '', images: Array(99).fill(image), recordings: [recording([frame('start'), frame('end')])] }
-    expect(imageLimitError(draft)).toBe("Trop d'images pour un seul message (101 / 100) : retirez une pièce jointe.")
+    expect(imageLimitError(draft)).toBe("Trop d'images pour un seul message (101 / 100) : retire une pièce jointe.")
+  })
+
+  it('lets a draft of exactly the request size through', () => {
+    const draft = { text: '', images: [{ mediaType: 'image/png', base64: 'A'.repeat(MAX_REQUEST_BASE64 - 4) }], documents: [{ name: 'a.pdf', base64: 'AAAA' }] }
+    expect(imageLimitError(draft)).toBeNull()
+  })
+
+  it('blocks a draft over the request size and says how heavy it is, rounded up to the Mo', () => {
+    const draft = { text: '', images: [{ mediaType: 'image/png', base64: 'A'.repeat(MAX_REQUEST_BASE64) }], recordings: [recording([frame('start')])] }
+    expect(imageLimitError(draft)).toBe('Pièces jointes trop lourdes pour un seul message (31 Mo / 30 Mo) : retire une pièce jointe.')
   })
 })
 
