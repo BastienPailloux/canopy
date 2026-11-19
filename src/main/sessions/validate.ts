@@ -29,7 +29,7 @@ const isFrame = (f: unknown): boolean => isRecord(f) && typeof f.base64 === 'str
   FRAME_REASONS.includes(f.reason as string) &&
   (f.click === undefined || (isRecord(f.click) && isNumber(f.click.x) && isNumber(f.click.y)))
 
-const isRecording = (r: unknown): boolean => isRecord(r) &&
+export const isRecording = (r: unknown): boolean => isRecord(r) &&
   Array.isArray(r.frames) && r.frames.length > 0 && r.frames.length <= MAX_RECORDING_FRAMES &&
   r.frames.every(isFrame) &&
   isTime(r.durationMs) && (r.durationMs as number) <= MAX_RECORDING_MS + 5000 &&
