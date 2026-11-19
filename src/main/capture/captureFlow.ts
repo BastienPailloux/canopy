@@ -18,6 +18,8 @@ export interface RecordingSession {
 /** What touches the screen and the windows; faked in tests and E2E. */
 export interface CaptureBackend {
   screenGranted(): boolean
+  /** Asks macOS for the screen once: only a real capture attempt lists the app in Privacy › Screen Recording. */
+  requestScreen(): void
   hideMain(): void
   showMain(): void
   /** Null when the user cancels. */
@@ -92,7 +94,10 @@ export function createCaptureFlow(d: CaptureFlowDeps): { start(kind: CaptureKind
     const b = d.backend
     let hidden = false
     try {
-      if (!b.screenGranted()) return { tabId, kind: 'needs-permission' }
+      if (!b.screenGranted()) {
+        b.requestScreen()
+        return { tabId, kind: 'needs-permission' }
+      }
       b.hideMain()
       hidden = true
       const sel = await b.selectRegion()

@@ -18,6 +18,7 @@ function setup(o: { granted?: boolean; select?: typeof sel | null; trusted?: boo
   }
   const backend = {
     screenGranted: vi.fn(() => o.granted ?? true),
+    requestScreen: vi.fn(),
     hideMain: vi.fn(),
     showMain: vi.fn(),
     selectRegion: vi.fn(async () => (o.select === undefined ? sel : o.select)),
@@ -86,6 +87,20 @@ describe('createCaptureFlow: screenshot', () => {
     expect(s.backend.hideMain).not.toHaveBeenCalled()
     expect(s.backend.showMain).not.toHaveBeenCalled()
     expect(s.backend.selectRegion).not.toHaveBeenCalled()
+  })
+
+  it('asks macOS for the screen when not granted, so Canopy shows up in Screen Recording', async () => {
+    const s = setup({ granted: false })
+    s.flow.start('screenshot', 't')
+    await s.done()
+    expect(s.backend.requestScreen).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not ask macOS again once granted', async () => {
+    const s = setup()
+    s.flow.start('screenshot', 't')
+    await s.done()
+    expect(s.backend.requestScreen).not.toHaveBeenCalled()
   })
 
   it('reports a failed screenshot with its message', async () => {

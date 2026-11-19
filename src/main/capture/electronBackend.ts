@@ -1,9 +1,10 @@
 import { join } from 'node:path'
-import { BrowserWindow, desktopCapturer, ipcMain, Notification, screen, systemPreferences, type BrowserWindowConstructorOptions, type Display, type IpcMainEvent } from 'electron'
+import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Notification, screen, systemPreferences, type BrowserWindowConstructorOptions, type Display, type IpcMainEvent } from 'electron'
 import type { CaptureFinish, CaptureWorkerJob, CaptureWorkerResult } from '../../shared/capture'
 import { clampRegion, type DisplayInfo } from '../../shared/captureGeometry'
 import type { CaptureBackend, CaptureSelection, RecordingSession } from './captureFlow'
 import { panelPlacement, parseDrag, parseWorkerResult } from './pageMessages'
+import { createSelectionGuard } from './selectionGuard'
 
 /**
  * Whether `setContentProtection` keeps the panel out of the stream. The spike could not check it (spec §8):
@@ -17,6 +18,8 @@ const NO_PANEL_NOTICE = 'Enregistrement en cours. ⌥⇧⌘5 pour arrêter.'
 const SCREENSHOT_TIMEOUT_MS = 15_000
 const START_TIMEOUT_MS = 15_000
 const FINISH_TIMEOUT_MS = 30_000
+const SELECT_TIMEOUT_MS = 60_000
+const CANCEL_KEY = 'Escape'
 
 const info = (d: Display): DisplayInfo => ({ id: d.id, bounds: { ...d.bounds }, scaleFactor: d.scaleFactor })
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -56,15 +59,17 @@ function selectRegion(): Promise<CaptureSelection | null> {
   const under = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   return new Promise((resolve) => {
     const veils = new Map<number, { win: BrowserWindow; display: DisplayInfo }>()
-    let done = false
-    const end = (sel: CaptureSelection | null): void => {
-      if (done) return
-      done = true
-      ipcMain.off('capture-page:select', onSelect)
-      // The veil must be off the screen before a frame is read.
-      const open = [...veils.values()].map(v => v.win).filter(w => !w.isDestroyed())
-      void Promise.all(open.map(w => new Promise<void>((r) => { w.once('closed', () => { r() }); w.close() }))).then(() => { resolve(sel) })
-    }
+    const end = createSelectionGuard<CaptureSelection>({
+      timeoutMs: SELECT_TIMEOUT_MS,
+      setTimer: (fn, ms) => { const h = setTimeout(fn, ms); return () => { clearTimeout(h) } },
+      onEnd: (sel) => {
+        ipcMain.off('capture-page:select', onSelect)
+        if (shortcut) globalShortcut.unregister(CANCEL_KEY)
+        // The veil must be off the screen before a frame is read.
+        const open = [...veils.values()].map(v => v.win).filter(w => !w.isDestroyed())
+        void Promise.all(open.map(w => new Promise<void>((r) => { w.once('closed', () => { r() }); w.close() }))).then(() => { resolve(sel) })
+      }
+    })
     function onSelect(e: IpcMainEvent, raw: unknown): void {
       const veil = veils.get(e.sender.id)
       if (!veil) return
@@ -74,6 +79,8 @@ function selectRegion(): Promise<CaptureSelection | null> {
       end({ region: clampRegion({ ...drag, x: drag.x + b.x, y: drag.y + b.y }, veil.display), display: veil.display })
     }
     ipcMain.on('capture-page:select', onSelect)
+    // Échap from main too: a veil that never loads or never gets the focus cannot hear it.
+    const shortcut = globalShortcut.register(CANCEL_KEY, () => { end(null) })
     for (const d of displays) {
       const win = capturePage({ ...BARE, ...d.bounds, hasShadow: false, enableLargerThanScreen: true, roundedCorners: false, acceptFirstMouse: true }, { role: 'select', display: String(d.id) })
       veils.set(win.webContents.id, { win, display: info(d) })
@@ -82,8 +89,11 @@ function selectRegion(): Promise<CaptureSelection | null> {
       win.setBounds(d.bounds)
       win.on('closed', () => { end(null) })
       win.webContents.on('render-process-gone', () => { end(null) })
+      win.webContents.on('did-fail-load', () => { end(null) })
+      win.webContents.on('preload-error', () => { end(null) })
+      win.on('unresponsive', () => { end(null) })
       win.once('ready-to-show', () => {
-        // Échap reaches the focused veil only: the one under the pointer.
+        // The focused veil hears Échap first: the one under the pointer.
         if (d.id === under.id) { win.show(); win.focus() } else win.showInactive()
       })
     }
@@ -201,10 +211,14 @@ function startRecording(sel: CaptureSelection): RecordingSession {
 export function createElectronBackend(mainWindow: () => BrowserWindow | null): CaptureBackend {
   return {
     screenGranted: () => systemPreferences.getMediaAccessStatus('screen') === 'granted',
+    // Its answer is useless before a relaunch; the call alone triggers the prompt.
+    requestScreen: () => { void desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).catch(() => {}) },
     hideMain: () => { mainWindow()?.hide() },
     showMain: () => {
       const win = mainWindow()
       if (!win) return
+      // The user is in another app after a recording: without stealing, macOS may leave Canopy behind it.
+      app.focus({ steal: true })
       win.show()
       win.focus()
     },

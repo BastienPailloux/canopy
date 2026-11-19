@@ -16,6 +16,7 @@ const CLICK = { t: 700, x: 160, y: 100 }
 function fakeCapture(mode: string): { backend: CaptureBackend; clicks: () => ClickListener } {
   const backend: CaptureBackend = {
     screenGranted: () => mode !== 'denied',
+    requestScreen: () => {},
     hideMain: () => {},
     showMain: () => {},
     selectRegion: async () => (mode === 'cancel' ? null : SELECTION),
@@ -47,6 +48,7 @@ function lazy(real: () => CaptureBackend): CaptureBackend {
   const get = (): CaptureBackend => (made ??= real())
   return {
     screenGranted: () => get().screenGranted(),
+    requestScreen: () => get().requestScreen(),
     hideMain: () => get().hideMain(),
     showMain: () => get().showMain(),
     selectRegion: () => get().selectRegion(),
