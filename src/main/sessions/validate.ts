@@ -1,5 +1,6 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { StartSessionOptions } from '../../shared/api'
+import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_RECORDING_FRAMES, MAX_RECORDING_MS } from '../../shared/recording'
 import { IMAGE_TYPES, MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES, SESSION_MODES } from '../../shared/sessionOptions'
 import type { PermissionDecision, UserContent } from '../../shared/types'
 
@@ -18,16 +19,26 @@ export function assertMode(mode: unknown): asserts mode is PermissionMode {
 const decodedLength = (base64: string): number =>
   Math.floor(base64.length * 3 / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
 
+const isPositiveInt = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v > 0
+
+const isRecording = (r: unknown): boolean => isRecord(r) &&
+  Array.isArray(r.frames) && r.frames.length > 0 && r.frames.length <= MAX_RECORDING_FRAMES &&
+  r.frames.every((f) => isRecord(f) && typeof f.base64 === 'string' && typeof f.t === 'number') &&
+  typeof r.durationMs === 'number' && r.durationMs <= MAX_RECORDING_MS + 5000 &&
+  isPositiveInt(r.width) && isPositiveInt(r.height) && typeof r.clicksMissing === 'boolean'
+
 export function assertContent(c: unknown): asserts c is UserContent {
   const valid = isRecord(c) && typeof c.text === 'string' && (c.images === undefined || (
     Array.isArray(c.images) &&
     c.images.every((i) => isRecord(i) && IMAGE_TYPES.includes(i.mediaType as string) && typeof i.base64 === 'string')
+  )) && (c.recordings === undefined || (
+    Array.isArray(c.recordings) && c.recordings.every(isRecording)
   )) && (c.documents === undefined || (
     Array.isArray(c.documents) &&
     c.documents.every((d) => isRecord(d) && typeof d.name === 'string' && d.name !== '' &&
       typeof d.base64 === 'string' && d.base64.length <= MAX_DOCUMENT_BASE64 && decodedLength(d.base64) <= MAX_DOCUMENT_BYTES)
   ))
-  if (!valid) throw new Error('Message invalide')
+  if (!valid || countImages(c as Pick<UserContent, 'images' | 'recordings'>) > MAX_IMAGES_PER_MESSAGE) throw new Error('Message invalide')
 }
 
 /** Keeps known fields only, so nothing else from the renderer reaches `start`. */

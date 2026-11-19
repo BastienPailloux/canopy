@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest'
+import { MAX_RECORDING_MS, type Recording } from '../../../src/shared/recording'
 import { MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES } from '../../../src/shared/sessionOptions'
 import { assertContent, assertMode, parseDecision, parseStartOptions } from '../../../src/main/sessions/validate'
 
@@ -81,4 +82,33 @@ test.each([
   ['a deny without message', { allow: false }]
 ])('parseDecision rejects %s', (_name, d) => {
   expect(() => parseDecision(d)).toThrow()
+})
+
+const rec = (over: Record<string, unknown> = {}): Recording => ({
+  durationMs: 5000, width: 800, height: 600, clicksMissing: false,
+  frames: [{ t: 0, reason: 'start', base64: 'AAAA' }, { t: 5000, reason: 'end', base64: 'AAAA' }],
+  ...over
+})
+const frames = (n: number) => Array.from({ length: n }, (_, t) => ({ t, reason: 'change' as const, base64: 'AAAA' }))
+
+test('assertContent accepts a valid recording', () => {
+  expect(() => assertContent({ text: '', recordings: [rec()] })).not.toThrow()
+})
+
+test.each([
+  ['no frames', rec({ frames: [] })],
+  ['too many frames', rec({ frames: frames(21) })],
+  ['a frame without base64 string', rec({ frames: [{ t: 0, reason: 'start', base64: 3 }] })],
+  ['a frame without numeric t', rec({ frames: [{ t: '0', reason: 'start', base64: 'AAAA' }] })],
+  ['a too long duration', rec({ durationMs: MAX_RECORDING_MS + 5001 })],
+  ['a zero width', rec({ width: 0 })],
+  ['a fractional height', rec({ height: 10.5 })],
+  ['non-boolean clicksMissing', rec({ clicksMissing: 'no' })]
+])('assertContent rejects a recording with %s', (_name, recording) => {
+  expect(() => assertContent({ text: '', recordings: [recording] })).toThrow('Message invalide')
+})
+
+test('assertContent rejects more than 100 images in a message', () => {
+  const images = Array.from({ length: 90 }, () => ({ mediaType: 'image/png', base64: 'AAAA' }))
+  expect(() => assertContent({ text: '', images, recordings: [rec({ frames: frames(11) })] })).toThrow('Message invalide')
 })
