@@ -11,9 +11,10 @@ const clicks: ClickEvent[] = [{ t: 5, x: 1, y: 2 }]
 
 function setup(o: { granted?: boolean; select?: typeof sel | null; trusted?: boolean | 'never'; explained?: boolean } = {}) {
   let panelStop: () => void = () => {}
-  const session: RecordingSession & { finish: ReturnType<typeof vi.fn> } = {
+  const session: RecordingSession & { finish: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> } = {
     stopped: new Promise<void>((r) => { panelStop = r }),
-    finish: vi.fn(async (_c: ClickEvent[], missing: boolean) => recording(missing))
+    finish: vi.fn(async (_c: ClickEvent[], missing: boolean) => recording(missing)),
+    cancel: vi.fn(() => {})
   }
   const backend = {
     screenGranted: vi.fn(() => o.granted ?? true),
@@ -121,6 +122,7 @@ describe('createCaptureFlow: recording', () => {
     expect(s.unregister).toHaveBeenCalledTimes(1)
     expect(s.backend.hideMain).toHaveBeenCalledTimes(1)
     expect(s.backend.showMain).toHaveBeenCalledTimes(1)
+    expect(s.session.cancel).not.toHaveBeenCalled()
   })
 
   it('ends with flow.stop(), and a later stop does nothing', async () => {
@@ -177,6 +179,42 @@ describe('createCaptureFlow: recording', () => {
     expect(s.backend.showMain).toHaveBeenCalledTimes(1)
   })
 
+  it('cancels the session when finish is never reached', async () => {
+    const s = setup()
+    s.listener.stop.mockImplementationOnce(() => { throw new Error('clics') })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.panelStop()
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'error', message: 'clics' }])
+    expect(s.session.finish).not.toHaveBeenCalled()
+    expect(s.session.cancel).toHaveBeenCalledTimes(1)
+    expect(s.backend.showMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not cancel a session whose finish failed: finish cleans up itself', async () => {
+    const s = setup()
+    s.session.finish.mockRejectedValueOnce(new Error('encodage'))
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.panelStop()
+    await s.done()
+    expect(s.session.cancel).not.toHaveBeenCalled()
+  })
+
+  it('registers the stop shortcut before the recording starts', async () => {
+    const s = setup()
+    s.backend.startRecording.mockImplementationOnce(() => {
+      expect(s.registerStop).toHaveBeenCalledTimes(1)
+      return s.session
+    })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.flow.stop()
+    await s.done()
+    expect(s.emitted[0].kind).toBe('recording')
+  })
+
   it('stops the click listener when the recording cannot start', async () => {
     const s = setup()
     s.backend.startRecording.mockImplementationOnce(() => { throw new Error('flux') })
@@ -184,6 +222,7 @@ describe('createCaptureFlow: recording', () => {
     await s.done()
     expect(s.emitted).toEqual([{ tabId: 't', kind: 'error', message: 'flux' }])
     expect(s.listener.stop).toHaveBeenCalledTimes(1)
+    expect(s.unregister).toHaveBeenCalledTimes(1)
     expect(s.backend.showMain).toHaveBeenCalledTimes(1)
   })
 

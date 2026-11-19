@@ -7,9 +7,12 @@ import type { ClickEvent, ClickListener } from './clicks'
 export interface CaptureSelection { region: Rect; display: DisplayInfo }
 
 export interface RecordingSession {
-  /** Resolves when the user presses the panel's stop button. */
+  /** Resolves when the user presses the panel's stop button, or at once when the stream fails (finish then says why). */
   stopped: Promise<void>
+  /** Frees the stream and the windows itself, success or failure. */
   finish(clicks: ClickEvent[], clicksMissing: boolean): Promise<Recording>
+  /** Frees everything when the flow fails before reaching `finish`. */
+  cancel(): void
 }
 
 /** What touches the screen and the windows; faked in tests and E2E. */
@@ -46,14 +49,20 @@ export function createCaptureFlow(d: CaptureFlowDeps): { start(kind: CaptureKind
     const listener = d.clicks()
     let stopListener: (() => ClickEvent[]) | null = () => listener.stop()
     const stopClicks = (): ClickEvent[] => { const s = stopListener; stopListener = null; return s ? s() : [] }
+    // Set inside a callback: the cast keeps TS from narrowing it to null.
+    let started = null as RecordingSession | null
+    let finishing = false
     try {
       const { trusted } = await new Promise<{ trusted: boolean }>((resolve) => {
         const cancel = d.setTimer(() => resolve({ trusted: false }), READY_TIMEOUT_MS)
         listener.ready.then((r) => { cancel(); resolve(r) }, () => { cancel(); resolve({ trusted: false }) })
       })
-      const session = d.backend.startRecording(sel)
-      await new Promise<void>((resolve) => {
+      // The shortcut is ready before the panel shows, so the user can always stop what they see.
+      const session = await new Promise<RecordingSession>((resolve, reject) => {
         const unregister = d.registerStop(() => end())
+        let s: RecordingSession
+        try { s = d.backend.startRecording(sel) } catch (e) { unregister(); reject(e); return }
+        started = s
         const cancelTimer = d.setTimer(() => end(), MAX_RECORDING_MS)
         // The first of panel, shortcut, flow.stop() and timer wins; the rest find nothing to do.
         function end(): void {
@@ -61,17 +70,21 @@ export function createCaptureFlow(d: CaptureFlowDeps): { start(kind: CaptureKind
           stopRecording = null
           unregister()
           cancelTimer()
-          resolve()
+          resolve(s)
         }
         stopRecording = end
-        void session.stopped.then(end, end)
+        void s.stopped.then(end, end)
       })
-      const recording = await session.finish(stopClicks(), !trusted)
+      const collected = stopClicks()
+      finishing = true
+      const recording = await session.finish(collected, !trusted)
       const explainClicks = recording.clicksMissing && !d.clicksExplained()
       if (explainClicks) d.markClicksExplained()
       return { tabId, kind: 'recording', recording, explainClicks }
     } finally {
       stopClicks()
+      // A session that never reached finish still holds a stream, a worker and a panel.
+      if (started && !finishing) started.cancel()
     }
   }
 

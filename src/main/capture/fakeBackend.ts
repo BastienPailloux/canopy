@@ -30,7 +30,8 @@ function fakeCapture(mode: string): { backend: CaptureBackend; clicks: () => Cli
           { t: CLICK.t + 500, reason: 'after-click', ...click, base64: JPEG }
         ]
         return { durationMs: 1500, width: 320, height: 200, frames, clicksMissing }
-      }
+      },
+      cancel: () => {}
     })
   }
   const clicks = (): ClickListener => ({
