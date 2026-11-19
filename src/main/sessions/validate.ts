@@ -21,10 +21,18 @@ const decodedLength = (base64: string): number =>
 
 const isPositiveInt = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v > 0
 
+const FRAME_REASONS = ['start', 'end', 'before-click', 'after-click', 'change']
+const isTime = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v >= 0
+const isNumber = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
+
+const isFrame = (f: unknown): boolean => isRecord(f) && typeof f.base64 === 'string' && isTime(f.t) &&
+  FRAME_REASONS.includes(f.reason as string) &&
+  (f.click === undefined || (isRecord(f.click) && isNumber(f.click.x) && isNumber(f.click.y)))
+
 const isRecording = (r: unknown): boolean => isRecord(r) &&
   Array.isArray(r.frames) && r.frames.length > 0 && r.frames.length <= MAX_RECORDING_FRAMES &&
-  r.frames.every((f) => isRecord(f) && typeof f.base64 === 'string' && typeof f.t === 'number') &&
-  typeof r.durationMs === 'number' && r.durationMs <= MAX_RECORDING_MS + 5000 &&
+  r.frames.every(isFrame) &&
+  isTime(r.durationMs) && (r.durationMs as number) <= MAX_RECORDING_MS + 5000 &&
   isPositiveInt(r.width) && isPositiveInt(r.height) && typeof r.clicksMissing === 'boolean'
 
 export function assertContent(c: unknown): asserts c is UserContent {

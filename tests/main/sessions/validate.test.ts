@@ -103,6 +103,14 @@ test.each([
   ['a too long duration', rec({ durationMs: MAX_RECORDING_MS + 5001 })],
   ['a zero width', rec({ width: 0 })],
   ['a fractional height', rec({ height: 10.5 })],
+  ['an unknown frame reason', rec({ frames: [{ t: 0, reason: 'boom', base64: 'AAAA' }] })],
+  ['a non-numeric click', rec({ frames: [{ t: 0, reason: 'start', click: { x: '1', y: 2 }, base64: 'AAAA' }] })],
+  ['a click that is not an object', rec({ frames: [{ t: 0, reason: 'start', click: 3, base64: 'AAAA' }] })],
+  ['a NaN t', rec({ frames: [{ t: NaN, reason: 'start', base64: 'AAAA' }] })],
+  ['an infinite t', rec({ frames: [{ t: Infinity, reason: 'start', base64: 'AAAA' }] })],
+  ['a negative t', rec({ frames: [{ t: -1, reason: 'start', base64: 'AAAA' }] })],
+  ['a NaN duration', rec({ durationMs: NaN })],
+  ['a negative duration', rec({ durationMs: -1 })],
   ['non-boolean clicksMissing', rec({ clicksMissing: 'no' })]
 ])('assertContent rejects a recording with %s', (_name, recording) => {
   expect(() => assertContent({ text: '', recordings: [recording] })).toThrow('Message invalide')
