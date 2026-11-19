@@ -9,10 +9,17 @@ import { ResultsPanel, SearchPanel, type Found } from './SearchPanel'
 import { baseLost } from './baseText'
 import { useBranchBase } from './useBranchBase'
 import { useCodeData } from './useCodeData'
+import { useLayout } from '../shell/layoutStore'
+import { dragLeft, stepLeft, TREE_BOUNDS, TREE_DEFAULT } from '../shell/panelWidths'
+import { Resizer } from '../shell/Resizer'
+import { SHORTCUTS, displayKeys } from '../../shared/shortcuts'
 import './code.css'
 
 const UNKNOWN_BASE = 'Branche de comparaison inconnue'
 const SLOW_MS = 400
+/** Width of the folded file list, as `.code-tree-strip` draws it. */
+const STRIP_WIDTH = 14
+const FOCUS_KEYS = displayKeys(SHORTCUTS.find((s) => s.id === 'code-focus')?.accelerator ?? '')
 
 const baseGone = (branch: string): string => `La branche « ${branch} » est introuvable : retour à la branche par défaut.`
 
@@ -156,6 +163,14 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
   }, [data.branches, data.base])
   const otherOptions = branchOptions.filter((b) => b !== stacked.base)
 
+  const tree = useLayout((l) => l.tree)
+  const focus = useLayout((l) => l.focus)
+  const folded = useLayout((l) => l.treeRail) || focus
+  const updateLayout = useLayout((l) => l.update)
+  // Where the drag began; folding keeps the width from then, not the narrowest one the drag went through.
+  const dragFrom = useRef({ at: 0, full: TREE_DEFAULT })
+  const foldTree = (r: { width: number; rail: boolean }): void => updateLayout({ tree: r.width, treeRail: r.rail })
+
   return (
     <div className="code-screen">
       <div className="code-top">
@@ -202,7 +217,13 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
         </div>
       )}
       <div className="code-main">
-        <nav className="code-tree" aria-label="Fichiers">
+        {folded ? (
+          <button type="button" className="code-tree-strip" data-testid="tree-strip"
+            aria-label={focus ? 'Afficher les fichiers et les worktrees' : 'Afficher les fichiers'}
+            title={focus ? `Afficher les fichiers ${FOCUS_KEYS}` : 'Afficher les fichiers'}
+            onClick={() => updateLayout(focus ? { focus: false, treeRail: false } : { treeRail: false })}>›</button>
+        ) : (
+        <nav className="code-tree" aria-label="Fichiers" style={{ width: tree }}>
           {panel === 'results' && found ? (
             <ResultsPanel found={found} onOpen={openHit} onClose={() => setPanel('files')} />
           ) : panel === 'search' ? (
@@ -223,6 +244,15 @@ export function CodeScreen(props: { cwd: string; branch: string }): React.JSX.El
           <FileTree paths={scope === 'all' ? data.tree : changedPaths} changed={data.files} selected={selected} query={query} onSelect={select} />
           </>)}
         </nav>
+        )}
+        {/* In full screen the strip is the way back: a drag would open the file list without the worktrees. */}
+        {!focus && (
+          <Resizer label="Largeur des fichiers" value={folded ? STRIP_WIDTH : tree}
+            onDragStart={() => { dragFrom.current = { at: folded ? STRIP_WIDTH : tree, full: tree } }}
+            onDrag={(dx) => foldTree(dragLeft(dragFrom.current.at + dx, dragFrom.current.full, TREE_BOUNDS))}
+            onStep={(dx) => { const l = useLayout.getState(); foldTree(stepLeft({ left: l.tree, rail: l.treeRail }, dx, TREE_BOUNDS)) }}
+            onReset={() => updateLayout({ tree: TREE_DEFAULT, treeRail: false })} />
+        )}
         {selected !== null && data.base ? (
           <CodeView key={`${cwd}\0${selected}`} cwd={cwd} base={data.base} path={selected} change={change} mode={mode} onMode={setMode}
             tick={data.tick} onSaved={data.refresh} reveal={reveal} onNavigate={navigate} />

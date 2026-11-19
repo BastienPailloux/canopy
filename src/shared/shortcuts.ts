@@ -2,6 +2,7 @@ export type ShortcutId =
   | 'view-sessions' | 'view-code' | 'view-tickets' | 'view-mockups' | 'view-deps'
   | 'worktree-next' | 'worktree-previous'
   | 'new-worktree' | 'new-session' | 'new-ticket' | 'dictation'
+  | 'code-focus'
   | 'help'
 
 /** A global shortcut: an app menu entry, so that it fires before Monaco or xterm can take the keys. */
@@ -11,7 +12,7 @@ export interface Shortcut {
   accelerator: string
   label: string
   /** The app menu it sits in. */
-  menu: 'go' | 'file' | 'help'
+  menu: 'go' | 'file' | 'view' | 'help'
   /** What must be active for it to do anything; its menu entry is greyed otherwise. */
   needs: 'repo' | 'worktree' | null
 }
@@ -29,6 +30,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'new-session', accelerator: 'CmdOrCtrl+T', label: 'Nouvelle session', menu: 'file', needs: 'worktree' },
   { id: 'new-ticket', accelerator: 'CmdOrCtrl+Shift+T', label: 'Nouveau ticket…', menu: 'file', needs: 'repo' },
   { id: 'dictation', accelerator: 'CmdOrCtrl+Shift+D', label: 'Dicter un message', menu: 'file', needs: 'worktree' },
+  { id: 'code-focus', accelerator: 'CmdOrCtrl+B', label: 'Code en plein écran', menu: 'view', needs: 'worktree' },
   { id: 'help', accelerator: 'CmdOrCtrl+Shift+H', label: 'Raccourcis clavier', menu: 'help', needs: null }
 ]
 
