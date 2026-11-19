@@ -11,3 +11,5 @@ dist-notes
 # Local design references and Playwright artifacts
 docs/mockups/
 .playwright-mcp/
+
+build/capture/canopy-clicks
