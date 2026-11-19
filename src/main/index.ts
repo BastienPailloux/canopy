@@ -1,10 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, powerMonitor, safeStorage, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
+import { spawn } from 'node:child_process'
+import { createCaptureFlow, type CaptureBackend } from './capture/captureFlow'
+import { registerCaptureIpc } from './capture/captureIpc'
+import { CLICK_PERMISSION, clicksHelperPath, startClickListener } from './capture/clicks'
+import { selectCaptureBackend } from './capture/fakeBackend'
 import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
 import { TicketStore } from './tickets/store'
@@ -51,6 +56,33 @@ function claudeExecutablePath(): string | undefined {
 }
 
 let quitting = (): boolean => false
+
+/** Ends a recording. Global and registered only while recording: menu accelerators are dead while Canopy is hidden. */
+const STOP_CAPTURE_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+5'
+
+// Replaced by the Electron backend (windows, selection, stream).
+const electronBackend = (): CaptureBackend => { throw new Error('Capture indisponible') }
+
+function registerScreenCapture(store: AppStore): void {
+  const selected = selectCaptureBackend(electronBackend, { isPackaged: app.isPackaged, env: process.env })
+  const helper = clicksHelperPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
+  const flow = createCaptureFlow({
+    backend: selected.backend,
+    clicks: selected.clicks ?? (() => startClickListener({ path: helper, spawn })),
+    registerStop: (onStop) => {
+      globalShortcut.register(STOP_CAPTURE_ACCELERATOR, onStop)
+      return () => { globalShortcut.unregister(STOP_CAPTURE_ACCELERATOR) }
+    },
+    setTimer: (fn, ms) => { const h = setTimeout(fn, ms); return () => { clearTimeout(h) } },
+    clicksExplained: () => store.prefs.captureClicksExplained === true,
+    markClicksExplained: () => { store.setPrefs({ ...store.prefs, captureClicksExplained: true }) },
+    emit: (r) => { broadcast('capture:done', r) }
+  })
+  registerCaptureIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    flow, permission: CLICK_PERMISSION, openExternal: (url) => shell.openExternal(url)
+  })
+}
 
 /** Brings the window forward, a new one if it was closed (the app stays alive on macOS). Set once the app is ready. */
 let showWindow: () => void = () => undefined
@@ -233,6 +265,7 @@ void app.whenReady().then(async () => {
   powerMonitor.on('resume', () => { void depsService.checkOverdue() })
   // Back from sleep: the network is likely back too; the refresh resends what failed.
   powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
+  registerScreenCapture(store)
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null

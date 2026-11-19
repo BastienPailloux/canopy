@@ -2,6 +2,7 @@
 // Chaque task y ajoute ses méthodes.
 import type { ModelInfo, PermissionMode, SDKMessage, SessionMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import type { Activity, BaseRef, ChangedFile, ClaudeAccount, Location, PermissionDecision, PermissionRequest, SearchHit, SessionState, SessionSummary, SymbolLocation, UserContent, Workspace, Worktree, WorktreeStats } from './types'
+import type { CaptureKind } from './capture'
 import type { DepsReport } from './deps'
 import type { ShortcutContext } from './shortcuts'
 import type { LaunchCandidate, LaunchRequest, LaunchTarget, TemplateFields, TemplateList, Ticket, TicketFields, TicketListEntry, TicketPatch, TicketTemplate } from './tickets'
@@ -181,6 +182,15 @@ export interface CanopyApi {
   reportShortcutContext(ctx: ShortcutContext): Promise<void>
   /** Opens macOS dictation on the focused field. */
   startDictation(): Promise<void>
+  /**
+   * Hides Canopy and captures a region of the screen for the composer of tab `tabId`. False when a capture already runs.
+   * The outcome arrives as a `capture:done` event (`CaptureResult`).
+   */
+  startCapture(kind: CaptureKind, tabId: string): Promise<boolean>
+  /** Ends the running recording, if any. */
+  stopCapture(): Promise<void>
+  /** Opens the macOS privacy pane of the screen recording or of the click helper's permission. */
+  openCaptureSettings(which: 'screen' | 'clicks'): Promise<void>
   /** Where the downloaded update stands. Changes arrive as `update:state` events. */
   updateState(): Promise<UpdateState>
   /** Restarts into the downloaded update, after one question if sessions or terminals run. Does nothing without one. */
