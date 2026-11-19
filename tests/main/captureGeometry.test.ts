@@ -16,6 +16,11 @@ test('clampRegion treats a tiny drag as a click on the whole display', () => {
   expect(clampRegion({ x: 300, y: 300, width: 2, height: 2 }, main)).toEqual(main.bounds)
 })
 
+test('clampRegion treats a thin drag as a click on the whole display, never a zero-width region', () => {
+  expect(clampRegion({ x: 300, y: 300, width: 0, height: 200 }, main)).toEqual(main.bounds)
+  expect(clampRegion({ x: 300, y: 300, width: 200, height: 3 }, main)).toEqual(main.bounds)
+})
+
 test('regionInStream converts points to stream pixels', () => {
   const region = { x: 100, y: 100, width: 400, height: 300 }
   expect(regionInStream(region, main, { width: 2880, height: 1800 })).toEqual({ x: 200, y: 200, width: 800, height: 600 })

@@ -4,7 +4,7 @@ import { MAX_FRAME_SIDE } from './recording'
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface DisplayInfo { id: number; bounds: Rect; scaleFactor: number }
 
-/** Normalizes a drag (possibly negative size) and clamps it to the display; a near-zero drag is a click, so the whole display. */
+/** Normalizes a drag (possibly negative size) and clamps it to the display; a drag thin on either side is a click, so the whole display. */
 export function clampRegion(drag: Rect, display: DisplayInfo): Rect {
   const b = display.bounds
   const x1 = Math.min(drag.x, drag.x + drag.width)
@@ -17,7 +17,8 @@ export function clampRegion(drag: Rect, display: DisplayInfo): Rect {
   const bottom = Math.max(b.y, Math.min(y2, b.y + b.height))
   const width = right - left
   const height = bottom - top
-  if (width < 4 && height < 4) return { ...b }
+  // A zero side would divide by zero when clicks are mapped into the image.
+  if (width < 4 || height < 4) return { ...b }
   return { x: left, y: top, width, height }
 }
 

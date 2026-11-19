@@ -48,6 +48,8 @@ export function startClickListener(o: { path: string; spawn: typeof nodeSpawn })
   const failed = (): void => { if (!gotReady) { clicks.length = 0; resolveReady({ trusted: false }) } }
   proc.on('error', failed)
   proc.on('exit', failed)
+  // Closing stdin after the helper died raises EPIPE there; unheard, it would crash main.
+  proc.stdin?.on('error', () => {})
   return {
     ready,
     stop() {

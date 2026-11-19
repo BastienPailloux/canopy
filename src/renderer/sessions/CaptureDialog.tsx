@@ -5,13 +5,13 @@ import { useSessions } from './sessionStore'
 const COPY = {
   screen: {
     title: "Autoriser l'enregistrement de l'écran",
-    body: "Canopy a besoin de cette permission pour capturer une zone de l'écran et la joindre à votre message. Après l'avoir accordée dans les Réglages Système, relancez Canopy.",
+    body: "Canopy a besoin de cette permission pour capturer une zone de l'écran et la joindre à ton message. Après l'avoir accordée dans les Réglages Système, relance Canopy.",
     dismiss: 'Annuler'
   },
-  // Clicks need no permission of their own (CLICK_PERMISSION 'none'): the settings open Accessibility, the likeliest one.
+  // Clicks need no permission of their own (CLICK_PERMISSION 'none'), so only a failed helper lands here: neutral copy, Accessibility as the likeliest fix.
   clicks: {
     title: 'Clics non enregistrés',
-    body: "Pour que Claude voie où vous cliquez, autorisez Canopy dans les Réglages Système (Accessibilité). L'enregistrement fonctionne sans, sans les clics.",
+    body: "Les clics n'ont pas pu être enregistrés pour cet enregistrement. Si ça se reproduit, autorise Canopy dans les Réglages Système (Accessibilité). L'enregistrement fonctionne sans, sans les clics.",
     dismiss: 'Plus tard'
   }
 } as const

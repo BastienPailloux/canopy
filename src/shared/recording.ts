@@ -28,7 +28,7 @@ export interface Recording {
   width: number
   height: number
   frames: RecordingFrame[]
-  /** The click helper could not run (permission missing): frames carry no click. */
+  /** The click helper could not run or report: frames carry no click. */
   clicksMissing: boolean
 }
 
@@ -50,7 +50,7 @@ export function recordingNote(r: Recording): string {
   const head = `Enregistrement d'écran de ${seconds(r.durationMs)} s (zone ${r.width}×${r.height}), ${r.frames.length} images dans l'ordre.`
   const lines = [
     head,
-    ...(r.clicksMissing ? ['Clics non enregistrés (permission manquante).'] : []),
+    ...(r.clicksMissing ? ['Clics non enregistrés.'] : []),
     ...r.frames.map((f, i) => `Image ${i + 1} — t = ${seconds(f.t)} s : ${describe(f)}`)
   ]
   return `<screen-recording frames="${r.frames.length}" duration-ms="${r.durationMs}">${lines.join('\n')}</screen-recording>`

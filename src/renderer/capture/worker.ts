@@ -175,7 +175,8 @@ async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promi
       return { t: c.t - t0, reason: c.reason, ...(c.click ? { click: c.click } : {}), base64: await base64Of(image) }
     }))
     const recording: Recording = {
-      durationMs: samples[samples.length - 1].t - t0,
+      // A Mac asleep mid-recording stretches the clock past the cap, which main would refuse.
+      durationMs: Math.min(samples[samples.length - 1].t - t0, MAX_RECORDING_MS),
       width: size.width,
       height: size.height,
       frames,

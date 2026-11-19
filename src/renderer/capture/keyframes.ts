@@ -68,7 +68,8 @@ export function recordingCandidates(
   const last = samples.length - 1
   const out: (Candidate & { sample: number })[] = [{ t: samples[0].t, reason: 'start', score: 0, sample: 0 }]
   const used = new Set([0, last])
-  for (const c of clicks) {
+  // The helper starts before the stream: a click before the first sample has no image of its own.
+  for (const c of clicks.filter(c => c.t >= samples[0].t)) {
     const click = { x: c.x, y: c.y }
     const before = samples.findLastIndex(s => s.t <= c.t)
     const after = samples.findIndex(s => s.t >= c.t + AFTER_CLICK_MS)

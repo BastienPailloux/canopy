@@ -81,10 +81,17 @@ describe('recordingCandidates', () => {
   })
 
   it('leaves out the half of a click that has no sample', () => {
-    const c = recordingCandidates(samples(4), [{ t: 900, x: 0, y: 0 }, { t: 1700, x: 1, y: 1 }])
+    const c = recordingCandidates(samples(4), [{ t: 1700, x: 1, y: 1 }])
     expect(c.filter(f => f.reason.endsWith('click')).map(f => [f.reason, f.sample])).toEqual([
-      ['after-click', 2],
       ['before-click', 2]
+    ])
+  })
+
+  it('drops the clicks made before the first sample: the helper starts before the stream', () => {
+    const c = recordingCandidates(samples(10), [{ t: 900, x: 0, y: 0 }, { t: 1600, x: 5, y: 6 }])
+    expect(c.filter(f => f.reason.endsWith('click')).map(f => [f.reason, f.sample, f.click])).toEqual([
+      ['before-click', 2, { x: 5, y: 6 }],
+      ['after-click', 5, { x: 5, y: 6 }]
     ])
   })
 

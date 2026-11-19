@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { CLICK_PERMISSION, clicksHelperPath, parseClickLine, startClickListener } from '../../../src/main/capture/clicks'
 
 function fakeSpawn() {
-  const proc = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stdin: { end: vi.fn() }, kill: vi.fn() })
+  const proc = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stdin: Object.assign(new EventEmitter(), { end: vi.fn() }), kill: vi.fn() })
   const spawn = vi.fn(() => proc)
   return { proc, spawn: spawn as unknown as typeof import('node:child_process').spawn, mock: spawn }
 }
@@ -38,6 +38,15 @@ describe('startClickListener', () => {
     await expect(l.ready).resolves.toEqual({ trusted: true })
     expect(l.stop()).toEqual([{ t: 1, x: 2, y: 3 }, { t: 4, x: 5, y: 6 }])
     expect(proc.stdin.end).toHaveBeenCalled()
+  })
+
+  it('survives a write error on stdin once the helper is gone (EPIPE)', () => {
+    const { proc, spawn } = fakeSpawn()
+    const l = startClickListener({ path: 'h', spawn })
+    proc.emit('exit', 1)
+    l.stop()
+    // An unhandled error event would throw here, and crash main for real.
+    expect(() => proc.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).not.toThrow()
   })
 
   it('resolves untrusted and returns no clicks when the process exits before ready', async () => {

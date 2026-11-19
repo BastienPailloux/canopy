@@ -25,7 +25,7 @@ test('an end frame reads fin', () => {
 
 test('missing clicks are flagged right after the first line', () => {
   const lines = recordingNote({ ...r4, clicksMissing: true }).split('\n')
-  expect(lines[1]).toBe('Clics non enregistrés (permission manquante).')
+  expect(lines[1]).toBe('Clics non enregistrés.')
   expect(lines[2]).toBe('Image 1 — t = 0,0 s : début')
 })
 
