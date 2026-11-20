@@ -52,6 +52,17 @@ describe('startClickListener', () => {
     expect(l.stop()).toEqual(seen)
   })
 
+  it('hands no click to onClick after stop: the recording is over', () => {
+    const { proc, spawn } = fakeSpawn()
+    const l = startClickListener({ path: 'h', spawn })
+    const seen: unknown[] = []
+    l.onClick((c) => { seen.push(c) })
+    proc.stdout.write('{"type":"ready","trusted":true}\n')
+    l.stop()
+    proc.stdout.write('{"type":"click","t":4,"x":5,"y":6}\n')
+    expect(seen).toEqual([])
+  })
+
   it('survives a write error on stdin once the helper is gone (EPIPE)', () => {
     const { proc, spawn } = fakeSpawn()
     const l = startClickListener({ path: 'h', spawn })

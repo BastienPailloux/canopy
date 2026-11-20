@@ -180,6 +180,27 @@ describe('createFrameCollector', () => {
     expect(c.candidates().clickCount).toBe(1)
   })
 
+  it('keeps only the 20 biggest changes, besides the frames a click uses', () => {
+    const changes = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [i + 1, (i + 1) / 100]))
+    const c = feed(4, { changes: { 1: 0.001 } })
+    c.click({ t: 1300, x: 5, y: 6 })
+    feed(36, { from: 2000, changes, into: c })
+    // The start, the click's two frames and the 20 biggest changes, the last 3 samples among them.
+    expect(c.held()).toBe(23)
+    const kept = c.candidates().candidates.filter(f => f.reason === 'change').map(f => f.score)
+    // The biggest is the last sample: it is the end, not a change.
+    expect(kept).toEqual(Array.from({ length: 19 }, (_, i) => (i + 16) / 100))
+    expect(pairs(c).map(p => p[1])).toEqual(['S1250', 'S2000'])
+  })
+
+  it('keeps a click that comes while the first sample is still on its way', () => {
+    const c = createFrameCollector<string>(toImage)
+    c.click({ t: 1100, x: 5, y: 6 })
+    feed(10, { into: c })
+    expect(pairs(c)).toEqual([['before-click', 'S1000', { x: 10, y: 12 }], ['after-click', 'S1750', { x: 10, y: 12 }]])
+    expect(c.candidates().clickCount).toBe(1)
+  })
+
   it('gives the span of the recording', () => {
     expect(feed(5).candidates()).toMatchObject({ t0: 1000, t1: 2000 })
   })

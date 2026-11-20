@@ -134,7 +134,9 @@ async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promi
     const fingerprint = fingerprinter(size)
     // Only the samples a key frame may need stay in memory: a click's frames are taken as it comes.
     const collector = createFrameCollector<Blob>((c) => toImagePoint(c, job.region, size))
-    clicks((c) => { collector.click(c) })
+    let stopping = false
+    // A late click must not count: finish brings every click main kept.
+    clicks((c) => { if (!stopping) collector.click(c) })
     let count = 0
     let lastKept: Uint8ClampedArray | null = null
     const sample = async (): Promise<void> => {
@@ -167,6 +169,7 @@ async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promi
       inFlight = sample().catch(() => { fail(new Error(INTERRUPTED)) }).finally(() => { inFlight = null })
     }, SAMPLE_MS)
     const f = await Promise.race([finished, failed])
+    stopping = true
     clearInterval(timer)
     await inFlight
     // A click main heard but never sent live, before the end frame that may be its after frame.

@@ -64,6 +64,8 @@ export function startClickListener(o: { path: string; spawn: typeof nodeSpawn })
     ready,
     onClick(fn) { listeners.push(fn) },
     stop() {
+      // The helper may still print a click before it exits: the recording has its clicks already.
+      listeners.length = 0
       try { proc.stdin!.end() } catch { /* already gone */ }
       return clicks.slice()
     }

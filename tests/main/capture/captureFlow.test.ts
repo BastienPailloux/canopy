@@ -454,6 +454,21 @@ describe('createCaptureFlow: cancelAll', () => {
     expect(s.backend.startRecording).not.toHaveBeenCalled()
   })
 
+  it('reports a quit during finish as cancelled, the windows closed at once', async () => {
+    const s = setup()
+    let fail: (e: Error) => void = () => {}
+    s.session.finish.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    s.session.cancel.mockImplementation(() => { fail(new Error("La capture s'est interrompue.")) })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.panelStop()
+    await vi.waitFor(() => { expect(s.session.finish).toHaveBeenCalled() })
+    s.flow.cancelAll()
+    await s.done()
+    expect(s.session.cancel).toHaveBeenCalledTimes(1)
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
+  })
+
   it('does nothing when no capture runs', () => {
     const s = setup()
     s.flow.cancelAll()

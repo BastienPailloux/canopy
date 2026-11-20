@@ -141,7 +141,8 @@ export function createCaptureFlow(d: CaptureFlowDeps): { start(kind: CaptureKind
       if (kind === 'screenshot') return { tabId, kind: 'screenshot', image: await b.screenshot(sel) }
       return await record(tabId, sel, signal)
     } catch (e) {
-      if (e instanceof Cancelled) return { tabId, kind: 'cancelled' }
+      // A quit during finish closes the worker under it: that failure is the cancel itself.
+      if (e instanceof Cancelled || signal.aborted) return { tabId, kind: 'cancelled' }
       return { tabId, kind: 'error', message: e instanceof Error ? e.message : String(e) }
     } finally {
       if (hidden) b.showMain()

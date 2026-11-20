@@ -107,22 +107,28 @@ export interface FrameCollector<I> {
 }
 
 /**
- * Keeps, as the recording goes, only the samples a candidate can need: the start, the changes, the frames around
- * each click and the last few. `toImage` maps a click to image pixels, null outside the region.
+ * Keeps, as the recording goes, only the samples a candidate can need: the start, the biggest changes, the frames
+ * around each click and the last few. `toImage` maps a click to image pixels, null outside the region.
  */
 export function createFrameCollector<I>(toImage: (p: Point) => Point | null): FrameCollector<I> {
+  // `keep`: the start or a click's frame, never dropped.
   let held: { t: number; change?: number; image: I; keep: boolean }[] = []
   const kept: Click[] = []
   const clicks: Click[] = []
   let waiting: Click[] = []
+  /** Clicks that came before the first sample was in: it may still be the one before them. */
+  let early: Click[] = []
   const seen = new Set<string>()
   const prune = (): void => {
     const cut = held.length - RING
-    held = held.filter((h, i) => h.keep || i >= cut)
+    // No more changes than a recording can send: the smallest would never be picked.
+    const best = new Set(held.filter((h) => !h.keep && h.change !== undefined)
+      .sort((a, b) => (b.change ?? 0) - (a.change ?? 0)).slice(0, MAX_RECORDING_FRAMES))
+    held = held.filter((h, i) => h.keep || i >= cut || best.has(h))
   }
-  return {
+  const collector: FrameCollector<I> = {
     sample(s) {
-      const h = { ...s, keep: held.length === 0 || s.change !== undefined }
+      const h = { ...s, keep: held.length === 0 }
       held.push(h)
       waiting = waiting.filter((c) => {
         if (s.t < c.t + AFTER_CLICK_MS) return true
@@ -130,13 +136,15 @@ export function createFrameCollector<I>(toImage: (p: Point) => Point | null): Fr
         return false
       })
       prune()
+      if (early.length > 0) { const queued = early; early = []; for (const c of queued) collector.click(c) }
     },
     click(c) {
+      if (held.length === 0) { early.push(c); return }
       const key = `${c.t},${c.x},${c.y}`
       if (seen.has(key)) return
       seen.add(key)
       // The helper starts before the stream: a click before the first sample has no image of its own.
-      if (held.length === 0 || c.t < held[0].t) return
+      if (c.t < held[0].t) return
       const p = toImage(c)
       if (!p || kept.some((k) => isRepeatClick(k, c))) return
       kept.push(c)
@@ -149,9 +157,10 @@ export function createFrameCollector<I>(toImage: (p: Point) => Point | null): Fr
     },
     held: () => held.length,
     candidates() {
-      // Whatever was dropped can never be a click's frame, the start, a change or the end: the result is the same.
+      // What was dropped is neither a click's frame, the start nor the end, only changes too small to be picked.
       const candidates = recordingCandidates(held, clicks).map((c) => ({ ...c, image: held[c.sample].image }))
       return { candidates, clickCount: clicks.length, t0: held[0]?.t ?? 0, t1: held[held.length - 1]?.t ?? 0 }
     }
   }
+  return collector
 }

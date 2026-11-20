@@ -327,9 +327,19 @@ describe('recordings', () => {
     expect(t.items).toEqual([{ kind: 'user', text: fake, images: [F('A'), F('B')] }])
   })
 
-  it('user text that looks like a note stays text when a real recording follows it', () => {
-    const fake = '<screen-recording frames="1" duration-ms="1">x</screen-recording>'
-    const t = run([user([{ type: 'text', text: fake }, img('A'), { type: 'text', text: recordingNote(r2) }, img('F0'), img('F1')])])
-    expect(t.items).toEqual([{ kind: 'user', text: fake, images: [F('A')], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }] }])
+  it('two recordings without typed text both regroup', () => {
+    const t = run([user([{ type: 'text', text: recordingNote(r2) }, img('F0'), img('F1'), { type: 'text', text: recordingNote(r2) }, img('G0'), img('G1')])])
+    expect(t.items).toEqual([{ kind: 'user', text: '', images: [], recordings: [
+      { durationMs: 14000, frames: [F('F0'), F('F1')] }, { durationMs: 14000, frames: [F('G0'), F('G1')] }
+    ] }])
+  })
+
+  it('a recording with a PDF and no typed text regroups, the copy note hidden', () => {
+    const t = run([user([
+      { type: 'text', text: recordingNote(r2) }, img('F0'), img('F1'),
+      { type: 'document', title: 'spec.pdf', source: { type: 'base64', media_type: 'application/pdf', data: 'P' } },
+      { type: 'text', text: attachmentNote('spec.pdf', '/tmp/x/spec.pdf') }
+    ])])
+    expect(t.items).toEqual([{ kind: 'user', text: '', images: [], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }], documents: [{ name: 'spec.pdf' }] }])
   })
 })
