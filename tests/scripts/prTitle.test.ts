@@ -36,6 +36,18 @@ describe('checkPrTitle', () => {
     expect(checkPrTitle('feat: Éditer les tickets')).toMatch(/minuscule/)
   })
 
+  it('accepts the capitalized « Bump » Dependabot always writes', () => {
+    expect(checkPrTitle('chore(deps): Bump vite from 8.0.0 to 8.1.0', 'dependabot[bot]')).toBeNull()
+  })
+
+  it('still rejects a capitalized description from anyone else', () => {
+    expect(checkPrTitle('chore(deps): Bump vite from 8.0.0 to 8.1.0', 'BastienPailloux')).toMatch(/minuscule/)
+  })
+
+  it('still checks the rest of a Dependabot title', () => {
+    expect(checkPrTitle('Bump vite from 8.0.0 to 8.1.0', 'dependabot[bot]')).toMatch(/Conventional Commit/)
+  })
+
   it('rejects an empty scope', () => {
     expect(checkPrTitle('feat(): add ci')).toMatch(/scope vide/)
   })

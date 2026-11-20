@@ -26,3 +26,4 @@ jobs:
       - run: node scripts/ci/check-pr-title.ts
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
