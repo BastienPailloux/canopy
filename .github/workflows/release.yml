@@ -83,7 +83,13 @@ jobs:
         if: steps.next.outputs.version != ''
         run: |
           codesign --verify --deep --strict --verbose=2 dist/mac-arm64/Canopy.app
-          codesign -dv dist/mac-arm64/Canopy.app/Contents/Resources/canopy-clicks
+          # The helper is signed on its own: a valid Developer ID signature with the hardened runtime, or notarization fails.
+          CLICKS=dist/mac-arm64/Canopy.app/Contents/Resources/canopy-clicks
+          codesign --verify --strict --verbose=2 "$CLICKS"
+          # Read once, then searched: grep -q closing a pipe early would fail the step under pipefail.
+          SIGNATURE=$(codesign -dv --verbose=2 "$CLICKS" 2>&1)
+          grep -q 'Authority=Developer ID Application' <<< "$SIGNATURE"
+          grep -q 'flags=.*runtime' <<< "$SIGNATURE"
           dist/mac-arm64/Canopy.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude --version
 
       - name: Create tag and release
