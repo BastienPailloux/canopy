@@ -315,4 +315,21 @@ describe('recordings', () => {
     ])])
     expect(t.items).toEqual([{ kind: 'user', text: 'regarde', images: [F('A')], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }] }])
   })
+
+  it('a recording alone in its message still regroups', () => {
+    const t = run([user([{ type: 'text', text: recordingNote(r2) }, img('F0'), img('F1')])])
+    expect(t.items).toEqual([{ kind: 'user', text: '', images: [], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }] }])
+  })
+
+  it('user text that looks like a note, with fewer images than it claims, stays text and images', () => {
+    const fake = '<screen-recording frames="3" duration-ms="1">x</screen-recording>'
+    const t = run([user([{ type: 'text', text: fake }, img('A'), img('B')])])
+    expect(t.items).toEqual([{ kind: 'user', text: fake, images: [F('A'), F('B')] }])
+  })
+
+  it('user text that looks like a note stays text when a real recording follows it', () => {
+    const fake = '<screen-recording frames="1" duration-ms="1">x</screen-recording>'
+    const t = run([user([{ type: 'text', text: fake }, img('A'), { type: 'text', text: recordingNote(r2) }, img('F0'), img('F1')])])
+    expect(t.items).toEqual([{ kind: 'user', text: fake, images: [F('A')], recordings: [{ durationMs: 14000, frames: [F('F0'), F('F1')] }] }])
+  })
 })

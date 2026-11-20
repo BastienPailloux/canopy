@@ -1,5 +1,5 @@
 import { SHORTCUTS, shortcutEnabled, type ShortcutId } from '../../shared/shortcuts'
-import { newTab, requestComposerFocus, startCaptureIn } from '../sessions/sessionStore'
+import { captureJustDone, newTab, requestComposerFocus, startCaptureIn } from '../sessions/sessionStore'
 import type { Workspace, Worktree } from '../../shared/types'
 import { useApp, type AppDialog, type View } from '../store'
 import { groupEntries } from './workspaceList'
@@ -77,6 +77,7 @@ export function runShortcut(id: ShortcutId, deps: ShortcutDeps): void {
     // The composer starts dictation once it holds the focus: before that, macOS would dictate into nothing.
     requestComposerFocus(worktree, true)
   } else if (id === 'capture-screenshot' || id === 'capture-recording') {
+    if (captureJustDone()) return
     app.setView('sessions')
     startCaptureIn(worktree, id === 'capture-screenshot' ? 'screenshot' : 'recording')
   }

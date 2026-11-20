@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { useSessions } from '../../src/renderer/sessions/sessionStore'
+import { connectSessions, useSessions } from '../../src/renderer/sessions/sessionStore'
 import { useApp } from '../../src/renderer/store'
 import { connectShortcutContext, nextWorktree, runShortcut, showsSidebar, worktreeCycle, type ShortcutDeps } from '../../src/renderer/shell/shortcuts'
 import { SHORTCUTS } from '../../src/shared/shortcuts'
@@ -112,6 +112,31 @@ it('capture shortcuts show Sessions and capture for the selected tab of the work
   runShortcut('capture-screenshot', deps())
   expect(startCapture).toHaveBeenLastCalledWith('screenshot', tab)
   expect(Object.keys(useSessions.getState().tabs)).toEqual([tab])
+})
+
+it('capture shortcuts are ignored for 1 s after a capture ends: the key that stopped it must not start another', () => {
+  open()
+  useSessions.setState({ tabs: {}, active: {} })
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(10_000)
+    const startCapture = vi.fn(async () => true)
+    const handlers = new Map<string, (payload: unknown) => void>()
+    const on = vi.fn((name: string, cb: (payload: unknown) => void) => { handlers.set(name, cb); return () => undefined })
+    vi.stubGlobal('window', { canopy: { startCapture, on, pendingPermissions: async () => [] } })
+    const stop = connectSessions()
+    handlers.get('capture:done')?.({ tabId: 'gone', kind: 'cancelled' })
+    vi.setSystemTime(10_999)
+    runShortcut('capture-recording', deps())
+    runShortcut('capture-screenshot', deps())
+    expect(startCapture).not.toHaveBeenCalled()
+    vi.setSystemTime(11_000)
+    runShortcut('capture-recording', deps())
+    expect(startCapture).toHaveBeenCalledTimes(1)
+    stop()
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('worktreeCycle follows the sidebar order of the active repo, without the space, then what only git lists', () => {

@@ -170,14 +170,30 @@ function hostText(text: string): string | undefined {
 const imageOf = (b: Block): UserImage[] =>
   b.type === 'image' && b.source?.data ? [{ mediaType: b.source.media_type ?? 'image/png', base64: b.source.data }] : []
 
+/**
+ * Whether the text block at `i` is a recording note main wrote. Main puts each note right before its frames and never
+ * first when the user typed something: a user text that only looks like one is the first of several text blocks, or
+ * lacks the frames it claims.
+ */
+function noteAt(blocks: Block[], i: number, firstText: number, texts: number): { frames: number; durationMs: number } | null {
+  const b = blocks[i]
+  const note = b.type === 'text' && b.text ? parseRecordingNote(b.text) : null
+  if (!note || (i === firstText && texts > 1)) return null
+  const frames = blocks.slice(i + 1, i + 1 + note.frames)
+  return frames.length === note.frames && frames.every((f) => f.type === 'image') ? note : null
+}
+
 /** A recording note takes the next `frames` image blocks as its frames; the other images stay loose. */
 function sortBlocks(blocks: Block[]): { texts: string[]; images: UserImage[]; recordings: SentRecording[] } {
   const texts: string[] = []
   const images: UserImage[] = []
   const recordings: SentRecording[] = []
+  const isText = (b: Block): boolean => b.type === 'text' && !!b.text
+  const firstText = blocks.findIndex(isText)
+  const textCount = blocks.filter(isText).length
   let owed: { recording: SentRecording; left: number } | undefined
-  for (const b of blocks) {
-    const note = b.type === 'text' && b.text ? parseRecordingNote(b.text) : null
+  blocks.forEach((b, i) => {
+    const note = noteAt(blocks, i, firstText, textCount)
     if (note) {
       const recording = { durationMs: note.durationMs, frames: [] }
       recordings.push(recording)
@@ -188,7 +204,7 @@ function sortBlocks(blocks: Block[]): { texts: string[]; images: UserImage[]; re
         owed.left--
       } else images.push(...imageOf(b))
     } else if (b.type === 'text' && b.text && !isAttachmentNote(b.text)) texts.push(b.text)
-  }
+  })
   return { texts, images, recordings }
 }
 

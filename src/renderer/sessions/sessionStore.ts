@@ -198,6 +198,13 @@ export function startCaptureFor(tabId: string, kind: CaptureKind): void {
   window.canopy.startCapture(kind, tabId).catch((e: unknown) => useSessions.setState({ captureError: { tabId, message: errorText(e) } }))
 }
 
+/** The stop shortcut is the recording shortcut: released once Canopy is back, the same key would start another capture. */
+const CAPTURE_SHORTCUT_PAUSE_MS = 1000
+let captureDoneAt = -Infinity
+
+/** True just after a capture came back: the capture shortcuts wait. */
+export const captureJustDone = (): boolean => Date.now() - captureDoneAt < CAPTURE_SHORTCUT_PAUSE_MS
+
 /** The capture error the composer of `tabId` shows, if it is the one concerned. */
 export const captureErrorOf = (s: Pick<SessionsState, 'captureError'>, tabId: string): string | null =>
   s.captureError?.tabId === tabId ? s.captureError.message : null
@@ -209,9 +216,12 @@ function captureErrorTab(tabId: string): string | undefined {
   return worktree === null ? undefined : useSessions.getState().active[worktree]
 }
 
+const CLOSED_TAB = 'La session qui a lancé la capture a été fermée.'
+
 /** Puts a finished capture in the draft of the tab that asked for it, and says what the UI must show. */
 export function attachCapture(r: CaptureResult): { dialog: 'screen' | 'clicks' | null; error: string | null } {
-  if (!tabOf(r.tabId)) return { dialog: null, error: 'La session qui a lancé la capture a été fermée.' }
+  // Only an image or a recording needs its tab: the rest is about the app, whichever tab asked.
+  if ((r.kind === 'screenshot' || r.kind === 'recording') && !tabOf(r.tabId)) return { dialog: null, error: CLOSED_TAB }
   switch (r.kind) {
     case 'screenshot':
       setDraftImages(r.tabId, (images) => [...images, r.image])
@@ -617,6 +627,7 @@ export function connectSessions(): () => void {
       if (tab) refreshCommands(tab)
     }),
     window.canopy.on('capture:done', (payload) => {
+      captureDoneAt = Date.now()
       const r = payload as CaptureResult
       const target = captureErrorTab(r.tabId)
       const { dialog, error } = attachCapture(r)

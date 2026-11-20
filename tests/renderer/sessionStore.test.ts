@@ -516,6 +516,15 @@ describe('attachCapture', () => {
     expect(useSessions.getState().tabs).toBe(before)
   })
 
+  it('from a closed tab, still asks for the screen permission, says nothing on cancel, and gives its own error', () => {
+    tab()
+    expect(attachCapture({ tabId: 'gone', kind: 'needs-permission' })).toEqual({ dialog: 'screen', error: null })
+    expect(attachCapture({ tabId: 'gone', kind: 'cancelled' })).toEqual({ dialog: null, error: null })
+    expect(attachCapture({ tabId: 'gone', kind: 'error', message: 'Écran introuvable' })).toEqual({ dialog: null, error: 'Écran introuvable' })
+    expect(attachCapture({ tabId: 'gone', kind: 'recording', recording: rec, explainClicks: true }))
+      .toEqual({ dialog: null, error: 'La session qui a lancé la capture a été fermée.' })
+  })
+
   it('connectSessions shows what a finished capture asks for, in the composer that launched it', () => {
     const handlers = new Map<string, (payload: unknown) => void>()
     const on = vi.fn((name: string, cb: (payload: unknown) => void) => { handlers.set(name, cb); return () => undefined })

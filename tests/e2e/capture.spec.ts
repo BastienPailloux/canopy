@@ -101,6 +101,28 @@ test('a recording without clicks says so on its chip, without a dialog: no permi
   await expect(page.getByRole('alertdialog', { name: 'Clics non enregistrés' })).toHaveCount(0)
 })
 
+test('the camera menu works from the keyboard', async () => {
+  await launch('1')
+  const button = page.getByRole('button', { name: "Capturer l'écran" })
+  await expect(button).toHaveAttribute('aria-haspopup', 'menu')
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+  await button.click()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+  const shot = page.getByRole('menuitem', { name: "Capture d'écran" })
+  const record = page.getByRole('menuitem', { name: 'Enregistrer' })
+  await expect(shot).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(record).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(shot).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(record).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(button).toBeFocused()
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+})
+
 test('the recording shortcut starts a recording', async () => {
   await launch('1')
   // Playwright's keys reach the page, not the macOS menu: the shortcut is fired as the menu would, by clicking its entry.

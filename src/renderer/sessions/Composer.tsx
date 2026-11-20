@@ -42,22 +42,40 @@ const CAPTURES = [
 function CaptureMenu(props: { tabId: string }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const items = useRef<(HTMLButtonElement | null)[]>([])
   useEffect(() => {
     if (!open) return
+    items.current[0]?.focus()
     const close = (e: MouseEvent): void => {
       if (!root.current?.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      // Only the menu closes: the composer must not hear this Échap.
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+      button.current?.focus()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const at = items.current.findIndex((b) => b === document.activeElement)
+      const next = (at + (e.key === 'ArrowDown' ? 1 : -1) + CAPTURES.length) % CAPTURES.length
+      items.current[next]?.focus()
+    }
+  }
   return (
     <div className="capture-menu" ref={root}>
-      <button type="button" className="icon-btn" aria-label="Capturer l'écran" title="Capturer l'écran" aria-expanded={open}
-        onClick={() => setOpen(!open)}>{cameraIcon}</button>
+      <button ref={button} type="button" className="icon-btn" aria-label="Capturer l'écran" title="Capturer l'écran"
+        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{cameraIcon}</button>
       {open && (
-        <div className="menu" role="menu">
-          {CAPTURES.map((c) => (
-            <button key={c.kind} type="button" role="menuitem" onClick={() => { setOpen(false); startCaptureFor(props.tabId, c.kind) }}>
+        <div className="menu" role="menu" onKeyDown={onKeyDown}>
+          {CAPTURES.map((c, i) => (
+            <button key={c.kind} ref={(el) => { items.current[i] = el }} type="button" role="menuitem"
+              onClick={() => { setOpen(false); startCaptureFor(props.tabId, c.kind) }}>
               <span>{c.label}</span>
               <span className="muted">{c.keys}</span>
             </button>
@@ -264,7 +282,9 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
             ))}
           </div>
         )}
-        {[attachError, captureError, limitError].filter((e): e is string => e !== null).map((e) => <span key={e} className="del">{e}</span>)}
+        {attachError && <span key="attach" className="del">{attachError}</span>}
+        {captureError && <span key="capture" className="del">{captureError}</span>}
+        {limitError && <span key="limit" className="del">{limitError}</span>}
         <textarea id="composer" ref={input} rows={2} value={draft.text} spellCheck={false}
           placeholder="Demande une suite, colle une erreur, ou tape / pour une commande"
           onChange={(e) => setText(e.target.value, e.target.selectionStart)}
