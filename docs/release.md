@@ -69,7 +69,7 @@ La création des tags `v*` reste ouverte : sur un dépôt personnel, GitHub Acti
 
 Aucun de ces workflows n'a de secret, et leur jeton est en lecture seule (sauf l'envoi des résultats CodeQL). Ils peuvent donc utiliser `github/codeql-action`, contrairement au workflow de release.
 
-Dependabot (`.github/dependabot.yml`) ouvre chaque semaine des PR vers `develop` pour npm et les actions, titrées `chore(deps): …` / `ci: …`.
+Dependabot (`.github/dependabot.yml`) ouvre chaque semaine des PR vers `develop` pour npm et les actions, titrées `chore(deps): …` / `ci: …`. Il écrit toujours « Bump » avec une majuscule : pour ses PR (auteur `dependabot[bot]`), le check de titre tolère donc une description qui commence par une majuscule.
 
 Pour rendre ces checks bloquants : ruleset `develop` > Require status checks to pass > ajouter les cinq noms de checks ci-dessus, et cocher « Require branches to be up to date before merging ».
 
