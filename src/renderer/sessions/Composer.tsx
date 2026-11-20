@@ -4,6 +4,7 @@ import { SESSION_MODES } from '../../shared/sessionOptions'
 import { displayKeys, SHORTCUTS, type ShortcutId } from '../../shared/shortcuts'
 import { ACCEPTED_TYPES, imageLimitError, readDocument, readImage, recordingLabel, sortFiles } from './attachments'
 import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
+import { dictateInto } from './dictation'
 import { captureErrorOf, interrupt, setDraftDocuments, setDraftImages, setDraftRecordings, setDraftText, setMode, setModel, startCaptureFor, submit, useSessions, warmUp, type SessionTab } from './sessionStore'
 
 /** Until a session can list its own models. */
@@ -131,10 +132,8 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const dictate = (): void => {
     const el = input.current
     if (!el) return
-    el.focus()
-    el.setSelectionRange(el.value.length, el.value.length)
     // macOS types into the field that holds the focus; the text is only inserted, never sent.
-    void window.canopy.startDictation().catch(() => undefined)
+    void dictateInto(el, document.activeElement, () => window.canopy.startDictation())
   }
   useEffect(() => {
     if (!focusRequest || focusRequest.cwd !== tab.cwd || focusRequest.seq <= handledFocus) return
@@ -294,7 +293,8 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
           <button type="button" className="icon-btn" aria-label="Joindre un fichier" title="Joindre une image ou un PDF"
             onClick={() => picker.current?.click()}>{clipIcon}</button>
           <CaptureMenu tabId={tab.id} />
-          <button type="button" className="icon-btn" aria-label="Dicter" title="Dicter (⇧⌘D)" onClick={dictate}>{micIcon}</button>
+          <button type="button" className="icon-btn" aria-label="Dicter" title="Dicter (⇧⌘D)"
+            onMouseDown={(e) => e.preventDefault()} onClick={dictate}>{micIcon}</button>
           <input ref={picker} type="file" multiple hidden accept={ACCEPTED_TYPES} data-testid="attach-input"
             onChange={(e) => { attach([...(e.target.files ?? [])]); e.target.value = '' }} />
           <select aria-label="Mode" value={tab.mode} onChange={(e) => setMode(tab.id, e.target.value as PermissionMode)}>

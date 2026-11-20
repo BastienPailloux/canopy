@@ -132,3 +132,12 @@ test('⌘⇧D focuses the composer on Sessions', async () => {
   await expect(nav('Sessions')).toHaveAttribute('aria-current', 'page')
   await expect(page.locator('#composer')).toBeFocused()
 })
+
+test('the mic button gives the composer the focus and keeps it', async () => {
+  await press('dictation')
+  await page.locator('#composer').evaluate((el) => (el as HTMLElement).blur())
+  await page.getByRole('button', { name: 'Dicter' }).click()
+  await expect(page.locator('#composer')).toBeFocused()
+  await page.getByRole('button', { name: 'Dicter' }).click()
+  await expect(page.locator('#composer')).toBeFocused()
+})
