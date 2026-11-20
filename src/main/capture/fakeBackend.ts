@@ -24,6 +24,9 @@ function fakeCapture(mode: string): { backend: CaptureBackend; clicks: () => Cli
     startRecording: () => ({
       // The fake panel is pressed right away.
       stopped: new Promise((resolve) => { setTimeout(resolve, 0) }),
+      started: Promise.resolve(),
+      hasPanel: true,
+      click: () => {},
       finish: async (_clicks, clicksMissing) => {
         const click = clicksMissing ? {} : { click: { x: CLICK.x, y: CLICK.y } }
         const frames: RecordingFrame[] = [
@@ -33,10 +36,12 @@ function fakeCapture(mode: string): { backend: CaptureBackend; clicks: () => Cli
         return { durationMs: 1500, width: 320, height: 200, frames, clicksMissing }
       },
       cancel: () => {}
-    })
+    }),
+    showStopNotice: () => {}
   }
   const clicks = (): ClickListener => ({
     ready: Promise.resolve({ trusted: mode !== 'noclicks' }),
+    onClick: () => {},
     stop: () => (mode === 'noclicks' ? [] : [CLICK])
   })
   return { backend, clicks }
@@ -51,9 +56,10 @@ function lazy(real: () => CaptureBackend): CaptureBackend {
     requestScreen: () => get().requestScreen(),
     hideMain: () => get().hideMain(),
     showMain: () => get().showMain(),
-    selectRegion: () => get().selectRegion(),
+    selectRegion: (signal) => get().selectRegion(signal),
     screenshot: (sel) => get().screenshot(sel),
-    startRecording: (sel) => get().startRecording(sel)
+    startRecording: (sel) => get().startRecording(sel),
+    showStopNotice: () => get().showStopNotice()
   }
 }
 

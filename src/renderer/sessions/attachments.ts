@@ -1,5 +1,5 @@
 import { IMAGE_TYPES, MAX_DOCUMENT_BYTES } from '../../shared/sessionOptions'
-import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_REQUEST_BASE64, requestBase64Length, type Recording } from '../../shared/recording'
+import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_REQUEST_BASE64, requestBase64Length, shownClicks, type Recording } from '../../shared/recording'
 import type { UserDocument } from '../../shared/types'
 import type { Draft } from '../../shared/update'
 import type { UserImage } from './transcript'
@@ -46,11 +46,10 @@ export function imageLimitError(d: Draft): string | null {
   return size > MAX_REQUEST_BASE64 ? `Pièces jointes trop lourdes pour un seul message (${mo(size)} Mo / ${mo(MAX_REQUEST_BASE64)} Mo) : retire une pièce jointe.` : null
 }
 
-/** `14 s · 3 clics` on the recording chip. A click gives a before and an after frame: only one of them is counted. */
+/** `14 s · 3 clics` on the recording chip: every click made, else those the frames show. */
 export function recordingLabel(r: Recording): string {
   const seconds = `${Math.round(r.durationMs / 1000)} s`
   if (r.clicksMissing) return `${seconds} · clics non enregistrés`
-  const after = r.frames.filter((f) => f.reason === 'after-click').length
-  const clicks = after > 0 ? after : r.frames.filter((f) => f.reason === 'before-click').length
+  const clicks = r.clickCount ?? shownClicks(r)
   return `${seconds} · ${clicks} ${clicks > 1 ? 'clics' : 'clic'}`
 }

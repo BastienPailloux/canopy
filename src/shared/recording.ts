@@ -30,6 +30,8 @@ export interface Recording {
   frames: RecordingFrame[]
   /** The click helper could not run or report: frames carry no click. */
   clicksMissing: boolean
+  /** Every click made in the zone, double-clicks counted once: some may have no frame. */
+  clickCount?: number
 }
 
 const seconds = (ms: number): string => (ms / 1000).toFixed(1).replace('.', ',')
@@ -45,12 +47,21 @@ function describe(f: RecordingFrame): string {
   }
 }
 
+/** Clicks the frames show: a pair counts once, a click left with one frame too. */
+export function shownClicks(r: Recording): number {
+  const count = (reason: FrameReason): number => r.frames.filter((f) => f.reason === reason).length
+  return Math.max(count('before-click'), count('after-click'))
+}
+
+const plural = (n: number, word: string): string => `${n} ${word}${n > 1 ? 's' : ''}`
+
 /** The timeline Claude reads before the frames; the tags let the UI recognise it in a transcript. */
 export function recordingNote(r: Recording): string {
   const head = `Enregistrement d'écran de ${seconds(r.durationMs)} s (zone ${r.width}×${r.height}), ${r.frames.length} images dans l'ordre.`
   const lines = [
     head,
     ...(r.clicksMissing ? ['Clics non enregistrés.'] : []),
+    ...(r.clickCount !== undefined && r.clickCount > shownClicks(r) ? [`${plural(r.clickCount, 'clic')} au total, ${plural(shownClicks(r), 'montré')}.`] : []),
     ...r.frames.map((f, i) => `Image ${i + 1} — t = ${seconds(f.t)} s : ${describe(f)}`)
   ]
   return `<screen-recording frames="${r.frames.length}" duration-ms="${r.durationMs}">${lines.join('\n')}</screen-recording>`

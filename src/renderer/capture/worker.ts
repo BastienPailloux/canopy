@@ -1,7 +1,7 @@
-import type { CaptureBridge, CaptureFinish, CaptureWorkerJob, CaptureWorkerResult } from '../../shared/capture'
+import type { CaptureBridge, CaptureClick, CaptureFinish, CaptureWorkerJob, CaptureWorkerResult } from '../../shared/capture'
 import { fitSize, regionInStream, toImagePoint, type Rect } from '../../shared/captureGeometry'
 import { MAX_RECORDING_MS, type Recording, type RecordingFrame } from '../../shared/recording'
-import { CHANGE_THRESHOLD, fingerprintDiff, recordingCandidates, selectKeyFrames } from './keyframes'
+import { CHANGE_THRESHOLD, createFrameCollector, fingerprintDiff, selectKeyFrames } from './keyframes'
 
 const SAMPLE_MS = 250
 const FINGERPRINT_WIDTH = 64
@@ -11,8 +11,7 @@ const MAX_SAMPLES = Math.ceil((MAX_RECORDING_MS + 10_000) / SAMPLE_MS)
 const CLICK_RADIUS = 18
 const CLICK_LINE = 3
 const CLICK_COLOR = '#f85149'
-
-interface Sample { t: number; blob: Blob; change?: number }
+const INTERRUPTED = 'La capture s\'est interrompue.'
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -44,7 +43,7 @@ function base64Of(blob: Blob): Promise<string> {
   })
 }
 
-async function openStream(job: CaptureWorkerJob): Promise<{ video: HTMLVideoElement; stop: () => void }> {
+async function openStream(job: CaptureWorkerJob): Promise<{ video: HTMLVideoElement; stop: () => void; ended: Promise<void> }> {
   const { bounds, scaleFactor } = job.display
   // Without a max size Chromium scales a Retina display down; the real stream size still wins in regionInStream.
   const constraints = {
@@ -65,13 +64,15 @@ async function openStream(job: CaptureWorkerJob): Promise<{ video: HTMLVideoElem
     throw new Error(`Impossible de lire l'écran : ${message(e)}`)
   }
   const stop = (): void => { for (const t of stream.getTracks()) t.stop() }
+  // A display unplugged or a permission withdrawn ends the track: the recording must say so at once.
+  const ended = new Promise<void>((resolve) => { for (const t of stream.getVideoTracks()) t.addEventListener('ended', () => { resolve() }, { once: true }) })
   try {
     const video = document.createElement('video')
     video.muted = true
     video.srcObject = stream
     await video.play()
     if (!video.videoWidth) await new Promise((r) => { video.addEventListener('loadedmetadata', r, { once: true }) })
-    return { video, stop }
+    return { video, stop, ended }
   } catch (e) {
     stop()
     throw e
@@ -115,9 +116,9 @@ async function withClick(blob: Blob, at: { x: number; y: number }): Promise<Blob
   return toBlob(c, 'image/jpeg', JPEG_QUALITY)
 }
 
-async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promise<CaptureFinish>): Promise<CaptureWorkerResult> {
-  const { video, stop } = await openStream(job)
-  const samples: Sample[] = []
+async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promise<CaptureFinish>, clicks: (fn: (c: CaptureClick) => void) => void): Promise<CaptureWorkerResult> {
+  const { video, stop, ended } = await openStream(job)
+  let timer: ReturnType<typeof setInterval> | undefined
   try {
     const crop = cropOf(job, video)
     const size = fitSize(crop.width, crop.height)
@@ -131,6 +132,10 @@ async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promi
     }
 
     const fingerprint = fingerprinter(size)
+    // Only the samples a key frame may need stay in memory: a click's frames are taken as it comes.
+    const collector = createFrameCollector<Blob>((c) => toImagePoint(c, job.region, size))
+    clicks((c) => { collector.click(c) })
+    let count = 0
     let lastKept: Uint8ClampedArray | null = null
     const sample = async (): Promise<void> => {
       const t = Date.now()
@@ -142,49 +147,51 @@ async function run(job: CaptureWorkerJob, bridge: CaptureBridge, finished: Promi
         const diff = fingerprintDiff(fp, lastKept)
         if (diff >= CHANGE_THRESHOLD) { change = diff; lastKept = fp }
       }
-      // Every sample is kept: a click's before frame is only known once the click arrives, at the end.
       const blob = await toBlob(frame, 'image/jpeg', JPEG_QUALITY)
-      samples.push({ t, blob, ...(change !== undefined ? { change } : {}) })
+      count++
+      collector.sample({ t, image: blob, ...(change !== undefined ? { change } : {}) })
     }
 
     await sample()
     bridge.result({ kind: 'started' })
     let inFlight: Promise<void> | null = null
-    let failure: unknown = null
+    let fail: (e: Error) => void = () => {}
+    // Main hears a failure as soon as it happens, not when the user stops: the recording ends there.
+    const failed = new Promise<never>((_resolve, reject) => { fail = reject })
+    // A failure after the stop has nobody waiting for it.
+    failed.catch(() => {})
+    void ended.then(() => { fail(new Error(INTERRUPTED)) })
     // A slow encode skips a tick rather than queueing them.
-    const timer = setInterval(() => {
-      if (inFlight || samples.length >= MAX_SAMPLES) return
-      inFlight = sample().catch((e: unknown) => { failure ??= e }).finally(() => { inFlight = null })
+    timer = setInterval(() => {
+      if (inFlight || count >= MAX_SAMPLES) return
+      inFlight = sample().catch(() => { fail(new Error(INTERRUPTED)) }).finally(() => { inFlight = null })
     }, SAMPLE_MS)
-    const f = await finished
+    const f = await Promise.race([finished, failed])
     clearInterval(timer)
     await inFlight
-    if (failure) throw failure
+    // A click main heard but never sent live, before the end frame that may be its after frame.
+    if (!f.clicksMissing) for (const c of f.clicks) collector.click(c)
     await sample()
 
-    // Without the helper's permission, clicks are absent from frames (the recording says so).
-    const clicks = (f.clicksMissing ? [] : f.clicks).flatMap((c) => {
-      const p = toImagePoint(c, job.region, size)
-      return p ? [{ t: c.t, ...p }] : []
-    })
-    const t0 = samples[0].t
-    const chosen = selectKeyFrames(recordingCandidates(samples, clicks))
+    const { candidates, clickCount, t0, t1 } = collector.candidates()
+    // Without the helper, frames carry no click (the recording says so).
+    const chosen = selectKeyFrames(f.clicksMissing ? candidates.filter((c) => !c.click) : candidates)
     const frames: RecordingFrame[] = await Promise.all(chosen.map(async (c) => {
-      const blob = samples[c.sample].blob
-      const image = c.reason === 'after-click' && c.click ? await withClick(blob, c.click) : blob
+      const image = c.reason === 'after-click' && c.click ? await withClick(c.image, c.click) : c.image
       return { t: c.t - t0, reason: c.reason, ...(c.click ? { click: c.click } : {}), base64: await base64Of(image) }
     }))
     const recording: Recording = {
       // A Mac asleep mid-recording stretches the clock past the cap, which main would refuse.
-      durationMs: Math.min(samples[samples.length - 1].t - t0, MAX_RECORDING_MS),
+      durationMs: Math.min(t1 - t0, MAX_RECORDING_MS),
       width: size.width,
       height: size.height,
       frames,
-      clicksMissing: f.clicksMissing
+      clicksMissing: f.clicksMissing,
+      ...(f.clicksMissing ? {} : { clickCount })
     }
     return { kind: 'recording', recording }
   } finally {
-    samples.length = 0
+    clearInterval(timer)
     stop()
   }
 }
@@ -196,7 +203,7 @@ export function startWorker(bridge: CaptureBridge): void {
   bridge.onJob((job) => {
     if (started) return
     started = true
-    void run(job, bridge, finished).then(
+    void run(job, bridge, finished, bridge.onClick).then(
       (r) => { bridge.result(r) },
       (e: unknown) => { bridge.result({ kind: 'error', message: message(e) }) }
     )

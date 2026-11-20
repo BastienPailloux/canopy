@@ -81,3 +81,77 @@ export function recordingCandidates(
   if (last > 0) out.push({ t: samples[last].t, reason: 'end', score: 0, sample: last })
   return out.sort((a, b) => a.t - b.t)
 }
+
+type Point = { x: number; y: number }
+type Click = { t: number } & Point
+
+/** Global points within which a click repeats the previous one (a double-click). */
+const REPEAT_RADIUS = 8
+
+/** A click within AFTER_CLICK_MS and REPEAT_RADIUS of a kept one shows nothing new: one pair is enough. */
+export const isRepeatClick = (prev: Click, c: Click): boolean =>
+  c.t >= prev.t && c.t - prev.t <= AFTER_CLICK_MS && Math.hypot(c.x - prev.x, c.y - prev.y) <= REPEAT_RADIUS
+
+/** Samples always held: the newest give a late click its before frame, and the last one is the end. */
+const RING = 3
+
+export interface FrameCollector<I> {
+  /** A sample in time order; `change` as in `recordingCandidates`. */
+  sample(s: { t: number; change?: number; image: I }): void
+  /** A click in global points, as it comes; repeats, clicks out of the region and before the first sample are dropped. */
+  click(c: Click): void
+  /** How many samples are in memory. */
+  held(): number
+  /** The candidates with their image, the clicks kept, and the first and last sample times. */
+  candidates(): { candidates: (Candidate & { image: I })[]; clickCount: number; t0: number; t1: number }
+}
+
+/**
+ * Keeps, as the recording goes, only the samples a candidate can need: the start, the changes, the frames around
+ * each click and the last few. `toImage` maps a click to image pixels, null outside the region.
+ */
+export function createFrameCollector<I>(toImage: (p: Point) => Point | null): FrameCollector<I> {
+  let held: { t: number; change?: number; image: I; keep: boolean }[] = []
+  const kept: Click[] = []
+  const clicks: Click[] = []
+  let waiting: Click[] = []
+  const seen = new Set<string>()
+  const prune = (): void => {
+    const cut = held.length - RING
+    held = held.filter((h, i) => h.keep || i >= cut)
+  }
+  return {
+    sample(s) {
+      const h = { ...s, keep: held.length === 0 || s.change !== undefined }
+      held.push(h)
+      waiting = waiting.filter((c) => {
+        if (s.t < c.t + AFTER_CLICK_MS) return true
+        h.keep = true
+        return false
+      })
+      prune()
+    },
+    click(c) {
+      const key = `${c.t},${c.x},${c.y}`
+      if (seen.has(key)) return
+      seen.add(key)
+      // The helper starts before the stream: a click before the first sample has no image of its own.
+      if (held.length === 0 || c.t < held[0].t) return
+      const p = toImage(c)
+      if (!p || kept.some((k) => isRepeatClick(k, c))) return
+      kept.push(c)
+      clicks.push({ t: c.t, ...p })
+      const before = held.findLast((h) => h.t <= c.t)
+      if (before) before.keep = true
+      const after = held.find((h) => h.t >= c.t + AFTER_CLICK_MS)
+      if (after) after.keep = true
+      else waiting.push(c)
+    },
+    held: () => held.length,
+    candidates() {
+      // Whatever was dropped can never be a click's frame, the start, a change or the end: the result is the same.
+      const candidates = recordingCandidates(held, clicks).map((c) => ({ ...c, image: held[c.sample].image }))
+      return { candidates, clickCount: clicks.length, t0: held[0]?.t ?? 0, t1: held[held.length - 1]?.t ?? 0 }
+    }
+  }
+}

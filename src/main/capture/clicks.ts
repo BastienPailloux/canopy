@@ -4,7 +4,10 @@ import { join } from 'node:path'
 export type ClickEvent = { t: number; x: number; y: number }
 export type ClickLine = { type: 'ready'; trusted: boolean } | ({ type: 'click' } & ClickEvent)
 
-/** Permission the helper checks to report `trusted` (decided by the Task 1 spike; provisional). */
+/**
+ * Permission the helper checks to report `trusted`. A global monitor of mouse buttons alone needs no TCC permission
+ * on macOS (Apple reserves Accessibility for key events); switch to 'accessibility' if real tests show otherwise.
+ */
 export const CLICK_PERMISSION: 'accessibility' | 'input-monitoring' | 'none' = 'none'
 
 export function parseClickLine(line: string): ClickLine | null {
@@ -21,12 +24,15 @@ export function parseClickLine(line: string): ClickLine | null {
 
 export interface ClickListener {
   ready: Promise<{ trusted: boolean }>
+  /** Called with each click as the helper reports it. */
+  onClick(fn: (c: ClickEvent) => void): void
   /** Closes the helper's stdin (it exits on EOF) and returns the clicks seen so far. */
   stop(): ClickEvent[]
 }
 
 export function startClickListener(o: { path: string; spawn: typeof nodeSpawn }): ClickListener {
   const clicks: ClickEvent[] = []
+  const listeners: ((c: ClickEvent) => void)[] = []
   let resolveReady: (v: { trusted: boolean }) => void = () => {}
   const ready = new Promise<{ trusted: boolean }>((r) => { resolveReady = r })
   // Array args, no shell; stderr ignored so an unread pipe can never block the helper.
@@ -41,7 +47,11 @@ export function startClickListener(o: { path: string; spawn: typeof nodeSpawn })
       const msg = parseClickLine(buf.slice(0, i))
       buf = buf.slice(i + 1)
       if (msg?.type === 'ready') { gotReady = true; resolveReady({ trusted: msg.trusted }) }
-      else if (msg) clicks.push({ t: msg.t, x: msg.x, y: msg.y })
+      else if (msg) {
+        const c = { t: msg.t, x: msg.x, y: msg.y }
+        clicks.push(c)
+        for (const fn of listeners) fn(c)
+      }
     }
   })
   // A helper that dies before `ready` is reported as untrusted; after `ready` an exit keeps the clicks.
@@ -52,6 +62,7 @@ export function startClickListener(o: { path: string; spawn: typeof nodeSpawn })
   proc.stdin?.on('error', () => {})
   return {
     ready,
+    onClick(fn) { listeners.push(fn) },
     stop() {
       try { proc.stdin!.end() } catch { /* already gone */ }
       return clicks.slice()

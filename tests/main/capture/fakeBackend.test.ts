@@ -35,7 +35,7 @@ describe('fake capture', () => {
   it('gives a 1×1 PNG screenshot of a selected region', async () => {
     const { backend } = fake('1')
     expect(backend.screenGranted()).toBe(true)
-    const sel = await backend.selectRegion()
+    const sel = await backend.selectRegion(new AbortController().signal)
     expect(sel).not.toBeNull()
     const image = await backend.screenshot(sel!)
     expect(image.mediaType).toBe('image/png')
@@ -46,8 +46,11 @@ describe('fake capture', () => {
     const { backend, clicks } = fake('1')
     const listener = clicks!()
     expect(await listener.ready).toEqual({ trusted: true })
-    const session = backend.startRecording((await backend.selectRegion())!)
+    const session = backend.startRecording((await backend.selectRegion(new AbortController().signal))!)
+    expect(session.hasPanel).toBe(true)
+    await session.started
     await session.stopped
+    session.click({ t: 1, x: 2, y: 3 })
     const r = await session.finish(listener.stop(), false)
     expect(r.frames).toHaveLength(2)
     expect(r.frames.map((f) => f.reason)).toEqual(['before-click', 'after-click'])
@@ -58,8 +61,13 @@ describe('fake capture', () => {
     expect(r.durationMs).toBe(1500)
   })
 
+  it('delivers no click live: the fake recording is fixed', () => {
+    const listener = fake('1').clicks!()
+    expect(() => { listener.onClick(() => { throw new Error('no click expected') }) }).not.toThrow()
+  })
+
   it('cancels the selection with "cancel"', async () => {
-    expect(await fake('cancel').backend.selectRegion()).toBeNull()
+    expect(await fake('cancel').backend.selectRegion(new AbortController().signal)).toBeNull()
   })
 
   it('denies the screen permission with "denied"', () => {
@@ -70,7 +78,7 @@ describe('fake capture', () => {
     const { backend, clicks } = fake('noclicks')
     const listener = clicks!()
     expect(await listener.ready).toEqual({ trusted: false })
-    const session = backend.startRecording((await backend.selectRegion())!)
+    const session = backend.startRecording((await backend.selectRegion(new AbortController().signal))!)
     const r = await session.finish(listener.stop(), true)
     expect(r.clicksMissing).toBe(true)
     expect(r.frames.every((f) => f.click === undefined)).toBe(true)

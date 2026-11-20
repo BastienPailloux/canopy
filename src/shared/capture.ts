@@ -22,8 +22,20 @@ export interface CaptureWorkerJob {
   display: DisplayInfo
 }
 
-/** Clicks in global points, epoch ms: the click helper's events. */
-export interface CaptureFinish { clicks: { t: number; x: number; y: number }[]; clicksMissing: boolean }
+/** A click in global points, epoch ms: one of the click helper's events. */
+export interface CaptureClick { t: number; x: number; y: number }
+
+/** Clicks in global points, epoch ms: the click helper's events, all of them, those already sent live included. */
+export interface CaptureFinish { clicks: CaptureClick[]; clicksMissing: boolean }
+
+const isFinite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** A click as the worker page receives it; anything else is dropped. */
+export function parseCaptureClick(v: unknown): CaptureClick | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null
+  const { t, x, y } = v as Record<string, unknown>
+  return isFinite(t) && isFinite(x) && isFinite(y) ? { t, x, y } : null
+}
 
 export type CaptureWorkerResult =
   | { kind: 'started' }
@@ -44,6 +56,8 @@ export interface CaptureBridge {
   /** Worker: asks for its job once its listeners are set. */
   ready(): void
   onJob(fn: (job: CaptureWorkerJob) => void): void
+  /** Worker: each click while recording, as it comes. */
+  onClick(fn: (c: CaptureClick) => void): void
   onFinish(fn: (f: CaptureFinish) => void): void
   result(r: CaptureWorkerResult): void
 }

@@ -40,6 +40,18 @@ describe('startClickListener', () => {
     expect(proc.stdin.end).toHaveBeenCalled()
   })
 
+  it('hands each click to onClick as it comes, and still returns them all on stop', () => {
+    const { proc, spawn } = fakeSpawn()
+    const l = startClickListener({ path: 'h', spawn })
+    const seen: unknown[] = []
+    l.onClick((c) => { seen.push(c) })
+    proc.stdout.write('{"type":"ready","trusted":true}\n{"type":"click","t":1,"x":2,"y":3}\n')
+    expect(seen).toEqual([{ t: 1, x: 2, y: 3 }])
+    proc.stdout.write('{"type":"click","t":4,"x":5,"y":6}\n')
+    expect(seen).toEqual([{ t: 1, x: 2, y: 3 }, { t: 4, x: 5, y: 6 }])
+    expect(l.stop()).toEqual(seen)
+  })
+
   it('survives a write error on stdin once the helper is gone (EPIPE)', () => {
     const { proc, spawn } = fakeSpawn()
     const l = startClickListener({ path: 'h', spawn })

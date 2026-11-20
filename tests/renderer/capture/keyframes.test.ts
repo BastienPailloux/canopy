@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fingerprintDiff, recordingCandidates, selectKeyFrames, type Candidate } from '../../../src/renderer/capture/keyframes'
+import { createFrameCollector, fingerprintDiff, isRepeatClick, recordingCandidates, selectKeyFrames, type Candidate } from '../../../src/renderer/capture/keyframes'
 
 const click = { x: 1, y: 2 }
 const clicks = (n: number): Candidate[] =>
@@ -98,5 +98,89 @@ describe('recordingCandidates', () => {
   it('does not count a sample twice as a change', () => {
     const c = recordingCandidates(samples(8, { 2: 0.3, 7: 0.2 }), [{ t: 1550, x: 1, y: 1 }])
     expect(c.filter(f => f.reason === 'change')).toEqual([])
+  })
+})
+
+describe('isRepeatClick', () => {
+  it('is true within AFTER_CLICK_MS and 8 points of the previous click', () => {
+    expect(isRepeatClick({ t: 0, x: 10, y: 10 }, { t: 200, x: 14, y: 13 })).toBe(true)
+    expect(isRepeatClick({ t: 0, x: 10, y: 10 }, { t: 500, x: 10, y: 18 })).toBe(true)
+  })
+
+  it('is false further in time or space', () => {
+    expect(isRepeatClick({ t: 0, x: 10, y: 10 }, { t: 501, x: 10, y: 10 })).toBe(false)
+    expect(isRepeatClick({ t: 0, x: 10, y: 10 }, { t: 300, x: 10, y: 19 })).toBe(false)
+  })
+})
+
+describe('createFrameCollector', () => {
+  // Global points map to image pixels ×2 inside a 0..100 region; outside it, no point.
+  const toImage = (c: { x: number; y: number }) => (c.x >= 0 && c.x <= 100 && c.y >= 0 && c.y <= 100 ? { x: c.x * 2, y: c.y * 2 } : null)
+  /** `n` samples every 250 ms from `from`, named by their time. */
+  function feed(n: number, o: { changes?: Record<number, number>; from?: number; into?: ReturnType<typeof createFrameCollector<string>> } = {}) {
+    const collector = o.into ?? createFrameCollector<string>(toImage)
+    for (let i = 0; i < n; i++) {
+      const t = (o.from ?? 1000) + i * 250
+      collector.sample({ t, image: `S${t}`, ...(o.changes && i in o.changes ? { change: o.changes[i] } : {}) })
+    }
+    return collector
+  }
+  const pairs = (c: ReturnType<typeof createFrameCollector<string>>) =>
+    c.candidates().candidates.filter(f => f.reason.endsWith('click')).map(f => [f.reason, f.image, f.click])
+
+  it('keeps only the start, the changes and the last three samples', () => {
+    const c = feed(40, { changes: { 10: 0.1, 20: 0.2 } })
+    expect(c.held()).toBe(6)
+    expect(c.candidates().candidates.map(f => [f.reason, f.image])).toEqual([
+      ['start', 'S1000'], ['change', 'S3500'], ['change', 'S6000'], ['end', 'S10750']
+    ])
+  })
+
+  it('keeps the frame before a click and the one AFTER_CLICK_MS later, live', () => {
+    const c = feed(4)
+    c.click({ t: 1800, x: 5, y: 6 })
+    feed(30, { from: 2000, into: c })
+    expect(pairs(c)).toEqual([
+      ['before-click', 'S1750', { x: 10, y: 12 }],
+      ['after-click', 'S2500', { x: 10, y: 12 }]
+    ])
+    expect(c.held()).toBe(6)
+  })
+
+  it('finds the before frame of a click that comes late, from the last samples', () => {
+    const c = feed(10)
+    c.click({ t: 2800, x: 5, y: 6 })
+    expect(pairs(c)).toEqual([['before-click', 'S2750', { x: 10, y: 12 }]])
+  })
+
+  it('merges a double-click into one pair', () => {
+    const c = feed(4)
+    c.click({ t: 1800, x: 5, y: 6 })
+    c.click({ t: 1950, x: 7, y: 6 })
+    feed(10, { from: 2000, into: c })
+    expect(pairs(c)).toHaveLength(2)
+    expect(c.candidates().clickCount).toBe(1)
+  })
+
+  it('keeps two distant clicks 300 ms apart as two pairs', () => {
+    const c = feed(4)
+    c.click({ t: 1800, x: 5, y: 6 })
+    c.click({ t: 2100, x: 60, y: 60 })
+    feed(10, { from: 2000, into: c })
+    expect(pairs(c).map(p => p[0])).toEqual(['before-click', 'before-click', 'after-click', 'after-click'])
+    expect(c.candidates().clickCount).toBe(2)
+  })
+
+  it('ignores a click seen twice, out of the region, or before the first sample', () => {
+    const c = feed(4)
+    c.click({ t: 1800, x: 5, y: 6 })
+    c.click({ t: 1800, x: 5, y: 6 })
+    c.click({ t: 1900, x: 500, y: 6 })
+    c.click({ t: 900, x: 50, y: 50 })
+    expect(c.candidates().clickCount).toBe(1)
+  })
+
+  it('gives the span of the recording', () => {
+    expect(feed(5).candidates()).toMatchObject({ t0: 1000, t1: 2000 })
   })
 })

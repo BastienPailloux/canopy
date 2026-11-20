@@ -9,29 +9,51 @@ const image = { mediaType: 'image/png', base64: 'AAA' }
 const recording = (clicksMissing: boolean): Recording => ({ durationMs: 1000, width: 10, height: 10, frames: [], clicksMissing })
 const clicks: ClickEvent[] = [{ t: 5, x: 1, y: 2 }]
 
-function setup(o: { granted?: boolean; select?: typeof sel | null; trusted?: boolean | 'never'; explained?: boolean } = {}) {
+interface SetupOptions {
+  granted?: boolean
+  select?: typeof sel | null
+  trusted?: boolean | 'never'
+  explained?: boolean
+  /** Whether the stop shortcut registers. */
+  shortcut?: boolean
+  /** Whether the backend shows a stop panel. */
+  panel?: boolean
+  /** Whether the session says `started` at once. */
+  startsAtOnce?: boolean
+  permission?: 'accessibility' | 'input-monitoring' | 'none'
+}
+
+function setup(o: SetupOptions = {}) {
   let panelStop: () => void = () => {}
-  const session: RecordingSession & { finish: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> } = {
+  let markStarted: () => void = () => {}
+  const session: RecordingSession & { finish: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn>; click: ReturnType<typeof vi.fn> } = {
     stopped: new Promise<void>((r) => { panelStop = r }),
+    started: o.startsAtOnce === false ? new Promise<void>((r) => { markStarted = r }) : Promise.resolve(),
+    hasPanel: o.panel ?? true,
+    click: vi.fn((_c: ClickEvent) => {}),
     finish: vi.fn(async (_c: ClickEvent[], missing: boolean) => recording(missing)),
     cancel: vi.fn(() => {})
   }
+  let selectSignal: AbortSignal | null = null
   const backend = {
     screenGranted: vi.fn(() => o.granted ?? true),
     requestScreen: vi.fn(),
     hideMain: vi.fn(),
     showMain: vi.fn(),
-    selectRegion: vi.fn(async () => (o.select === undefined ? sel : o.select)),
+    selectRegion: vi.fn(async (signal: AbortSignal) => { selectSignal = signal; return o.select === undefined ? sel : o.select }),
     screenshot: vi.fn(async () => image),
-    startRecording: vi.fn(() => session)
+    startRecording: vi.fn(() => session),
+    showStopNotice: vi.fn()
   } satisfies CaptureBackend
+  let onClick: (c: ClickEvent) => void = () => {}
   const listener: ClickListener & { stop: ReturnType<typeof vi.fn> } = {
     ready: o.trusted === 'never' ? new Promise(() => {}) : Promise.resolve({ trusted: o.trusted ?? true }),
+    onClick: (fn) => { onClick = fn },
     stop: vi.fn(() => clicks)
   }
   const unregister = vi.fn()
   let onStop: () => void = () => {}
-  const registerStop = vi.fn((fn: () => void) => { onStop = fn; return unregister })
+  const registerStop = vi.fn((fn: () => void) => { onStop = fn; return { registered: o.shortcut ?? true, unregister } })
   let explained = o.explained ?? false
   const markClicksExplained = vi.fn(() => { explained = true })
   const emitted: CaptureResult[] = []
@@ -40,12 +62,17 @@ function setup(o: { granted?: boolean; select?: typeof sel | null; trusted?: boo
     clicks: () => listener,
     registerStop,
     setTimer: (fn, ms) => { const h = setTimeout(fn, ms); return () => clearTimeout(h) },
+    clickPermission: o.permission ?? 'accessibility',
     clicksExplained: () => explained,
     markClicksExplained,
     emit: (r) => { emitted.push(r) }
   })
   const done = (): Promise<void> => vi.waitFor(() => { if (emitted.length === 0) throw new Error('not yet') })
-  return { flow, backend, session, listener, unregister, registerStop, markClicksExplained, emitted, done, panelStop: () => panelStop(), shortcut: () => onStop() }
+  return {
+    flow, backend, session, listener, unregister, registerStop, markClicksExplained, emitted, done,
+    panelStop: () => panelStop(), shortcut: () => onStop(), markStarted: () => markStarted(),
+    click: (c: ClickEvent) => onClick(c), selectSignal: () => selectSignal
+  }
 }
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }) })
@@ -304,5 +331,132 @@ describe('createCaptureFlow: one at a time', () => {
     expect(s.flow.start('screenshot', 'b')).toBe(true)
     await vi.waitFor(() => { if (s.emitted.length < 2) throw new Error('not yet') })
     expect(s.emitted[1]).toEqual({ tabId: 'b', kind: 'cancelled' })
+  })
+})
+
+describe('createCaptureFlow: stop controls', () => {
+  it('refuses to record when neither the stop shortcut nor a panel is available', async () => {
+    const s = setup({ shortcut: false, panel: false })
+    s.flow.start('recording', 't')
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'error', message: "Impossible d'afficher le bouton d'arrêt ni d'enregistrer le raccourci ⌥⇧⌘5 : enregistrement annulé." }])
+    expect(s.session.cancel).toHaveBeenCalledTimes(1)
+    expect(s.session.finish).not.toHaveBeenCalled()
+    expect(s.backend.showStopNotice).not.toHaveBeenCalled()
+    expect(s.listener.stop).toHaveBeenCalledTimes(1)
+    expect(s.backend.showMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('records with the panel alone when the shortcut is taken, without any notice', async () => {
+    const s = setup({ shortcut: false, panel: true })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.panelStop()
+    await s.done()
+    expect(s.emitted[0].kind).toBe('recording')
+    expect(s.backend.showStopNotice).not.toHaveBeenCalled()
+  })
+
+  it('tells about the shortcut when there is no panel', async () => {
+    const s = setup({ panel: false })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    expect(s.backend.showStopNotice).toHaveBeenCalledTimes(1)
+    s.shortcut()
+    await s.done()
+    expect(s.emitted[0].kind).toBe('recording')
+  })
+
+  it('arms the 2-minute stop once the recording has really started', async () => {
+    const s = setup({ startsAtOnce: false })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    await vi.advanceTimersByTimeAsync(MAX_RECORDING_MS)
+    expect(s.emitted).toHaveLength(0)
+    s.markStarted()
+    await vi.advanceTimersByTimeAsync(MAX_RECORDING_MS - 1)
+    expect(s.emitted).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    await s.done()
+    expect(s.emitted[0].kind).toBe('recording')
+  })
+})
+
+describe('createCaptureFlow: clicks', () => {
+  it('passes each click to the recording as it comes', async () => {
+    const s = setup()
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.click({ t: 10, x: 3, y: 4 })
+    expect(s.session.click).toHaveBeenCalledWith({ t: 10, x: 3, y: 4 })
+    s.flow.stop()
+    await s.done()
+  })
+
+  it('passes no click from an untrusted helper', async () => {
+    const s = setup({ trusted: false })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.click({ t: 10, x: 3, y: 4 })
+    expect(s.session.click).not.toHaveBeenCalled()
+    s.flow.stop()
+    await s.done()
+  })
+
+  it('never explains missing clicks when they need no permission: the helper failed', async () => {
+    const s = setup({ trusted: false, permission: 'none' })
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.panelStop()
+    await s.done()
+    expect(s.emitted[0]).toEqual({ tabId: 't', kind: 'recording', recording: recording(true), explainClicks: false })
+    expect(s.markClicksExplained).not.toHaveBeenCalled()
+  })
+})
+
+describe('createCaptureFlow: cancelAll', () => {
+  it('frees a running recording without finishing it', async () => {
+    const s = setup()
+    s.flow.start('recording', 't')
+    await untilRecording(s)
+    s.flow.cancelAll()
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
+    expect(s.session.finish).not.toHaveBeenCalled()
+    expect(s.session.cancel).toHaveBeenCalled()
+    expect(s.listener.stop).toHaveBeenCalledTimes(1)
+    expect(s.unregister).toHaveBeenCalledTimes(1)
+    expect(s.backend.showMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the selection under way', async () => {
+    const s = setup()
+    s.backend.selectRegion.mockImplementationOnce((signal: AbortSignal) =>
+      new Promise((resolve) => { signal.addEventListener('abort', () => { resolve(null) }) }))
+    s.flow.start('recording', 't')
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    expect(s.backend.selectRegion).toHaveBeenCalledTimes(1)
+    s.flow.cancelAll()
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
+    expect(s.backend.startRecording).not.toHaveBeenCalled()
+  })
+
+  it('stops the click helper while waiting for it, and never starts the recording', async () => {
+    const s = setup({ trusted: 'never' })
+    s.flow.start('recording', 't')
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    s.flow.cancelAll()
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
+    expect(s.listener.stop).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(s.backend.startRecording).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when no capture runs', () => {
+    const s = setup()
+    s.flow.cancelAll()
+    expect(s.emitted).toEqual([])
   })
 })

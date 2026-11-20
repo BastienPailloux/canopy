@@ -25,15 +25,22 @@ const FRAME_REASONS = ['start', 'end', 'before-click', 'after-click', 'change']
 const isTime = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v >= 0
 const isNumber = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
 
-const isFrame = (f: unknown): boolean => isRecord(f) && typeof f.base64 === 'string' && isTime(f.t) &&
+/** Far beyond any screen region, short of sizes that would break the image math. */
+const MAX_SIDE = 16384
+const isSide = (v: unknown): v is number => isPositiveInt(v) && (v as number) <= MAX_SIDE
+const isCount = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 0
+const within = (v: unknown, max: number): boolean => isNumber(v) && (v as number) >= 0 && (v as number) <= max
+
+const isFrame = (f: unknown, size: { width: number; height: number }): boolean => isRecord(f) && typeof f.base64 === 'string' && isTime(f.t) &&
   FRAME_REASONS.includes(f.reason as string) &&
-  (f.click === undefined || (isRecord(f.click) && isNumber(f.click.x) && isNumber(f.click.y)))
+  (f.click === undefined || (isRecord(f.click) && within(f.click.x, size.width) && within(f.click.y, size.height)))
 
 export const isRecording = (r: unknown): boolean => isRecord(r) &&
+  isSide(r.width) && isSide(r.height) &&
   Array.isArray(r.frames) && r.frames.length > 0 && r.frames.length <= MAX_RECORDING_FRAMES &&
-  r.frames.every(isFrame) &&
+  r.frames.every((f) => isFrame(f, { width: r.width as number, height: r.height as number })) &&
   isTime(r.durationMs) && (r.durationMs as number) <= MAX_RECORDING_MS + 5000 &&
-  isPositiveInt(r.width) && isPositiveInt(r.height) && typeof r.clicksMissing === 'boolean'
+  typeof r.clicksMissing === 'boolean' && (r.clickCount === undefined || isCount(r.clickCount))
 
 export function assertContent(c: unknown): asserts c is UserContent {
   const valid = isRecord(c) && typeof c.text === 'string' && (c.images === undefined || (

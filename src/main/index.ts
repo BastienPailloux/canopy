@@ -66,6 +66,18 @@ let mainWindow: BrowserWindow | null = null
 
 const electronBackend = (): CaptureBackend => createElectronBackend(() => mainWindow)
 
+/**
+ * The parent of a native dialog: Canopy's window when it has the focus, never a capture page (a veil or the panel),
+ * which would carry the dialog away or hide it under itself.
+ */
+function dialogParent(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  return focused !== null && focused === mainWindow ? focused : null
+}
+
+/** Frees a capture under way (click helper, capture windows, shortcuts); set once the capture is registered. */
+let cancelCaptures: () => void = () => undefined
+
 function registerScreenCapture(store: AppStore): void {
   const selected = selectCaptureBackend(electronBackend, { isPackaged: app.isPackaged, env: process.env })
   const helper = clicksHelperPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
@@ -73,14 +85,17 @@ function registerScreenCapture(store: AppStore): void {
     backend: selected.backend,
     clicks: selected.clicks ?? (() => startClickListener({ path: helper, spawn })),
     registerStop: (onStop) => {
-      globalShortcut.register(STOP_CAPTURE_ACCELERATOR, onStop)
-      return () => { globalShortcut.unregister(STOP_CAPTURE_ACCELERATOR) }
+      // False when another app holds the keys: then only the panel can stop.
+      const registered = globalShortcut.register(STOP_CAPTURE_ACCELERATOR, onStop)
+      return { registered, unregister: () => { if (registered) globalShortcut.unregister(STOP_CAPTURE_ACCELERATOR) } }
     },
     setTimer: (fn, ms) => { const h = setTimeout(fn, ms); return () => { clearTimeout(h) } },
+    clickPermission: CLICK_PERMISSION,
     clicksExplained: () => store.prefs.captureClicksExplained === true,
     markClicksExplained: () => { store.setPrefs({ ...store.prefs, captureClicksExplained: true }) },
     emit: (r) => { broadcast('capture:done', r) }
   })
+  cancelCaptures = () => { flow.cancelAll() }
   registerCaptureIpc({
     handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
     flow, permission: CLICK_PERMISSION, openExternal: (url) => shell.openExternal(url)
@@ -124,7 +139,7 @@ async function installCommand(): Promise<void> {
     options.message = 'La commande canopy n\'a pas pu être installée.'
     options.detail = e instanceof Error ? e.message : String(e)
   }
-  const win = BrowserWindow.getFocusedWindow()
+  const win = dialogParent()
   await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
 }
 
@@ -230,17 +245,19 @@ void app.whenReady().then(async () => {
         type: 'warning', buttons: ['Quitter', 'Annuler'], defaultId: 1, cancelId: 1,
         message: 'Quitter Canopy ?', detail: quitDetail(counts)
       }
-      const win = BrowserWindow.getFocusedWindow()
+      const win = dialogParent()
       const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
       return response === 0
     },
-    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
+    shutdown: () => { cancelCaptures(); sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
     // Deferred: quitting from inside the `before-quit` that was just cancelled is ignored.
     quit: () => { setImmediate(() => app.quit()) }
   })
   quitting = () => quit.quitting
   app.on('before-quit', (e) => {
     if (quit.quitting) return
+    // No question for a capture: it stops at once, and Canopy shows again for the quit question, if any.
+    cancelCaptures()
     e.preventDefault()
     void quit.request()
   })
@@ -287,7 +304,7 @@ void app.whenReady().then(async () => {
           type: 'warning', buttons: ['Redémarrer', 'Annuler'], defaultId: 1, cancelId: 1,
           message: 'Redémarrer pour mettre à jour ?', detail
         }
-        const win = BrowserWindow.getFocusedWindow()
+        const win = dialogParent()
         const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
         return response === 0
       },
@@ -323,7 +340,8 @@ void app.whenReady().then(async () => {
   }
   open()
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) open()
+    // Capture pages are windows too: only Canopy's own counts.
+    if (!mainWindow) open()
   })
 })
 

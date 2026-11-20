@@ -29,6 +29,18 @@ test('missing clicks are flagged right after the first line', () => {
   expect(lines[2]).toBe('Image 1 — t = 0,0 s : début')
 })
 
+test('a click count above the clicks shown is told after the first line', () => {
+  const lines = recordingNote({ ...r4, clickCount: 5 }).split('\n')
+  expect(lines[1]).toBe('5 clics au total, 1 montré.')
+  expect(lines[2]).toBe('Image 1 — t = 0,0 s : début')
+  const two = { ...r4, clickCount: 4, frames: [...r4.frames, frame(7000, 'before-click', { x: 1, y: 1 }), frame(7500, 'after-click', { x: 1, y: 1 })] }
+  expect(recordingNote(two).split('\n')[1]).toBe('4 clics au total, 2 montrés.')
+})
+
+test('a click count equal to the clicks shown adds nothing', () => {
+  expect(recordingNote({ ...r4, clickCount: 1 })).toBe(recordingNote(r4))
+})
+
 test('parseRecordingNote reads back the frame count and duration', () => {
   expect(parseRecordingNote(recordingNote(r4))).toEqual({ frames: 4, durationMs: 14200 })
   expect(parseRecordingNote('hello')).toBeNull()

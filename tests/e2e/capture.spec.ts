@@ -94,19 +94,11 @@ test('missing screen permission opens the explanation', async () => {
   await expect(page.getByRole('button', { name: /^Retirer/ })).toHaveCount(0)
 })
 
-test('a recording without clicks explains it once', async () => {
+test('a recording without clicks says so on its chip, without a dialog: no permission would help', async () => {
   await launch('noclicks')
-  const dialog = page.getByRole('alertdialog', { name: 'Clics non enregistrés' })
   await capture('Enregistrer')
-  await expect(dialog).toBeVisible()
-  await expect(dialog).toContainText("Les clics n'ont pas pu être enregistrés")
-  await expect(dialog).toContainText('Accessibilité')
-  await dialog.getByRole('button', { name: 'Plus tard' }).click()
   await expect(page.getByTestId('draft-recording')).toContainText('clics non enregistrés')
-
-  await capture('Enregistrer')
-  await expect(page.getByTestId('draft-recording')).toHaveCount(2)
-  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('alertdialog', { name: 'Clics non enregistrés' })).toHaveCount(0)
 })
 
 test('the recording shortcut starts a recording', async () => {

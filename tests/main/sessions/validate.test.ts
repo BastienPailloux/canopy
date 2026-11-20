@@ -104,6 +104,13 @@ test('assertContent accepts a valid recording', () => {
   expect(() => assertContent({ text: '', recordings: [rec()] })).not.toThrow()
 })
 
+test('assertContent accepts a click count, the largest zone and clicks on its edges', () => {
+  const click = (x: number, y: number) => ({ t: 0, reason: 'before-click', click: { x, y }, base64: 'AAAA' })
+  expect(() => assertContent({ text: '', recordings: [rec({ clickCount: 0 }), rec({ clickCount: 7 })] })).not.toThrow()
+  expect(() => assertContent({ text: '', recordings: [rec({ width: 16384, height: 16384 })] })).not.toThrow()
+  expect(() => assertContent({ text: '', recordings: [rec({ frames: [click(0, 0), click(800, 600)] })] })).not.toThrow()
+})
+
 test.each([
   ['no frames', rec({ frames: [] })],
   ['too many frames', rec({ frames: frames(21) })],
@@ -120,7 +127,16 @@ test.each([
   ['a negative t', rec({ frames: [{ t: -1, reason: 'start', base64: 'AAAA' }] })],
   ['a NaN duration', rec({ durationMs: NaN })],
   ['a negative duration', rec({ durationMs: -1 })],
-  ['non-boolean clicksMissing', rec({ clicksMissing: 'no' })]
+  ['non-boolean clicksMissing', rec({ clicksMissing: 'no' })],
+  ['a too wide zone', rec({ width: 16385 })],
+  ['a too high zone', rec({ height: 16385 })],
+  ['a click left of the image', rec({ frames: [{ t: 0, reason: 'before-click', click: { x: -1, y: 2 }, base64: 'AAAA' }] })],
+  ['a click right of the image', rec({ frames: [{ t: 0, reason: 'before-click', click: { x: 801, y: 2 }, base64: 'AAAA' }] })],
+  ['a click below the image', rec({ frames: [{ t: 0, reason: 'before-click', click: { x: 1, y: 601 }, base64: 'AAAA' }] })],
+  ['a negative click count', rec({ clickCount: -1 })],
+  ['a fractional click count', rec({ clickCount: 1.5 })],
+  ['an infinite click count', rec({ clickCount: Infinity })],
+  ['a non-numeric click count', rec({ clickCount: '3' })]
 ])('assertContent rejects a recording with %s', (_name, recording) => {
   expect(() => assertContent({ text: '', recordings: [recording] })).toThrow('Message invalide')
 })

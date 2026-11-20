@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Notification, screen, systemPreferences, type BrowserWindowConstructorOptions, type Display, type IpcMainEvent } from 'electron'
-import type { CaptureFinish, CaptureWorkerJob, CaptureWorkerResult } from '../../shared/capture'
+import type { CaptureClick, CaptureFinish, CaptureWorkerJob, CaptureWorkerResult } from '../../shared/capture'
 import { clampRegion, type DisplayInfo } from '../../shared/captureGeometry'
 import type { CaptureBackend, CaptureSelection, RecordingSession } from './captureFlow'
 import { panelPlacement, parseDrag, parseWorkerResult } from './pageMessages'
@@ -54,7 +54,7 @@ const BARE: BrowserWindowConstructorOptions = {
   maximizable: false, fullscreenable: false, skipTaskbar: true, backgroundColor: '#00000000'
 }
 
-function selectRegion(): Promise<CaptureSelection | null> {
+function selectRegion(signal: AbortSignal): Promise<CaptureSelection | null> {
   const displays = screen.getAllDisplays()
   const under = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   return new Promise((resolve) => {
@@ -81,21 +81,26 @@ function selectRegion(): Promise<CaptureSelection | null> {
     ipcMain.on('capture-page:select', onSelect)
     // Échap from main too: a veil that never loads or never gets the focus cannot hear it.
     const shortcut = globalShortcut.register(CANCEL_KEY, () => { end(null) })
-    for (const d of displays) {
-      const win = capturePage({ ...BARE, ...d.bounds, hasShadow: false, enableLargerThanScreen: true, roundedCorners: false, acceptFirstMouse: true }, { role: 'select', display: String(d.id) })
-      veils.set(win.webContents.id, { win, display: info(d) })
-      onTop(win)
-      // macOS keeps a new window below the menu bar; set again, the bounds cover it.
-      win.setBounds(d.bounds)
-      win.on('closed', () => { end(null) })
-      win.webContents.on('render-process-gone', () => { end(null) })
-      win.webContents.on('did-fail-load', () => { end(null) })
-      win.webContents.on('preload-error', () => { end(null) })
-      win.on('unresponsive', () => { end(null) })
-      win.once('ready-to-show', () => {
-        // The focused veil hears Échap first: the one under the pointer.
-        if (d.id === under.id) { win.show(); win.focus() } else win.showInactive()
-      })
+    signal.addEventListener('abort', () => { end(null) }, { once: true })
+    // A veil that cannot open must not leave the others on screen, nor Échap taken.
+    try { openVeils() } catch (e) { console.error('capture veil failed', e); end(null) }
+    function openVeils(): void {
+      for (const d of displays) {
+        const win = capturePage({ ...BARE, ...d.bounds, hasShadow: false, enableLargerThanScreen: true, roundedCorners: false, acceptFirstMouse: true }, { role: 'select', display: String(d.id) })
+        veils.set(win.webContents.id, { win, display: info(d) })
+        onTop(win)
+        // macOS keeps a new window below the menu bar; set again, the bounds cover it.
+        win.setBounds(d.bounds)
+        win.on('closed', () => { end(null) })
+        win.webContents.on('render-process-gone', () => { end(null) })
+        win.webContents.on('did-fail-load', () => { end(null) })
+        win.webContents.on('preload-error', () => { end(null) })
+        win.on('unresponsive', () => { end(null) })
+        win.once('ready-to-show', () => {
+          // The focused veil hears Échap first: the one under the pointer.
+          if (d.id === under.id) { win.show(); win.focus() } else win.showInactive()
+        })
+      }
     }
   })
 }
@@ -110,6 +115,9 @@ async function sourceFor(displayId: number): Promise<string> {
 interface Worker {
   /** The next result; an error result rejects. */
   expect<K extends CaptureWorkerResult['kind']>(kind: K, timeoutMs: number): Promise<Extract<CaptureWorkerResult, { kind: K }>>
+  /** Called with every error result, whoever waits for it: a stream that fails mid-recording must end it. */
+  onError(fn: () => void): void
+  click(c: CaptureClick): void
   finish(f: CaptureFinish): void
   /** Destroys the page, which ends the stream and drops its frames. */
   close(): void
@@ -121,7 +129,9 @@ function openWorker(job: Omit<CaptureWorkerJob, 'sourceId'>): Worker {
   const id = win.webContents.id
   const queue: CaptureWorkerResult[] = []
   let waiting: ((r: CaptureWorkerResult) => void) | null = null
+  const errorListeners: (() => void)[] = []
   const push = (r: CaptureWorkerResult): void => {
+    if (r.kind === 'error') for (const fn of errorListeners) fn()
     const w = waiting
     if (w) { waiting = null; w(r) } else queue.push(r)
   }
@@ -158,18 +168,17 @@ function openWorker(job: Omit<CaptureWorkerJob, 'sourceId'>): Worker {
       if (r.kind !== kind) throw new Error('Réponse de capture inattendue')
       return r as Extract<CaptureWorkerResult, { kind: typeof kind }>
     },
+    onError(fn) { errorListeners.push(fn) },
+    click(c) { if (!win.isDestroyed()) win.webContents.send('capture-page:click', c) },
     finish(f) { if (!win.isDestroyed()) win.webContents.send('capture-page:finish', f) },
     close() { if (!win.isDestroyed()) win.destroy() }
   }
 }
 
-/** The floating stop panel, or a notification when it has nowhere to go but over the region. */
+/** The floating stop panel; null when it has nowhere to go but over the region. */
 function openPanel(sel: CaptureSelection, onStop: () => void): { close(): void } | null {
   const pos = panelPlacement(sel.region, sel.display, screen.getAllDisplays().map(info), PANEL_SIZE, PANEL_HIDDEN_FROM_CAPTURE)
-  if (!pos) {
-    if (Notification.isSupported()) new Notification({ title: 'Canopy', body: NO_PANEL_NOTICE }).show()
-    return null
-  }
+  if (!pos) return null
   // Not focusable: the app under test keeps the focus; acceptFirstMouse lets the button work while Canopy is inactive.
   const win = capturePage({ ...BARE, ...pos, ...PANEL_SIZE, focusable: false, acceptFirstMouse: true }, { role: 'panel' })
   win.setContentProtection(true)
@@ -187,13 +196,18 @@ function startRecording(sel: CaptureSelection): RecordingSession {
   let stop = (): void => {}
   const stopped = new Promise<void>((r) => { stop = r })
   const started = worker.expect('started', START_TIMEOUT_MS)
-  // A worker that cannot start ends the recording at once; finish then says why.
+  // A worker that cannot start, or fails later (crash, track ended), ends the recording at once; finish then says why.
   started.catch(() => { stop() })
+  worker.onError(() => { stop() })
   let panel: { close(): void } | null = null
   try { panel = openPanel(sel, () => { stop() }) } catch (e) { worker.close(); throw e }
   const close = (): void => { worker.close(); panel?.close() }
   return {
     stopped,
+    // A start that fails never resolves: `stopped` carries the failure.
+    started: started.then(() => {}, () => new Promise<void>(() => {})),
+    hasPanel: panel !== null,
+    click: (c) => { worker.click(c) },
     async finish(clicks, clicksMissing) {
       try {
         await started
@@ -231,6 +245,7 @@ export function createElectronBackend(mainWindow: () => BrowserWindow | null): C
         worker.close()
       }
     },
-    startRecording
+    startRecording,
+    showStopNotice: () => { if (Notification.isSupported()) new Notification({ title: 'Canopy', body: NO_PANEL_NOTICE }).show() }
   }
 }

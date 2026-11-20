@@ -66,6 +66,10 @@ describe('recordingLabel', () => {
     expect(recordingLabel(recording([frame('start')]))).toBe('14 s · 0 clic')
   })
 
+  it('counts every click when the recording says how many there were', () => {
+    expect(recordingLabel(recording([frame('before-click'), frame('after-click')], { clickCount: 6 }))).toBe('14 s · 6 clics')
+  })
+
   it('says when the clicks were not recorded', () => {
     expect(recordingLabel(recording([frame('start')], { clicksMissing: true }))).toBe('14 s · clics non enregistrés')
   })
