@@ -133,7 +133,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
     const el = input.current
     if (!el) return
     // macOS types into the field that holds the focus; the text is only inserted, never sent.
-    void dictateInto(el, document.activeElement, () => window.canopy.startDictation())
+    void dictateInto(el, () => document.activeElement, () => window.canopy.startDictation())
   }
   useEffect(() => {
     if (!focusRequest || focusRequest.cwd !== tab.cwd || focusRequest.seq <= handledFocus) return
