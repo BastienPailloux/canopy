@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
+import { sanitizeForLog } from './linear/sanitizeLog.ts'
 
 async function importSdk(sub) {
   try {
@@ -247,7 +248,7 @@ try {
   await client.close()
   console.log('Fini. Résultats dans', OUT_DIR.pathname)
 } catch (e) {
-  console.error('ERREUR :', e?.message ?? e)
+  console.error('ERREUR :', sanitizeForLog(e?.message ?? e))
   exitCode = 1
 } finally {
   rmSync(STATE_DIR, { recursive: true, force: true })
