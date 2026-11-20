@@ -1,5 +1,6 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import type { StartSessionOptions } from '../../shared/api'
+import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_RECORDING_FRAMES, MAX_RECORDING_MS, MAX_REQUEST_BASE64, requestBase64Length } from '../../shared/recording'
 import { IMAGE_TYPES, MAX_DOCUMENT_BASE64, MAX_DOCUMENT_BYTES, SESSION_MODES } from '../../shared/sessionOptions'
 import type { PermissionDecision, UserContent } from '../../shared/types'
 
@@ -18,16 +19,43 @@ export function assertMode(mode: unknown): asserts mode is PermissionMode {
 const decodedLength = (base64: string): number =>
   Math.floor(base64.length * 3 / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
 
+const isPositiveInt = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v > 0
+
+const FRAME_REASONS = ['start', 'end', 'before-click', 'after-click', 'change']
+const isTime = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v >= 0
+const isNumber = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
+
+/** Far beyond any screen region, short of sizes that would break the image math. */
+const MAX_SIDE = 16384
+const isSide = (v: unknown): v is number => isPositiveInt(v) && (v as number) <= MAX_SIDE
+const isCount = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 0
+const within = (v: unknown, max: number): boolean => isNumber(v) && (v as number) >= 0 && (v as number) <= max
+
+const isFrame = (f: unknown, size: { width: number; height: number }): boolean => isRecord(f) && typeof f.base64 === 'string' && isTime(f.t) &&
+  FRAME_REASONS.includes(f.reason as string) &&
+  (f.click === undefined || (isRecord(f.click) && within(f.click.x, size.width) && within(f.click.y, size.height)))
+
+export const isRecording = (r: unknown): boolean => isRecord(r) &&
+  isSide(r.width) && isSide(r.height) &&
+  Array.isArray(r.frames) && r.frames.length > 0 && r.frames.length <= MAX_RECORDING_FRAMES &&
+  r.frames.every((f) => isFrame(f, { width: r.width as number, height: r.height as number })) &&
+  isTime(r.durationMs) && (r.durationMs as number) <= MAX_RECORDING_MS + 5000 &&
+  typeof r.clicksMissing === 'boolean' && (r.clickCount === undefined || isCount(r.clickCount))
+
 export function assertContent(c: unknown): asserts c is UserContent {
   const valid = isRecord(c) && typeof c.text === 'string' && (c.images === undefined || (
     Array.isArray(c.images) &&
     c.images.every((i) => isRecord(i) && IMAGE_TYPES.includes(i.mediaType as string) && typeof i.base64 === 'string')
+  )) && (c.recordings === undefined || (
+    Array.isArray(c.recordings) && c.recordings.every(isRecording)
   )) && (c.documents === undefined || (
     Array.isArray(c.documents) &&
     c.documents.every((d) => isRecord(d) && typeof d.name === 'string' && d.name !== '' &&
       typeof d.base64 === 'string' && d.base64.length <= MAX_DOCUMENT_BASE64 && decodedLength(d.base64) <= MAX_DOCUMENT_BYTES)
   ))
   if (!valid) throw new Error('Message invalide')
+  const content = c as unknown as UserContent
+  if (countImages(content) > MAX_IMAGES_PER_MESSAGE || requestBase64Length(content) > MAX_REQUEST_BASE64) throw new Error('Message invalide')
 }
 
 /** Keeps known fields only, so nothing else from the renderer reaches `start`. */

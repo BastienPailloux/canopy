@@ -8,6 +8,7 @@ import { connectDeps } from './deps/depsStore'
 import { SessionsView } from './sessions/SessionsView'
 import { closeActiveTabIfSafe, connectSessions } from './sessions/sessionStore'
 import { SidePanel } from './sessions/SidePanel'
+import { CaptureDialog } from './sessions/CaptureDialog'
 import { TrustDialog } from './sessions/TrustDialog'
 import { connectTerminals } from './terminal/terminalStore'
 import { AccountFooter } from './shell/AccountFooter'
@@ -221,6 +222,7 @@ export function App(): React.JSX.Element {
   return (
     <div className="app">
       <TrustDialog />
+      <CaptureDialog />
       <MergeOverlays />
       <CommandBar />
       <UpdateBanner />

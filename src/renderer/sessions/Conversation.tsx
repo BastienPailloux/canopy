@@ -19,6 +19,15 @@ const Item = memo(function Item(props: { item: TranscriptItem; cwd: string; onIn
       return (
         <div className="msg-user" data-testid="user-message">
           {item.images.map((img, i) => <img key={i} alt="Image jointe" src={`data:${img.mediaType};base64,${img.base64}`} />)}
+          {item.recordings?.map((r, i) => (
+            <div key={i} className="rec-chip">
+              <span className="rec-chip-label">Enregistrement</span>
+              <span>{Math.round(r.durationMs / 1000)} s</span>
+              <div className="rec-chip-frames" data-testid="user-recording">
+                {r.frames.map((f, j) => <img key={j} alt="Image de l'enregistrement" src={`data:${f.mediaType};base64,${f.base64}`} />)}
+              </div>
+            </div>
+          ))}
           {item.documents && (
             <div className="doc-chips">
               {item.documents.map((d, i) => (

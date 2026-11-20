@@ -632,6 +632,33 @@
   font-size: 10px;
   font-weight: 600;
 }
+.rec-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.rec-chip-label {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  font-size: 10px;
+  font-weight: 600;
+}
+.rec-chip-frames {
+  display: flex;
+  flex-basis: 100%;
+  gap: 4px;
+  overflow-x: auto;
+}
+.msg-user .rec-chip-frames img {
+  height: 56px;
+  width: auto;
+  margin: 0;
+}
 .doc-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -649,6 +676,27 @@
 .doc-chip button:hover {
   background: var(--selected);
   color: var(--fg);
+}
+.draft-recording img {
+  width: 32px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+.capture-menu {
+  position: relative;
+}
+.capture-menu .menu {
+  top: auto;
+  bottom: 32px;
+  min-width: 220px;
+}
+.capture-menu .menu button {
+  justify-content: space-between;
+}
+.capture-dialog p {
+  margin: 0;
+  line-height: 1.5;
 }
 
 /* Trust dialog */

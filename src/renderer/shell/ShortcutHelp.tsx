@@ -11,7 +11,7 @@ const GROUPS: { title: string; ids: ShortcutId[]; extra?: Row[] }[] = [
   { title: 'Tickets', ids: ['new-ticket'] },
   {
     title: 'Saisie et recherche',
-    ids: ['dictation'],
+    ids: ['dictation', 'capture-screenshot', 'capture-recording'],
     extra: [
       { keys: '⌘↵', label: 'Envoyer' },
       { keys: '⌘K', label: 'Rechercher' },

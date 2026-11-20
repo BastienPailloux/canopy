@@ -1,5 +1,7 @@
 import { IMAGE_TYPES, MAX_DOCUMENT_BYTES } from '../../shared/sessionOptions'
+import { countImages, MAX_IMAGES_PER_MESSAGE, MAX_REQUEST_BASE64, requestBase64Length, shownClicks, type Recording } from '../../shared/recording'
 import type { UserDocument } from '../../shared/types'
+import type { Draft } from '../../shared/update'
 import type { UserImage } from './transcript'
 
 interface FileLike { name: string; type: string; size: number }
@@ -33,3 +35,21 @@ export const readDocument = async (file: File): Promise<UserDocument> => ({ name
 
 /** The accept list of the file chooser. */
 export const ACCEPTED_TYPES = [...IMAGE_TYPES, PDF].join(',')
+
+const mo = (n: number): number => Math.ceil(n / 1024 / 1024)
+
+/** Why the draft cannot be sent as it is: the API refuses a message with too many images or too heavy a request. */
+export function imageLimitError(d: Draft): string | null {
+  const n = countImages(d)
+  if (n > MAX_IMAGES_PER_MESSAGE) return `Trop d'images pour un seul message (${n} / ${MAX_IMAGES_PER_MESSAGE}) : retire une pièce jointe.`
+  const size = requestBase64Length(d)
+  return size > MAX_REQUEST_BASE64 ? `Pièces jointes trop lourdes pour un seul message (${mo(size)} Mo / ${mo(MAX_REQUEST_BASE64)} Mo) : retire une pièce jointe.` : null
+}
+
+/** `14 s · 3 clics` on the recording chip: every click made, else those the frames show. */
+export function recordingLabel(r: Recording): string {
+  const seconds = `${Math.round(r.durationMs / 1000)} s`
+  if (r.clicksMissing) return `${seconds} · clics non enregistrés`
+  const clicks = r.clickCount ?? shownClicks(r)
+  return `${seconds} · ${clicks} ${clicks > 1 ? 'clics' : 'clic'}`
+}

@@ -1,7 +1,7 @@
 export type ShortcutId =
   | 'view-sessions' | 'view-code' | 'view-tickets' | 'view-mockups' | 'view-deps'
   | 'worktree-next' | 'worktree-previous'
-  | 'new-worktree' | 'new-session' | 'new-ticket' | 'dictation'
+  | 'new-worktree' | 'new-session' | 'new-ticket' | 'dictation' | 'capture-screenshot' | 'capture-recording'
   | 'code-focus'
   | 'help'
 
@@ -30,6 +30,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'new-session', accelerator: 'CmdOrCtrl+T', label: 'Nouvelle session', menu: 'file', needs: 'worktree' },
   { id: 'new-ticket', accelerator: 'CmdOrCtrl+Shift+T', label: 'Nouveau ticket…', menu: 'file', needs: 'repo' },
   { id: 'dictation', accelerator: 'CmdOrCtrl+Shift+D', label: 'Dicter un message', menu: 'file', needs: 'worktree' },
+  // ⇧⌘4 and ⇧⌘5 belong to macOS: ⌥ keeps the same digits, easy to remember.
+  { id: 'capture-screenshot', accelerator: 'CmdOrCtrl+Alt+Shift+4', label: "Capture d'écran…", menu: 'file', needs: 'worktree' },
+  { id: 'capture-recording', accelerator: 'CmdOrCtrl+Alt+Shift+5', label: "Enregistrer l'écran…", menu: 'file', needs: 'worktree' },
   { id: 'code-focus', accelerator: 'CmdOrCtrl+B', label: 'Code en plein écran', menu: 'view', needs: 'worktree' },
   { id: 'help', accelerator: 'CmdOrCtrl+Shift+H', label: 'Raccourcis clavier', menu: 'help', needs: null }
 ]

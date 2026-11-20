@@ -10,6 +10,7 @@ import { SessionManager, type SessionManagerDeps } from '../../../src/main/sessi
 import type { SessionEvents } from '../../../src/shared/api'
 import { isRepoNotTrusted, REPO_NOT_TRUSTED, RepoNotTrustedError } from '../../../src/shared/errors'
 import { isAttachmentNote } from '../../../src/shared/attachments'
+import { recordingNote } from '../../../src/shared/recording'
 import type { PermissionRequest } from '../../../src/shared/types'
 
 /** A `query` stand-in: the test drives what the session sees. */
@@ -608,6 +609,31 @@ test('images follow the text as base64 blocks', async () => {
       ]
     }
   })
+})
+
+const r2 = {
+  durationMs: 2000, width: 800, height: 600, clicksMissing: false,
+  frames: [{ t: 0, reason: 'start' as const, base64: 'FRM0' }, { t: 2000, reason: 'end' as const, base64: 'FRM1' }]
+}
+
+test('recordings follow the images as a timeline then their frames', async () => {
+  const h = setup()
+  h.m.start('/a', { content: { text: 'regarde', images: [{ mediaType: 'image/png', base64: 'AAAA' }], recordings: [r2] } })
+  await tick()
+  expect(h.queries[0].inputs[0].message.content).toEqual([
+    { type: 'text', text: 'regarde' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+    { type: 'text', text: recordingNote(r2) },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'FRM0' } },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'FRM1' } }
+  ])
+})
+
+test('a recording alone is not empty', async () => {
+  const h = setup()
+  h.m.start('/a', { content: { text: '', recordings: [r2] } })
+  await tick()
+  expect(h.queries[0].inputs).toHaveLength(1)
 })
 
 const PDF = { name: 'doc.pdf', base64: Buffer.from('%PDF-1.4').toString('base64') }

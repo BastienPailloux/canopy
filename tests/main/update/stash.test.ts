@@ -71,6 +71,19 @@ describe('stash', () => {
     expect(takeStash(file)).toBeNull()
   })
 
+  it('keeps the recordings of a draft', () => {
+    const rec = { durationMs: 1000, width: 10, height: 10, clicksMissing: false, frames: [{ t: 0, reason: 'start' as const, base64: 'AAAA' }] }
+    const withRec = { ...stash, tabs: [{ ...stash.tabs[0], draft: { text: '', images: [], recordings: [rec] } }] }
+    writeStash(file, withRec)
+    expect(takeStash(file)).toEqual(withRec)
+  })
+
+  it('an invalid recording rejects the whole stash', () => {
+    const bad = { ...stash, tabs: [{ ...stash.tabs[0], draft: { text: '', images: [], recordings: [{ durationMs: 1, frames: [] }] } }] }
+    writeFileSync(file, JSON.stringify(bad))
+    expect(takeStash(file)).toBeNull()
+  })
+
   it('an image outside the allowed types rejects the whole stash', () => {
     const bad = { ...stash, tabs: [{ ...stash.tabs[0], draft: { text: '', images: [{ mediaType: 'image/svg+xml', base64: 'AAAA' }] } }] }
     writeFileSync(file, JSON.stringify(bad))

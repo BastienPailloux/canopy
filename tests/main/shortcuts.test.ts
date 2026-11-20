@@ -5,6 +5,14 @@ test('every accelerator is unique', () => {
   expect(new Set(SHORTCUTS.map((s) => s.accelerator)).size).toBe(SHORTCUTS.length)
 })
 
+test('the two screen captures sit in the File menu, for a worktree', () => {
+  const capture = SHORTCUTS.filter((s) => s.id.startsWith('capture-'))
+  expect(capture).toEqual([
+    { id: 'capture-screenshot', accelerator: 'CmdOrCtrl+Alt+Shift+4', label: "Capture d'écran…", menu: 'file', needs: 'worktree' },
+    { id: 'capture-recording', accelerator: 'CmdOrCtrl+Alt+Shift+5', label: "Enregistrer l'écran…", menu: 'file', needs: 'worktree' }
+  ])
+})
+
 test('⌘B puts Code in full screen, from the Présentation menu', () => {
   expect(SHORTCUTS.find((s) => s.id === 'code-focus')).toMatchObject({ accelerator: 'CmdOrCtrl+B', menu: 'view', needs: 'worktree' })
 })

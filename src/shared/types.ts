@@ -1,4 +1,5 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+import type { Recording } from './recording'
 
 export interface Worktree { path: string; branch: string | null; head: string; isMain: boolean }
 export interface BaseRef {
@@ -56,7 +57,7 @@ export interface PermissionRequest {
 export type PermissionDecision = { allow: true; always?: boolean; updatedInput?: Record<string, unknown> } | { allow: false; message: string }
 /** A PDF sent with a message. `name` is the file's, shown to the user and to Claude. */
 export interface UserDocument { name: string; base64: string }
-export interface UserContent { text: string; images?: { mediaType: string; base64: string }[]; documents?: UserDocument[] }
+export interface UserContent { text: string; images?: { mediaType: string; base64: string }[]; recordings?: Recording[]; documents?: UserDocument[] }
 export interface ServiceConfig { name: string; command: string; portEnv: string }
 export interface CanopyConfig { setup: string[]; services: ServiceConfig[] }
 export interface SearchHit { path: string; line: number; column: number; text: string }

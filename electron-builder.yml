@@ -18,6 +18,9 @@ asarUnpack:
 extraResources:
   - from: build/cli/canopy
     to: canopy
+# Mouse-only click helper for screen recordings; built by postinstall.
+  - from: build/capture/canopy-clicks
+    to: canopy-clicks
 mac:
   target:
     - target: dmg
@@ -26,6 +29,9 @@ mac:
       arch: arm64
   icon: build/icon.icns
   hardenedRuntime: true
+  # extraResources are not signed by default; the helper must be, or notarization fails.
+  binaries:
+    - Contents/Resources/canopy-clicks
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   notarize: true

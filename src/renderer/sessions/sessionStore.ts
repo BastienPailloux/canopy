@@ -1,9 +1,12 @@
 import type { ModelInfo, PermissionMode, SlashCommand } from '@anthropic-ai/claude-agent-sdk'
 import { create } from 'zustand'
 import type { RepoTrust, SessionEvents } from '../../shared/api'
+import type { CaptureKind, CaptureResult } from '../../shared/capture'
+import type { Recording } from '../../shared/recording'
 import { isRepoNotTrusted } from '../../shared/errors'
 import { type Draft, isDraftEmpty, type StashedTab } from '../../shared/update'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
+import { useApp } from '../store'
 import { preferredMode, rememberMode } from './modePreference'
 import { addNotice, addUser, dropLast, emptyTranscript, reduceTranscript, settle, type Transcript, type UserImage } from './transcript'
 
@@ -45,6 +48,10 @@ interface SessionsState {
   trustPrompt: TrustPrompt | null
   /** The composer of `cwd` is to take the focus, then open dictation if `dictate`; `seq` tells requests apart. */
   focusRequest: { cwd: string; dictate: boolean; seq: number } | null
+  /** The permission a finished capture needs explained. */
+  captureDialog: 'screen' | 'clicks' | null
+  /** Why the last capture attached nothing, for the composer of `tabId` only. */
+  captureError: { tabId: string; message: string } | null
 }
 
 export const NEW_SESSION_TITLE = 'Nouvelle session'
@@ -60,7 +67,9 @@ export const useSessions = create<SessionsState>(() => ({
   permissions: [],
   summaries: {},
   trustPrompt: null,
-  focusRequest: null
+  focusRequest: null,
+  captureDialog: null,
+  captureError: null
 }))
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -70,7 +79,7 @@ const tabOfProcess = (localId: string): SessionTab | undefined =>
   Object.values(useSessions.getState().tabs).find((t) => t.localId === localId)
 
 const shortTitle = (c: UserContent): string =>
-  c.text.trim().split('\n')[0].slice(0, TITLE_LENGTH) || (c.images?.length ? 'Image' : c.documents?.[0]?.name ?? 'Image')
+  c.text.trim().split('\n')[0].slice(0, TITLE_LENGTH) || (c.images?.length ? 'Image' : c.recordings?.length ? 'Enregistrement' : c.documents?.[0]?.name ?? 'Image')
 
 function patchTab(id: string, patch: Partial<SessionTab> | ((tab: SessionTab) => Partial<SessionTab>)): void {
   useSessions.setState((s) => {
@@ -174,6 +183,61 @@ export function setDraftImages(id: string, change: (images: UserImage[]) => User
   patchTab(id, (t) => ({ draft: { ...t.draft, images: change(t.draft.images) } }))
 }
 
+export function setDraftRecordings(id: string, change: (recordings: Recording[]) => Recording[]): void {
+  patchTab(id, (t) => ({ draft: { ...t.draft, recordings: change(t.draft.recordings ?? []) } }))
+}
+
+/** Captures the screen for the selected tab of `cwd`, made if need be: the capture comes back to that tab, wherever the user goes meanwhile. */
+export function startCaptureIn(cwd: string, kind: CaptureKind): void {
+  ensureTab(cwd)
+  startCaptureFor(useSessions.getState().active[cwd], kind)
+}
+
+export function startCaptureFor(tabId: string, kind: CaptureKind): void {
+  useSessions.setState({ captureError: null })
+  window.canopy.startCapture(kind, tabId).catch((e: unknown) => useSessions.setState({ captureError: { tabId, message: errorText(e) } }))
+}
+
+/** The stop shortcut is the recording shortcut: released once Canopy is back, the same key would start another capture. */
+const CAPTURE_SHORTCUT_PAUSE_MS = 1000
+let captureDoneAt = -Infinity
+
+/** True just after a capture came back: the capture shortcuts wait. */
+export const captureJustDone = (): boolean => Date.now() - captureDoneAt < CAPTURE_SHORTCUT_PAUSE_MS
+
+/** The capture error the composer of `tabId` shows, if it is the one concerned. */
+export const captureErrorOf = (s: Pick<SessionsState, 'captureError'>, tabId: string): string | null =>
+  s.captureError?.tabId === tabId ? s.captureError.message : null
+
+/** Where a capture's error shows: its own tab, or the one on screen when that tab is gone. */
+function captureErrorTab(tabId: string): string | undefined {
+  if (tabOf(tabId)) return tabId
+  const { worktree } = useApp.getState()
+  return worktree === null ? undefined : useSessions.getState().active[worktree]
+}
+
+const CLOSED_TAB = 'La session qui a lancé la capture a été fermée.'
+
+/** Puts a finished capture in the draft of the tab that asked for it, and says what the UI must show. */
+export function attachCapture(r: CaptureResult): { dialog: 'screen' | 'clicks' | null; error: string | null } {
+  // Only an image or a recording needs its tab: the rest is about the app, whichever tab asked.
+  if ((r.kind === 'screenshot' || r.kind === 'recording') && !tabOf(r.tabId)) return { dialog: null, error: CLOSED_TAB }
+  switch (r.kind) {
+    case 'screenshot':
+      setDraftImages(r.tabId, (images) => [...images, r.image])
+      return { dialog: null, error: null }
+    case 'recording':
+      setDraftRecordings(r.tabId, (recordings) => [...recordings, r.recording])
+      return { dialog: r.explainClicks ? 'clicks' : null, error: null }
+    case 'needs-permission':
+      return { dialog: 'screen', error: null }
+    case 'error':
+      return { dialog: null, error: r.message }
+    case 'cancelled':
+      return { dialog: null, error: null }
+  }
+}
+
 function refreshCommands(tab: Pick<SessionTab, 'id' | 'localId'>): void {
   if (!tab.localId) return
   window.canopy.sessionCommands(tab.localId).then((commands) => patchTab(tab.id, { commands }), () => undefined)
@@ -255,12 +319,16 @@ function startError(e: unknown): string {
   return isRepoNotTrusted(e) ? "Ce dépôt n'est pas approuvé : la session n'a pas démarré." : errorText(e)
 }
 
+/** Leaves the field out when empty, like drafts stashed before recordings. */
+const keepRecordings = (recordings: Recording[]): { recordings?: Recording[] } => (recordings.length ? { recordings } : {})
+
 /** What is left once `sent` went: the trust check and file reads are async, so the draft may have grown meanwhile. */
 function withoutSent(draft: Draft, sent: Draft): Draft {
   return {
     text: draft.text === sent.text ? '' : draft.text,
     images: draft.images.filter((i) => !sent.images.includes(i)),
-    documents: (draft.documents ?? []).filter((d) => !sent.documents?.includes(d))
+    documents: (draft.documents ?? []).filter((d) => !sent.documents?.includes(d)),
+    ...keepRecordings((draft.recordings ?? []).filter((r) => !sent.recordings?.includes(r)))
   }
 }
 
@@ -269,7 +337,8 @@ function withSentBack(draft: Draft, sent: Draft): Draft {
   return {
     text: draft.text === '' ? sent.text : draft.text,
     images: [...sent.images, ...draft.images],
-    documents: [...(sent.documents ?? []), ...(draft.documents ?? [])]
+    documents: [...(sent.documents ?? []), ...(draft.documents ?? [])],
+    ...keepRecordings([...(sent.recordings ?? []), ...(draft.recordings ?? [])])
   }
 }
 
@@ -288,9 +357,9 @@ export async function submit(id: string): Promise<void> {
 async function send(id: string): Promise<void> {
   const tab = tabOf(id)
   if (!tab) return
-  const { text, images, documents = [] } = tab.draft
+  const { text, images, recordings = [], documents = [] } = tab.draft
   if (isDraftEmpty(tab.draft, true)) return
-  const content: UserContent = { text: text.trim(), ...(images.length ? { images } : {}), ...(documents.length ? { documents } : {}) }
+  const content: UserContent = { text: text.trim(), ...(images.length ? { images } : {}), ...(recordings.length ? { recordings } : {}), ...(documents.length ? { documents } : {}) }
 
   try {
     if (!tab.localId && !(await confirmTrust(tab.cwd))) return
@@ -301,6 +370,7 @@ async function send(id: string): Promise<void> {
 
   const transcript = addUser(tabOf(id)?.transcript ?? tab.transcript, content)
   const sent = transcript.items.at(-1)
+  if (useSessions.getState().captureError?.tabId === id) useSessions.setState({ captureError: null })
   patchTab(id, (t) => ({
     transcript,
     draft: withoutSent(t.draft, tab.draft),
@@ -555,6 +625,13 @@ export function connectSessions(): () => void {
     on('commandsChanged', ({ localId }) => {
       const tab = tabOfProcess(localId)
       if (tab) refreshCommands(tab)
+    }),
+    window.canopy.on('capture:done', (payload) => {
+      captureDoneAt = Date.now()
+      const r = payload as CaptureResult
+      const target = captureErrorTab(r.tabId)
+      const { dialog, error } = attachCapture(r)
+      useSessions.setState({ captureDialog: dialog, captureError: error !== null && target ? { tabId: target, message: error } : null })
     })
   ]
   void window.canopy.pendingPermissions().then((list) => list.forEach(addPermission), () => undefined)

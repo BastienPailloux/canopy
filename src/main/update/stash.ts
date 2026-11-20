@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { isRecording } from '../sessions/validate'
+import type { Recording } from '../../shared/recording'
 import { IMAGE_TYPES } from '../../shared/sessionOptions'
 import type { UserDocument } from '../../shared/types'
 import type { Stash, StashedBuffer, StashedTab, UserImage } from '../../shared/update'
@@ -19,6 +21,11 @@ function parseDocument(d: unknown): UserDocument {
   return { name: d.name, base64: d.base64 }
 }
 
+function parseRecording(r: unknown): Recording {
+  if (!isRecording(r)) throw new Error('Enregistrement invalide')
+  return r as Recording
+}
+
 function parseBuffer(b: unknown): StashedBuffer {
   if (!isRecord(b) || !isString(b.cwd) || !isString(b.path) || !isString(b.text) || !isString(b.version)) {
     throw new Error('Tampon invalide')
@@ -34,6 +41,7 @@ function parseTab(t: unknown): StashedTab {
   const { draft } = t
   if (!isRecord(draft) || !isString(draft.text) || !Array.isArray(draft.images)) throw new Error('Brouillon invalide')
   if (draft.documents !== undefined && !Array.isArray(draft.documents)) throw new Error('Brouillon invalide')
+  if (draft.recordings !== undefined && !Array.isArray(draft.recordings)) throw new Error('Brouillon invalide')
   return {
     cwd: t.cwd,
     ...(t.sessionId !== undefined ? { sessionId: t.sessionId as string } : {}),
@@ -41,6 +49,7 @@ function parseTab(t: unknown): StashedTab {
     draft: {
       text: draft.text,
       images: draft.images.map(parseImage),
+      ...(draft.recordings ? { recordings: draft.recordings.map(parseRecording) } : {}),
       ...(draft.documents ? { documents: draft.documents.map(parseDocument) } : {})
     },
     interrupted: t.interrupted

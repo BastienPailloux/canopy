@@ -1,10 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, powerMonitor, safeStorage, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import * as pty from 'node-pty'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { getSessionMessages, listSessions, query } from '@anthropic-ai/claude-agent-sdk'
+import { spawn } from 'node:child_process'
+import { createCaptureFlow, type CaptureBackend } from './capture/captureFlow'
+import { registerCaptureIpc } from './capture/captureIpc'
+import { CLICK_PERMISSION, clicksHelperPath, startClickListener } from './capture/clicks'
+import { createElectronBackend } from './capture/electronBackend'
+import { selectCaptureBackend } from './capture/fakeBackend'
 import { claudeAuthRunner, selectAccountRunner } from './account'
 import { AppStore } from './appStore'
 import { TicketStore } from './tickets/store'
@@ -52,6 +58,50 @@ function claudeExecutablePath(): string | undefined {
 
 let quitting = (): boolean => false
 
+/** Ends a recording. Global and registered only while recording: menu accelerators are dead while Canopy is hidden. */
+const STOP_CAPTURE_ACCELERATOR = 'CmdOrCtrl+Alt+Shift+5'
+
+/** Canopy's own window: capture pages are windows too, so `getAllWindows()[0]` may not be it. */
+let mainWindow: BrowserWindow | null = null
+
+const electronBackend = (): CaptureBackend => createElectronBackend(() => mainWindow)
+
+/**
+ * The parent of a native dialog: Canopy's window when it has the focus, never a capture page (a veil or the panel),
+ * which would carry the dialog away or hide it under itself.
+ */
+function dialogParent(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  return focused !== null && focused === mainWindow ? focused : null
+}
+
+/** Frees a capture under way (click helper, capture windows, shortcuts); set once the capture is registered. */
+let cancelCaptures: () => void = () => undefined
+
+function registerScreenCapture(store: AppStore): void {
+  const selected = selectCaptureBackend(electronBackend, { isPackaged: app.isPackaged, env: process.env })
+  const helper = clicksHelperPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() })
+  const flow = createCaptureFlow({
+    backend: selected.backend,
+    clicks: selected.clicks ?? (() => startClickListener({ path: helper, spawn })),
+    registerStop: (onStop) => {
+      // False when another app holds the keys: then only the panel can stop.
+      const registered = globalShortcut.register(STOP_CAPTURE_ACCELERATOR, onStop)
+      return { registered, unregister: () => { if (registered) globalShortcut.unregister(STOP_CAPTURE_ACCELERATOR) } }
+    },
+    setTimer: (fn, ms) => { const h = setTimeout(fn, ms); return () => { clearTimeout(h) } },
+    clickPermission: CLICK_PERMISSION,
+    clicksExplained: () => store.prefs.captureClicksExplained === true,
+    markClicksExplained: () => { store.setPrefs({ ...store.prefs, captureClicksExplained: true }) },
+    emit: (r) => { broadcast('capture:done', r) }
+  })
+  cancelCaptures = () => { flow.cancelAll() }
+  registerCaptureIpc({
+    handle: (name, fn) => { ipcMain.handle(name, (_e, ...args: unknown[]) => fn(...args)) },
+    flow, permission: CLICK_PERMISSION, openExternal: (url) => shell.openExternal(url)
+  })
+}
+
 /** Brings the window forward, a new one if it was closed (the app stays alive on macOS). Set once the app is ready. */
 let showWindow: () => void = () => undefined
 
@@ -89,7 +139,7 @@ async function installCommand(): Promise<void> {
     options.message = 'La commande canopy n\'a pas pu être installée.'
     options.detail = e instanceof Error ? e.message : String(e)
   }
-  const win = BrowserWindow.getFocusedWindow()
+  const win = dialogParent()
   await (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
 }
 
@@ -113,6 +163,9 @@ function createWindow(onClose: () => void, onRendererGone: () => void): void {
       ...(hidden ? { backgroundThrottling: false } : {})
     }
   })
+
+  mainWindow = win
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null })
 
   win.on('close', (e) => {
     if (quitting()) return
@@ -192,17 +245,19 @@ void app.whenReady().then(async () => {
         type: 'warning', buttons: ['Quitter', 'Annuler'], defaultId: 1, cancelId: 1,
         message: 'Quitter Canopy ?', detail: quitDetail(counts)
       }
-      const win = BrowserWindow.getFocusedWindow()
+      const win = dialogParent()
       const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
       return response === 0
     },
-    shutdown: () => { sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
+    shutdown: () => { cancelCaptures(); sessions.stopAll(); lsp.disposeAll(); terminals.disposeAll(); stopAllWatchers(); depsService.stop() },
     // Deferred: quitting from inside the `before-quit` that was just cancelled is ignored.
     quit: () => { setImmediate(() => app.quit()) }
   })
   quitting = () => quit.quitting
   app.on('before-quit', (e) => {
     if (quit.quitting) return
+    // No question for a capture: it stops at once, and Canopy shows again for the quit question, if any.
+    cancelCaptures()
     e.preventDefault()
     void quit.request()
   })
@@ -233,6 +288,7 @@ void app.whenReady().then(async () => {
   powerMonitor.on('resume', () => { void depsService.checkOverdue() })
   // Back from sleep: the network is likely back too; the refresh resends what failed.
   powerMonitor.on('resume', () => { void linearIpc.refresh().catch((e: unknown) => { console.error('linear refresh failed', e) }) })
+  registerScreenCapture(store)
   const stashFile = join(app.getPath('userData'), 'update-stash.json')
   // Only a packaged app can update itself; the hidden test runs must not.
   let updater: Updater | null = null
@@ -248,7 +304,7 @@ void app.whenReady().then(async () => {
           type: 'warning', buttons: ['Redémarrer', 'Annuler'], defaultId: 1, cancelId: 1,
           message: 'Redémarrer pour mettre à jour ?', detail
         }
-        const win = BrowserWindow.getFocusedWindow()
+        const win = dialogParent()
         const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
         return response === 0
       },
@@ -275,7 +331,7 @@ void app.whenReady().then(async () => {
     createWindow(() => void quit.request(), () => { unsaved = { buffers: 0, drafts: 0, tickets: 0, comments: 0 }; openFolders.reset() })
   }
   showWindow = () => {
-    const [win] = BrowserWindow.getAllWindows()
+    const win = mainWindow
     if (!win) { open(); return }
     if (hidden) return
     if (win.isMinimized()) win.restore()
@@ -284,7 +340,8 @@ void app.whenReady().then(async () => {
   }
   open()
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) open()
+    // Capture pages are windows too: only Canopy's own counts.
+    if (!mainWindow) open()
   })
 })
 

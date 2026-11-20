@@ -1,9 +1,10 @@
 import type { ModelInfo, PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SESSION_MODES } from '../../shared/sessionOptions'
-import { ACCEPTED_TYPES, readDocument, readImage, sortFiles } from './attachments'
+import { displayKeys, SHORTCUTS, type ShortcutId } from '../../shared/shortcuts'
+import { ACCEPTED_TYPES, imageLimitError, readDocument, readImage, recordingLabel, sortFiles } from './attachments'
 import { applyCompletion, filterCommands, filterFiles, findTrigger, wantsProcess, type Trigger } from './completion'
-import { interrupt, setDraftDocuments, setDraftImages, setDraftText, setMode, setModel, submit, useSessions, warmUp, type SessionTab } from './sessionStore'
+import { captureErrorOf, interrupt, setDraftDocuments, setDraftImages, setDraftRecordings, setDraftText, setMode, setModel, startCaptureFor, submit, useSessions, warmUp, type SessionTab } from './sessionStore'
 
 /** Until a session can list its own models. */
 const MODEL_ALIASES: Pick<ModelInfo, 'value' | 'displayName'>[] = [
@@ -23,6 +24,67 @@ const micIcon = (
     <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
   </svg>
 )
+
+const cameraIcon = (
+  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" />
+  </svg>
+)
+
+const keysOf = (id: ShortcutId): string => displayKeys(SHORTCUTS.find((s) => s.id === id)?.accelerator ?? '')
+
+const CAPTURES = [
+  { kind: 'screenshot', label: "Capture d'écran", keys: keysOf('capture-screenshot') },
+  { kind: 'recording', label: 'Enregistrer', keys: keysOf('capture-recording') }
+] as const
+
+/** The camera button: a screenshot or a recording, for this tab whatever the user does while Canopy is hidden. */
+function CaptureMenu(props: { tabId: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const items = useRef<(HTMLButtonElement | null)[]>([])
+  useEffect(() => {
+    if (!open) return
+    items.current[0]?.focus()
+    const close = (e: MouseEvent): void => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      // Only the menu closes: the composer must not hear this Échap.
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+      button.current?.focus()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const at = items.current.findIndex((b) => b === document.activeElement)
+      const next = (at + (e.key === 'ArrowDown' ? 1 : -1) + CAPTURES.length) % CAPTURES.length
+      items.current[next]?.focus()
+    }
+  }
+  return (
+    <div className="capture-menu" ref={root}>
+      <button ref={button} type="button" className="icon-btn" aria-label="Capturer l'écran" title="Capturer l'écran"
+        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{cameraIcon}</button>
+      {open && (
+        <div className="menu" role="menu" onKeyDown={onKeyDown}>
+          {CAPTURES.map((c, i) => (
+            <button key={c.kind} ref={(el) => { items.current[i] = el }} type="button" role="menuitem"
+              onClick={() => { setOpen(false); startCaptureFor(props.tabId, c.kind) }}>
+              <span>{c.label}</span>
+              <span className="muted">{c.keys}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** The last focus request carried out, across mounts: the composer mounts again on every return to Sessions. */
 let handledFocus = 0
@@ -62,6 +124,8 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const [dragging, setDragging] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   const documents = draft.documents ?? []
+  const recordings = draft.recordings ?? []
+  const captureError = useSessions((s) => captureErrorOf(s, tab.id))
 
   const focusRequest = useSessions((s) => s.focusRequest)
   const dictate = (): void => {
@@ -88,7 +152,8 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const selected = Math.min(highlight, Math.max(suggestions.length - 1, 0))
   const busy = tab.state === 'running' || tab.state === 'waiting'
   const models = tab.models.length > 0 ? tab.models : MODEL_ALIASES
-  const canSend = draft.text.trim() !== '' || draft.images.length > 0 || documents.length > 0
+  const limitError = imageLimitError(draft)
+  const canSend = (draft.text.trim() !== '' || draft.images.length > 0 || recordings.length > 0 || documents.length > 0) && limitError === null
 
   // Commands come from a running process: the first command name typed starts it.
   const wantsCommands = wantsProcess(trigger) && !tab.localId
@@ -116,7 +181,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Enter' && e.metaKey) {
       e.preventDefault()
-      void submit(tab.id)
+      if (canSend) void submit(tab.id)
       return
     }
     if (suggestions.length === 0) return
@@ -193,6 +258,18 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
             ))}
           </div>
         )}
+        {recordings.length > 0 && (
+          <div className="doc-chips">
+            {recordings.map((r, i) => (
+              <span key={i} className="doc-chip draft-recording" data-testid="draft-recording">
+                {r.frames[0] && <img alt="" src={`data:image/jpeg;base64,${r.frames[0].base64}`} />}
+                <span className="doc-chip-name">{recordingLabel(r)}</span>
+                <button type="button" aria-label={`Retirer l'enregistrement ${i + 1}`}
+                  onClick={() => setDraftRecordings(tab.id, (current) => current.filter((_, j) => j !== i))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
         {documents.length > 0 && (
           <div className="doc-chips">
             {documents.map((d, i) => (
@@ -205,7 +282,9 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
             ))}
           </div>
         )}
-        {attachError && <span className="del">{attachError}</span>}
+        {attachError && <span key="attach" className="del">{attachError}</span>}
+        {captureError && <span key="capture" className="del">{captureError}</span>}
+        {limitError && <span key="limit" className="del">{limitError}</span>}
         <textarea id="composer" ref={input} rows={2} value={draft.text} spellCheck={false}
           placeholder="Demande une suite, colle une erreur, ou tape / pour une commande"
           onChange={(e) => setText(e.target.value, e.target.selectionStart)}
@@ -214,6 +293,7 @@ export function Composer(props: { tab: SessionTab; worktreeLabel: string }): Rea
         <div className="composer-bar">
           <button type="button" className="icon-btn" aria-label="Joindre un fichier" title="Joindre une image ou un PDF"
             onClick={() => picker.current?.click()}>{clipIcon}</button>
+          <CaptureMenu tabId={tab.id} />
           <button type="button" className="icon-btn" aria-label="Dicter" title="Dicter (⇧⌘D)" onClick={dictate}>{micIcon}</button>
           <input ref={picker} type="file" multiple hidden accept={ACCEPTED_TYPES} data-testid="attach-input"
             onChange={(e) => { attach([...(e.target.files ?? [])]); e.target.value = '' }} />

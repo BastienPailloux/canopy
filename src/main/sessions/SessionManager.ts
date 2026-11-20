@@ -8,6 +8,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk'
 import type { SessionEvents, StartSessionOptions } from '../../shared/api'
 import { attachmentNote } from '../../shared/attachments'
+import { recordingNote } from '../../shared/recording'
 import { RepoNotTrustedError } from '../../shared/errors'
 import type { PermissionDecision, PermissionRequest, SessionState, SessionSummary, UserContent, UserDocument } from '../../shared/types'
 import { createInputQueue, type InputQueue } from './inputQueue'
@@ -74,7 +75,7 @@ const WITHDRAWN: PermissionResult = { behavior: 'deny', message: 'Demande annulÃ
 const INTERRUPTED: readonly unknown[] = ['aborted_tools', 'aborted_streaming']
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err))
-const isEmpty = (c: UserContent): boolean => c.text === '' && !c.images?.length && !c.documents?.length
+const isEmpty = (c: UserContent): boolean => c.text === '' && !c.images?.length && !c.recordings?.length && !c.documents?.length
 const currentState = (s: Session): SessionState => (s.pending.size > 0 ? 'waiting' : s.turn)
 
 /** `subtype` says nothing: an interruption is an error result on a usable session, a lost login is a "success". */
@@ -108,13 +109,20 @@ function toUserMessage(c: UserContent, copies: string[] = []): SDKUserMessage {
     type: 'image' as const,
     source: { type: 'base64' as const, media_type: i.mediaType as 'image/png', data: i.base64 }
   }))
+  const recordings = (c.recordings ?? []).flatMap((r) => [
+    { type: 'text' as const, text: recordingNote(r) },
+    ...r.frames.map((f) => ({
+      type: 'image' as const,
+      source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: f.base64 }
+    }))
+  ])
   const documents = (c.documents ?? []).map((d) => ({
     type: 'document' as const,
     source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: d.base64 },
     title: d.name
   }))
   const notes = copies.map((path, i) => ({ type: 'text' as const, text: attachmentNote(c.documents?.[i]?.name ?? '', path) }))
-  return { type: 'user', message: { role: 'user', content: [...text, ...images, ...documents, ...notes] }, parent_tool_use_id: null }
+  return { type: 'user', message: { role: 'user', content: [...text, ...images, ...recordings, ...documents, ...notes] }, parent_tool_use_id: null }
 }
 
 /** Runs concurrent Agent SDK sessions. Each one lives until `stop` or its own failure, whatever the UI does. */
