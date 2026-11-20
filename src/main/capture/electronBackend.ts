@@ -237,11 +237,16 @@ export function createElectronBackend(mainWindow: () => BrowserWindow | null): C
       win.focus()
     },
     selectRegion,
-    async screenshot(sel) {
+    async screenshot(sel, signal) {
       const worker = openWorker({ mode: 'screenshot', region: sel.region, display: sel.display })
+      // Destroying the worker fails the wait below at once, instead of after the timeout.
+      const onAbort = (): void => { worker.close() }
+      signal.addEventListener('abort', onAbort, { once: true })
+      if (signal.aborted) worker.close()
       try {
         return { mediaType: 'image/png', base64: (await worker.expect('image', SCREENSHOT_TIMEOUT_MS)).base64 }
       } finally {
+        signal.removeEventListener('abort', onAbort)
         worker.close()
       }
     },

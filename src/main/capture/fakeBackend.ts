@@ -20,7 +20,10 @@ function fakeCapture(mode: string): { backend: CaptureBackend; clicks: () => Cli
     hideMain: () => {},
     showMain: () => {},
     selectRegion: async () => (mode === 'cancel' ? null : SELECTION),
-    screenshot: async () => ({ mediaType: 'image/png', base64: PNG }),
+    screenshot: async (_sel, signal) => {
+      if (signal.aborted) throw new Error("La capture s'est interrompue.")
+      return { mediaType: 'image/png', base64: PNG }
+    },
     startRecording: () => ({
       // The fake panel is pressed right away.
       stopped: new Promise((resolve) => { setTimeout(resolve, 0) }),
@@ -57,7 +60,7 @@ function lazy(real: () => CaptureBackend): CaptureBackend {
     hideMain: () => get().hideMain(),
     showMain: () => get().showMain(),
     selectRegion: (signal) => get().selectRegion(signal),
-    screenshot: (sel) => get().screenshot(sel),
+    screenshot: (sel, signal) => get().screenshot(sel, signal),
     startRecording: (sel) => get().startRecording(sel),
     showStopNotice: () => get().showStopNotice()
   }

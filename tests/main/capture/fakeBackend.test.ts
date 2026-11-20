@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { selectCaptureBackend } from '../../../src/main/capture/fakeBackend'
 import type { CaptureBackend } from '../../../src/main/capture/captureFlow'
 
+const fakeSel = { region: { x: 0, y: 0, width: 1, height: 1 }, display: { id: 1, bounds: { x: 0, y: 0, width: 10, height: 10 }, scaleFactor: 1 } }
 const realBackend = { screenGranted: () => true } as unknown as CaptureBackend
 
 describe('selectCaptureBackend', () => {
@@ -37,9 +38,25 @@ describe('fake capture', () => {
     expect(backend.screenGranted()).toBe(true)
     const sel = await backend.selectRegion(new AbortController().signal)
     expect(sel).not.toBeNull()
-    const image = await backend.screenshot(sel!)
+    const image = await backend.screenshot(sel!, new AbortController().signal)
     expect(image.mediaType).toBe('image/png')
     expect(Buffer.from(image.base64, 'base64').subarray(1, 4).toString()).toBe('PNG')
+  })
+
+  it('gives no screenshot once cancelled', async () => {
+    const { backend } = fake('1')
+    const sel = await backend.selectRegion(new AbortController().signal)
+    const controller = new AbortController()
+    controller.abort()
+    await expect(backend.screenshot(sel!, controller.signal)).rejects.toThrow()
+  })
+
+  it('passes the cancel on to the real screenshot', async () => {
+    const screenshot = vi.fn(async () => ({ mediaType: 'image/png', base64: 'AAAA' }))
+    const s = selectCaptureBackend(() => ({ screenshot }) as unknown as CaptureBackend, { isPackaged: false, env: {} })
+    const signal = new AbortController().signal
+    await s.backend.screenshot(fakeSel, signal)
+    expect(screenshot).toHaveBeenCalledWith(fakeSel, signal)
   })
 
   it('gives a 2-frame recording with 1 click, the panel stopping right away', async () => {

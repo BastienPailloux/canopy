@@ -41,7 +41,7 @@ function setup(o: SetupOptions = {}) {
     hideMain: vi.fn(),
     showMain: vi.fn(),
     selectRegion: vi.fn(async (signal: AbortSignal) => { selectSignal = signal; return o.select === undefined ? sel : o.select }),
-    screenshot: vi.fn(async () => image),
+    screenshot: vi.fn(async (_sel: typeof sel, _signal: AbortSignal) => image),
     startRecording: vi.fn(() => session),
     showStopNotice: vi.fn()
   } satisfies CaptureBackend
@@ -91,7 +91,7 @@ describe('createCaptureFlow: screenshot', () => {
     expect(s.flow.start('screenshot', 'tab-1')).toBe(true)
     await s.done()
     expect(s.emitted).toEqual([{ tabId: 'tab-1', kind: 'screenshot', image }])
-    expect(s.backend.screenshot).toHaveBeenCalledWith(sel)
+    expect(s.backend.screenshot).toHaveBeenCalledWith(sel, expect.any(AbortSignal))
     expect(s.backend.hideMain).toHaveBeenCalledTimes(1)
     expect(s.backend.showMain).toHaveBeenCalledTimes(1)
   })
@@ -440,6 +440,35 @@ describe('createCaptureFlow: cancelAll', () => {
     await s.done()
     expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
     expect(s.backend.startRecording).not.toHaveBeenCalled()
+  })
+
+  it('stops a screenshot under way and shows Canopy at once', async () => {
+    const s = setup()
+    let screenshotSignal: AbortSignal | null = null
+    s.backend.screenshot.mockImplementationOnce((_sel, signal) => new Promise((_resolve, reject) => {
+      screenshotSignal = signal
+      signal.addEventListener('abort', () => { reject(new Error("La capture s'est interrompue.")) })
+    }))
+    s.flow.start('screenshot', 't')
+    await vi.waitFor(() => { expect(s.backend.screenshot).toHaveBeenCalled() })
+    expect(s.backend.showMain).not.toHaveBeenCalled()
+    s.flow.cancelAll()
+    expect(screenshotSignal!.aborted).toBe(true)
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
+    expect(s.backend.showMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a screenshot that comes back after the cancel', async () => {
+    const s = setup()
+    let deliver: () => void = () => {}
+    s.backend.screenshot.mockImplementationOnce(() => new Promise((resolve) => { deliver = () => { resolve(image) } }))
+    s.flow.start('screenshot', 't')
+    await vi.waitFor(() => { expect(s.backend.screenshot).toHaveBeenCalled() })
+    s.flow.cancelAll()
+    deliver()
+    await s.done()
+    expect(s.emitted).toEqual([{ tabId: 't', kind: 'cancelled' }])
   })
 
   it('stops the click helper while waiting for it, and never starts the recording', async () => {

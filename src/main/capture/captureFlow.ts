@@ -33,7 +33,8 @@ export interface CaptureBackend {
   showMain(): void
   /** Null when the user cancels, or when `signal` aborts. */
   selectRegion(signal: AbortSignal): Promise<CaptureSelection | null>
-  screenshot(sel: CaptureSelection): Promise<UserImage>
+  /** Rejects soon after `signal` aborts: a quit must not wait for a slow capture. */
+  screenshot(sel: CaptureSelection, signal: AbortSignal): Promise<UserImage>
   startRecording(sel: CaptureSelection): RecordingSession
   /** Without a panel, says the stop shortcut. */
   showStopNotice(): void
@@ -138,7 +139,11 @@ export function createCaptureFlow(d: CaptureFlowDeps): { start(kind: CaptureKind
       hidden = true
       const sel = await b.selectRegion(signal)
       if (!sel || signal.aborted) return { tabId, kind: 'cancelled' }
-      if (kind === 'screenshot') return { tabId, kind: 'screenshot', image: await b.screenshot(sel) }
+      if (kind === 'screenshot') {
+        const image = await b.screenshot(sel, signal)
+        // A cancel the backend did not hear in time still wins: the image was not asked for anymore.
+        return signal.aborted ? { tabId, kind: 'cancelled' } : { tabId, kind: 'screenshot', image }
+      }
       return await record(tabId, sel, signal)
     } catch (e) {
       // A quit during finish closes the worker under it: that failure is the cancel itself.
