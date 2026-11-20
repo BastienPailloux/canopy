@@ -37,6 +37,11 @@ export function parseCaptureClick(v: unknown): CaptureClick | null {
   return isFinite(t) && isFinite(x) && isFinite(y) ? { t, x, y } : null
 }
 
+/** The recording's acknowledged start as the panel receives it, epoch ms; anything else is dropped. */
+export function parseStartedAt(v: unknown): number | null {
+  return isFinite(v) && v >= 0 ? v : null
+}
+
 export type CaptureWorkerResult =
   | { kind: 'started' }
   /** image/png */
@@ -53,11 +58,13 @@ export interface CaptureBridge {
   select(drag: Rect | null): void
   /** Panel: the stop button. */
   stop(): void
-  /** Worker: asks for its job once its listeners are set. */
+  /** Worker: asks for its job once its listeners are set. Panel: says it can show the start. */
   ready(): void
   onJob(fn: (job: CaptureWorkerJob) => void): void
   /** Worker: each click while recording, as it comes. */
   onClick(fn: (c: CaptureClick) => void): void
   onFinish(fn: (f: CaptureFinish) => void): void
+  /** Panel: when the first frame was read, epoch ms, the origin of main's 2-minute timer. */
+  onStarted(fn: (startedAt: number) => void): void
   result(r: CaptureWorkerResult): void
 }

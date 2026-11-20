@@ -13,3 +13,8 @@ export function formatPanelTime(elapsedMs: number): { text: string; warning: boo
   const elapsed = Math.min(Math.max(0, elapsedMs), MAX_RECORDING_MS)
   return { text: `${clock(elapsed)} / ${clock(MAX_RECORDING_MS)}`, warning: elapsed >= MAX_RECORDING_MS - WARNING_MS }
 }
+
+/** 0 until main acknowledges the start: the panel then counts from the same origin as main's timer. */
+export function panelElapsed(startedAt: number | null, now: number): number {
+  return startedAt === null ? 0 : now - startedAt
+}

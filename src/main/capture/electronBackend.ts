@@ -4,6 +4,7 @@ import type { CaptureClick, CaptureFinish, CaptureWorkerJob, CaptureWorkerResult
 import { clampRegion, type DisplayInfo } from '../../shared/captureGeometry'
 import type { CaptureBackend, CaptureSelection, RecordingSession } from './captureFlow'
 import { panelPlacement, parseDrag, parseWorkerResult } from './pageMessages'
+import { createPanelGuard } from './panelGuard'
 import { createSelectionGuard } from './selectionGuard'
 
 /**
@@ -19,6 +20,8 @@ const SCREENSHOT_TIMEOUT_MS = 15_000
 const START_TIMEOUT_MS = 15_000
 const FINISH_TIMEOUT_MS = 30_000
 const SELECT_TIMEOUT_MS = 60_000
+/** A panel not ready by then is treated as failed: the user would have no stop button. */
+const PANEL_READY_TIMEOUT_MS = 10_000
 const CANCEL_KEY = 'Escape'
 
 const info = (d: Display): DisplayInfo => ({ id: d.id, bounds: { ...d.bounds }, scaleFactor: d.scaleFactor })
@@ -175,20 +178,49 @@ function openWorker(job: Omit<CaptureWorkerJob, 'sourceId'>): Worker {
   }
 }
 
-/** The floating stop panel; null when it has nowhere to go but over the region. */
-function openPanel(sel: CaptureSelection, onStop: () => void): { close(): void } | null {
+interface Panel {
+  /** The first frame was read, epoch ms: the panel's clock starts there. */
+  started(at: number): void
+  close(): void
+}
+
+/**
+ * The floating stop panel; null when it has nowhere to go but over the region.
+ * `onFail` runs once when the panel cannot stop anything anymore: it never got ready, failed, crashed or closed.
+ */
+function openPanel(sel: CaptureSelection, onStop: () => void, onFail: () => void): Panel | null {
   const pos = panelPlacement(sel.region, sel.display, screen.getAllDisplays().map(info), PANEL_SIZE, PANEL_HIDDEN_FROM_CAPTURE)
   if (!pos) return null
   // Not focusable: the app under test keeps the focus; acceptFirstMouse lets the button work while Canopy is inactive.
   const win = capturePage({ ...BARE, ...pos, ...PANEL_SIZE, focusable: false, acceptFirstMouse: true }, { role: 'panel' })
+  const destroy = (): void => { if (!win.isDestroyed()) win.destroy() }
+  const guard = createPanelGuard({
+    timeoutMs: PANEL_READY_TIMEOUT_MS,
+    setTimer: (fn, ms) => { const h = setTimeout(fn, ms); return () => { clearTimeout(h) } },
+    onFail: () => { onFail(); destroy() },
+    sendStarted: (at) => { if (!win.isDestroyed()) win.webContents.send('capture-page:started', at) }
+  })
   win.setContentProtection(true)
   onTop(win)
   const id = win.webContents.id
   const onPress = (e: IpcMainEvent): void => { if (e.sender.id === id) onStop() }
+  const onReady = (e: IpcMainEvent): void => { if (e.sender.id === id) guard.ready() }
   ipcMain.on('capture-page:stop', onPress)
-  win.on('closed', () => { ipcMain.off('capture-page:stop', onPress) })
+  ipcMain.on('capture-page:ready', onReady)
+  win.on('closed', () => {
+    ipcMain.off('capture-page:stop', onPress)
+    ipcMain.off('capture-page:ready', onReady)
+    guard.fail()
+  })
+  win.webContents.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => { if (isMainFrame) guard.fail() })
+  win.webContents.on('preload-error', () => { guard.fail() })
+  win.webContents.on('render-process-gone', () => { guard.fail() })
+  win.on('unresponsive', () => { guard.fail() })
   win.once('ready-to-show', () => { win.showInactive() })
-  return { close() { if (!win.isDestroyed()) win.destroy() } }
+  return {
+    started: (at) => { guard.started(at) },
+    close() { guard.dispose(); destroy() }
+  }
 }
 
 function startRecording(sel: CaptureSelection): RecordingSession {
@@ -199,8 +231,10 @@ function startRecording(sel: CaptureSelection): RecordingSession {
   // A worker that cannot start, or fails later (crash, track ended), ends the recording at once; finish then says why.
   started.catch(() => { stop() })
   worker.onError(() => { stop() })
-  let panel: { close(): void } | null = null
-  try { panel = openPanel(sel, () => { stop() }) } catch (e) { worker.close(); throw e }
+  let panel: Panel | null = null
+  // A panel that fails leaves no working stop button: end the recording rather than run to 2:00 unseen.
+  try { panel = openPanel(sel, () => { stop() }, () => { stop() }) } catch (e) { worker.close(); throw e }
+  void started.then(() => { panel?.started(Date.now()) }, () => {})
   const close = (): void => { worker.close(); panel?.close() }
   return {
     stopped,

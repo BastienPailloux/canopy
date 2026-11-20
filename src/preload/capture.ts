@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { parseCaptureClick, type CaptureBridge, type CapturePageRole } from '../shared/capture'
+import { parseCaptureClick, parseStartedAt, type CaptureBridge, type CapturePageRole } from '../shared/capture'
 
 const ROLES: CapturePageRole[] = ['select', 'panel', 'worker']
 const asked = new URLSearchParams(window.location.search).get('role')
@@ -13,6 +13,7 @@ const bridge: CaptureBridge = {
   onJob: (fn) => { ipcRenderer.on('capture-page:job', (_e, job) => { fn(job) }) },
   onClick: (fn) => { ipcRenderer.on('capture-page:click', (_e, raw) => { const c = parseCaptureClick(raw); if (c) fn(c) }) },
   onFinish: (fn) => { ipcRenderer.on('capture-page:finish', (_e, f) => { fn(f) }) },
+  onStarted: (fn) => { ipcRenderer.on('capture-page:started', (_e, raw) => { const at = parseStartedAt(raw); if (at !== null) fn(at) }) },
   result: (r) => { ipcRenderer.send('capture-page:result', r) }
 }
 
