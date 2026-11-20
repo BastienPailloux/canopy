@@ -100,14 +100,17 @@ function Main(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const worktree = useApp((s) => s.worktrees.find((w) => w.path === s.worktree))
   const orphan = useApp((s) => s.orphans.find((w) => w.path === s.worktree))
+  const focus = useLayout((s) => s.focus)
   const shown = worktree ?? orphan
   if (!shown) return <div className="placeholder">Aucun worktree sélectionné.</div>
   return (
     <>
-      <div className="main-head">
-        <h1 data-testid="active-worktree">{worktreeLabel(shown)}</h1>
-        <span className="sub mono" title={shown.path}>{basename(shown.path)}</span>
-      </div>
+      {!(view === 'code' && focus) && (
+        <div className="main-head">
+          <h1 data-testid="active-worktree">{worktreeLabel(shown)}</h1>
+          <span className="sub mono" title={shown.path}>{basename(shown.path)}</span>
+        </div>
+      )}
       {view === 'sessions'
         ? (
           <div className="main-row">
@@ -166,6 +169,7 @@ export function App(): React.JSX.Element {
   const openTicket = useApp((s) => s.openTicket)
   const openMockup = useApp((s) => s.openMockup)
   const help = useApp((s) => s.dialog === 'shortcuts')
+  const focus = useLayout((s) => s.focus)
 
   useEffect(() => connectSessions(), [])
   useEffect(() => connectTerminals(), [])
@@ -227,7 +231,7 @@ export function App(): React.JSX.Element {
       <Header />
       <DepsBanner />
       {help && <ShortcutHelp />}
-      {repo && workspace && <ShortcutDialogs repo={repo} sidebar={showsSidebar(view)} />}
+      {repo && workspace && <ShortcutDialogs repo={repo} sidebar={showsSidebar(view, focus)} />}
       <div className="body">
         {repo && workspace && view === 'tickets' ? (
           <main className="main tickets-view">{openTicket ? <OpenTicket k={openTicket} /> : <TicketsScreen />}</main>
@@ -237,7 +241,7 @@ export function App(): React.JSX.Element {
           <main className="main deps-view"><DepsScreen /></main>
         ) : repo && workspace ? (
           <>
-            <Sidebar repo={repo} workspace={workspace} />
+            {!(view === 'code' && focus) && <Sidebar repo={repo} workspace={workspace} />}
             <main className="main"><Main /></main>
           </>
         ) : (

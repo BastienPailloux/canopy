@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ChangedFile } from '../../shared/types'
+import { rankPaths } from './fileMatch'
 
 interface Dir { name: string; path: string; dirs: Dir[]; files: string[] }
 
@@ -29,18 +30,6 @@ function buildTree(paths: string[]): Dir {
     dir.files.push(p)
   }
   return root
-}
-
-/** True when the characters of `query` appear in order in `path`, which is how ⌘P-style filters read. */
-export function matches(path: string, query: string): boolean {
-  const p = path.toLowerCase()
-  let at = 0
-  for (const c of query.toLowerCase()) {
-    at = p.indexOf(c, at)
-    if (at < 0) return false
-    at++
-  }
-  return true
 }
 
 const chevron = (open: boolean): React.JSX.Element => (
@@ -108,6 +97,8 @@ export function FileTree(props: {
   const [userOpen, setUserOpen] = useState<Set<string>>(new Set())
   const kinds = useMemo(() => new Map(props.changed.map((f) => [f.path, f.kind])), [props.changed])
   const root = useMemo(() => buildTree(paths), [paths])
+  const q = query.trim()
+  const found = useMemo(() => (q === '' ? [] : rankPaths(paths, q)), [paths, q])
   const open = useMemo(() => new Set([...userOpen, ...ancestors(selected)]), [userOpen, selected])
   // Folders holding changes start open, so that the changes show without hunting for them.
   const [seeded, setSeeded] = useState(false)
@@ -122,8 +113,7 @@ export function FileTree(props: {
     return next
   })
 
-  if (query.trim() !== '') {
-    const found = paths.filter((p) => matches(p, query.trim()))
+  if (q !== '') {
     return (
       <div className="tree" data-testid="file-tree">
         {found.slice(0, MAX_MATCHES).map((p) => (

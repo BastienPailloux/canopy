@@ -495,6 +495,11 @@
   color: var(--fg-2);
 }
 .composer textarea {
+  /* Grows with the text so a long prompt stays readable; past a third of the window it scrolls, leaving the conversation in view. */
+  field-sizing: content;
+  min-height: 3em;
+  max-height: 33vh;
+  overflow-y: auto;
   resize: none;
   border: 0;
   outline: none;

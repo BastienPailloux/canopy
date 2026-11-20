@@ -13,6 +13,10 @@ test('the two screen captures sit in the File menu, for a worktree', () => {
   ])
 })
 
+test('⌘B puts Code in full screen, from the Présentation menu', () => {
+  expect(SHORTCUTS.find((s) => s.id === 'code-focus')).toMatchObject({ accelerator: 'CmdOrCtrl+B', menu: 'view', needs: 'worktree' })
+})
+
 test('displayKeys renders macOS glyphs', () => {
   expect(displayKeys('CmdOrCtrl+Shift+N')).toBe('⇧⌘N')
   expect(displayKeys('Ctrl+Tab')).toBe('⌃⇥')

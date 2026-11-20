@@ -2,6 +2,7 @@ import { SHORTCUTS, shortcutEnabled, type ShortcutId } from '../../shared/shortc
 import { captureJustDone, newTab, requestComposerFocus, startCaptureIn } from '../sessions/sessionStore'
 import type { Workspace, Worktree } from '../../shared/types'
 import { useApp, type AppDialog, type View } from '../store'
+import { useLayout } from './layoutStore'
 import { groupEntries } from './workspaceList'
 
 /** Keeps the main process told of what is active, so that it greys the menu entries that would do nothing. */
@@ -47,8 +48,23 @@ export interface ShortcutDeps {
 
 const VIEWS: Partial<Record<ShortcutId, View>> = { 'view-sessions': 'sessions', 'view-code': 'code', 'view-tickets': 'tickets', 'view-mockups': 'mockups', 'view-deps': 'deps' }
 
-/** The screens with the worktree sidebar; elsewhere the app shows the dialogs the sidebar would. */
-export const showsSidebar = (view: View): boolean => view === 'sessions' || view === 'code'
+/** The screens with the worktree sidebar, hidden by Code in full screen; elsewhere the app shows the dialogs the sidebar would. */
+export const showsSidebar = (view: View, focus: boolean): boolean => view === 'sessions' || (view === 'code' && !focus)
+
+/** ⌘B: Code in full screen and back. From another screen it shows Code in full screen. */
+function toggleCodeFocus(): void {
+  const app = useApp.getState()
+  const layout = useLayout.getState()
+  if (app.view !== 'code') {
+    app.setView('code')
+    layout.update({ focus: true })
+  } else if (layout.focus) {
+    // Everything comes back, the file list too: a folded list would look like full screen had not ended.
+    layout.update({ focus: false, treeRail: false })
+  } else {
+    layout.update({ focus: true })
+  }
+}
 const DIALOGS: Partial<Record<ShortcutId, AppDialog>> = { 'new-worktree': 'new-worktree', 'new-ticket': 'new-ticket', help: 'shortcuts' }
 
 /** Carries out a shortcut from the app menu on what the page shows. */
@@ -66,7 +82,9 @@ export function runShortcut(id: ShortcutId, deps: ShortcutDeps): void {
   if (dialog) { app.setDialog(dialog); return }
   const worktree = app.worktree
   if (worktree === null) return
-  if (id === 'worktree-next' || id === 'worktree-previous') {
+  if (id === 'code-focus') {
+    toggleCodeFocus()
+  } else if (id === 'worktree-next' || id === 'worktree-previous') {
     const next = nextWorktree(app.repo === null ? [] : worktreeCycle(app.workspace, app.repo, app.worktrees), worktree, id === 'worktree-next' ? 1 : -1)
     if (next) app.setWorktree(next)
   } else if (id === 'new-session') {

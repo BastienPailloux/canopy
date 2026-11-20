@@ -145,9 +145,11 @@ test('stacked base shows in Code and PR', async () => {
   await expect.poll(() => git(wt, 'branch', '--show-current').trim()).toBe('feat/suite-de-a')
 
   await expect(page.getByTestId('pr-target')).toHaveText('Cible : feat/a')
+  await expect(page.getByTestId('changes-link')).toHaveText('Changements vs feat/a')
   await nav('Code').click()
   const select = page.getByLabel('Branche de comparaison')
   await expect(select.locator('optgroup[label="Base de la branche"] option')).toHaveText(['feat/a'])
+  await expect(select).toHaveValue('feat/a')
 })
 
 test('hand-edited ticket refreshes the list', async () => {

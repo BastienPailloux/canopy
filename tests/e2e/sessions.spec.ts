@@ -241,6 +241,27 @@ test('a large question fits without scrolling inside its card', async () => {
   expect(scrolls).toBe(false)
 })
 
+test('the composer grows with its text, up to a third of the window, then scrolls', async () => {
+  await launch(false)
+  const height = (): Promise<number> => composer().evaluate((el) => el.getBoundingClientRect().height)
+  const empty = await height()
+
+  await composer().fill(Array.from({ length: 8 }, (_, i) => `ligne ${i}`).join('\n'))
+  const grown = await height()
+  expect(grown).toBeGreaterThan(empty * 2)
+  expect(await composer().evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(false)
+
+  await composer().fill(Array.from({ length: 200 }, (_, i) => `ligne ${i}`).join('\n'))
+  const capped = await height()
+  const windowHeight = await page.evaluate(() => window.innerHeight)
+  expect(capped).toBeGreaterThan(grown)
+  expect(capped).toBeLessThanOrEqual(windowHeight * 0.33 + 1)
+  expect(await composer().evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+
+  await composer().fill('')
+  expect(await height()).toBe(empty)
+})
+
 test('a reload finds the running session and its unanswered request again', async () => {
   await launch(true)
   await send('outil')

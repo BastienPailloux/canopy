@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dragLeft, dragRight, parseLayout, railInitials, stepLeft } from '../../src/renderer/shell/panelWidths'
+import { dragLeft, dragRight, parseLayout, railInitials, stepLeft, TREE_BOUNDS } from '../../src/renderer/shell/panelWidths'
 
 describe('dragLeft', () => {
   it('follows the pointer between the narrowest and widest full list', () => {
@@ -37,6 +37,24 @@ describe('stepLeft', () => {
   })
 })
 
+describe('the file list edge', () => {
+  it('follows the pointer between its narrowest and widest width', () => {
+    expect(dragLeft(320, 270, TREE_BOUNDS)).toEqual({ width: 320, rail: false })
+    expect(dragLeft(900, 270, TREE_BOUNDS)).toEqual({ width: 480, rail: false })
+    expect(dragLeft(130, 270, TREE_BOUNDS)).toEqual({ width: 180, rail: false })
+  })
+
+  it('folds into a strip once dragged too narrow, keeping the last full width', () => {
+    expect(dragLeft(119, 300, TREE_BOUNDS)).toEqual({ width: 300, rail: true })
+  })
+
+  it('steps like the worktree list, with its own bounds', () => {
+    expect(stepLeft({ left: 190, rail: false }, -16, TREE_BOUNDS)).toEqual({ width: 190, rail: true })
+    expect(stepLeft({ left: 270, rail: false }, 16, TREE_BOUNDS)).toEqual({ width: 286, rail: false })
+    expect(stepLeft({ left: 300, rail: true }, 16, TREE_BOUNDS)).toEqual({ width: 300, rail: false })
+  })
+})
+
 describe('dragRight', () => {
   it('grows as the pointer moves left, up to half the window', () => {
     expect(dragRight(300, 100, 1400)).toBe(400)
@@ -54,20 +72,25 @@ describe('dragRight', () => {
 
 describe('parseLayout', () => {
   it('reads a saved layout', () => {
-    expect(parseLayout('{"left":320,"rail":true,"right":420}')).toEqual({ left: 320, rail: true, right: 420 })
+    expect(parseLayout('{"left":320,"rail":true,"right":420,"tree":300,"treeRail":true,"focus":true}'))
+      .toEqual({ left: 320, rail: true, right: 420, tree: 300, treeRail: true, focus: true })
+  })
+
+  it('reads a layout saved before the file list could be resized', () => {
+    expect(parseLayout('{"left":320,"rail":true,"right":420}')).toEqual({ left: 320, rail: true, right: 420, tree: 270, treeRail: false, focus: false })
   })
 
   it('falls back to the defaults on nothing, garbage or a wrong shape', () => {
-    const defaults = { left: 256, rail: false, right: 300 }
+    const defaults = { left: 256, rail: false, right: 300, tree: 270, treeRail: false, focus: false }
     expect(parseLayout(null)).toEqual(defaults)
     expect(parseLayout('{nope')).toEqual(defaults)
     expect(parseLayout('[1,2]')).toEqual(defaults)
-    expect(parseLayout('{"left":"wide","rail":1,"right":null}')).toEqual(defaults)
+    expect(parseLayout('{"left":"wide","rail":1,"right":null,"tree":"x","treeRail":0,"focus":"yes"}')).toEqual(defaults)
   })
 
   it('brings a saved width out of range back inside it', () => {
-    expect(parseLayout('{"left":20,"rail":false,"right":10}')).toEqual({ left: 200, rail: false, right: 240 })
-    expect(parseLayout('{"left":9000,"rail":false,"right":300}')).toEqual({ left: 480, rail: false, right: 300 })
+    expect(parseLayout('{"left":20,"rail":false,"right":10,"tree":5}')).toMatchObject({ left: 200, rail: false, right: 240, tree: 180 })
+    expect(parseLayout('{"left":9000,"rail":false,"right":300,"tree":9000}')).toMatchObject({ left: 480, rail: false, right: 300, tree: 480 })
   })
 })
 

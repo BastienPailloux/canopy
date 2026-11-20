@@ -67,3 +67,9 @@ test('the help menu holds the shortcut list', () => {
   expect(help?.label).toBe('Aide')
   expect((help?.submenu as Item[]).some((i) => i.id === 'shortcut:help')).toBe(true)
 })
+
+test('the Présentation menu holds the view shortcuts', () => {
+  const top = menuTemplate({ isPackaged: true, onCloseTab: vi.fn(), onInstallCli: vi.fn(), onShortcut: vi.fn() })
+  const view = top.find((i) => i.label === 'Présentation')
+  expect((view?.submenu as Item[]).some((i) => i.id === 'shortcut:code-focus')).toBe(true)
+})
